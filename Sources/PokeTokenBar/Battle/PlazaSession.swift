@@ -30,7 +30,8 @@ struct PlazaPlayer: Identifiable, Equatable {
     let profile: PlazaProfile
     var x: Double
     var y: Double
-    var facingLeft = false
+    var facing: PlazaFacing = .down
+    var step = 0                // walking frame toggle
     var busy = false
     var bubble: String?
 }
@@ -46,7 +47,15 @@ struct ChatLine: Identifiable, Equatable {
 final class PlazaSession: NSObject {
     static let serviceType = "ptb-battle"
     static let capacity = 8
-    static let size = CGSize(width: 400, height: 300)
+    static let size = CGSize(width: 400, height: 267)   // plaza art is 3:2
+
+    /// Paved area and the fountain in the middle of the plaza art (fractions of `size`).
+    static func isWalkable(x: Double, y: Double) -> Bool {
+        let w = size.width, h = size.height
+        guard x > w * 0.08, x < w * 0.92, y > h * 0.40, y < h * 0.86 else { return false }
+        let fx = (x - w * 0.5) / (w * 0.13), fy = (y - h * 0.54) / (h * 0.12)
+        return fx * fx + fy * fy > 1
+    }
 
     private(set) var me: PlazaPlayer
     private(set) var players: [String: PlazaPlayer] = [:]
@@ -69,7 +78,7 @@ final class PlazaSession: NSObject {
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name)
-        me = PlazaPlayer(profile: profile, x: Double.random(in: 80...320), y: Double.random(in: 200...260))
+        me = PlazaPlayer(profile: profile, x: Double.random(in: 110...290), y: Double.random(in: 190...215))
         peerID = MCPeerID(displayName: lead.trainer)
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: ["id": profile.id],
@@ -96,12 +105,11 @@ final class PlazaSession: NSObject {
 
     func walk(dx: Double, dy: Double) {
         guard match == nil else { return }
-        let next = PlazaPlayer(profile: me.profile,
-                               x: min(Self.size.width - 24, max(24, me.x + dx)),
-                               y: min(Self.size.height - 20, max(70, me.y + dy)),
-                               facingLeft: dx == 0 ? me.facingLeft : dx < 0,
-                               busy: me.busy, bubble: me.bubble)
-        me = next
+        let facing: PlazaFacing = dx < 0 ? .left : dx > 0 ? .right : dy < 0 ? .up : .down
+        let x = me.x + dx, y = me.y + dy
+        let moves = Self.isWalkable(x: x, y: y)
+        me = PlazaPlayer(profile: me.profile, x: moves ? x : me.x, y: moves ? y : me.y,
+                         facing: facing, step: me.step + 1, busy: me.busy, bubble: me.bubble)
         if Date().timeIntervalSince(lastPositionSent) > 0.06 {
             lastPositionSent = Date()
             broadcast(.position(x: me.x, y: me.y), reliable: false)
@@ -147,7 +155,7 @@ final class PlazaSession: NSObject {
     }
 
     private func setBusy(_ busy: Bool) {
-        me = PlazaPlayer(profile: me.profile, x: me.x, y: me.y, facingLeft: me.facingLeft, busy: busy, bubble: me.bubble)
+        me = PlazaPlayer(profile: me.profile, x: me.x, y: me.y, facing: me.facing, step: me.step, busy: busy, bubble: me.bubble)
         broadcast(.busy(busy), reliable: true)
     }
 
@@ -219,7 +227,11 @@ final class PlazaSession: NSObject {
         case .presence: break
         case .position(let x, let y):
             update(id) { p in
-                if x != p.x { p.facingLeft = x < p.x }
+                let dx = x - p.x, dy = y - p.y
+                if dx != 0 || dy != 0 {
+                    p.facing = abs(dx) >= abs(dy) ? (dx < 0 ? .left : .right) : (dy < 0 ? .up : .down)
+                    p.step += 1
+                }
                 p.x = x
                 p.y = y
             }

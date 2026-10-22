@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-// SPIKE: the plaza screen. Each trainer walks around as their lead Pokémon; click someone to
-// challenge them, chat at the bottom. A match takes over the window until it ends.
+// SPIKE: the plaza screen. Each trainer walks around with their lead Pokémon following behind;
+// click someone to challenge them, chat at the bottom. A match takes over the window until it ends.
 
 struct PlazaRootView: View {
     let plaza: PlazaSession
@@ -29,9 +29,9 @@ private struct PlazaView: View {
         VStack(spacing: 8) {
             header
             ZStack(alignment: .topLeading) {
-                PlazaGround()
+                PlazaBackdrop()
                     .onTapGesture { selected = nil; fieldAreaFocused = true }   // walking needs key focus
-                ForEach(plaza.everyone) { player in
+                ForEach(plaza.everyone.sorted { $0.y < $1.y }) { player in   // nearer = drawn on top
                     Avatar(player: player, isMe: player.id == plaza.me.id, isSelected: selected == player.id)
                         .position(x: player.x, y: player.y)
                         .animation(player.id == plaza.me.id ? nil : .linear(duration: 0.12), value: player.x)
@@ -42,7 +42,7 @@ private struct PlazaView: View {
                         }
                 }
                 if let id = selected, let player = plaza.players[id] {
-                    challengeCard(player).position(x: min(310, max(90, player.x)), y: max(60, player.y - 70))
+                    challengeCard(player).position(x: min(310, max(90, player.x)), y: max(55, player.y - 85))
                 }
             }
             .frame(width: PlazaSession.size.width, height: PlazaSession.size.height)
@@ -145,40 +145,94 @@ private struct PlazaView: View {
     }
 }
 
-/// One trainer on the plaza: lead Pokémon sprite, name tag, chat bubble, busy badge.
+/// One trainer on the plaza: walking trainer sprite, lead Pokémon following behind, name tag,
+/// chat bubble and busy badge, centered on the player's position.
 private struct Avatar: View {
     let player: PlazaPlayer
     let isMe: Bool
     let isSelected: Bool
 
-    var body: some View {
-        VStack(spacing: 1) {
-            if let bubble = player.bubble {
-                Text(bubble)
-                    .font(.system(size: 11))
-                    .lineLimit(2)
-                    .frame(maxWidth: 130)
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
-                    .foregroundStyle(.black)
-                    .shadow(radius: 1)
-            } else if player.busy {
-                Text("대결 중").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.orange))
-            }
-            SpriteView(speciesID: player.profile.speciesID, size: 52, animated: true, shiny: player.profile.shiny)
-                .scaleEffect(x: player.facingLeft ? 1 : -1)
-                .background(Ellipse().fill(Color.black.opacity(0.18)).frame(width: 40, height: 10).offset(y: 24))
-            Text(player.profile.trainer)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(Capsule().fill(isMe ? Color.blue.opacity(0.85) : Color.black.opacity(0.55)))
-                .overlay(Capsule().stroke(isSelected ? Color.yellow : .clear, lineWidth: 2))
+    /// Follower sits one step behind the trainer, opposite to where they face.
+    private var followerOffset: CGSize {
+        switch player.facing {
+        case .down: CGSize(width: 22, height: -10)     // diagonal so it peeks out from behind
+        case .up: CGSize(width: -22, height: 8)
+        case .left: CGSize(width: 28, height: 0)
+        case .right: CGSize(width: -28, height: 0)
         }
-        .fixedSize()
-        .contentShape(Rectangle())
+    }
+
+    var body: some View {
+        ZStack {
+            if player.facing == .down { follower }          // behind the trainer
+            trainer
+            if player.facing != .down { follower }
+        }
+        .frame(width: 90, height: 90)
+        .overlay(alignment: .bottom) { nameTag.offset(y: 14) }
+        .overlay(alignment: .top) { topBadge.offset(y: -26) }
+        .contentShape(Rectangle().inset(by: 22))      // just the trainer, so neighbours don't steal clicks
+    }
+
+    private var follower: some View {
+        SpriteView(speciesID: player.profile.speciesID, size: 34, animated: true, shiny: player.profile.shiny)
+            .scaleEffect(x: player.facing == .left ? 1 : -1)
+            .offset(x: followerOffset.width, y: 26 + followerOffset.height)
+            .animation(.easeOut(duration: 0.25), value: player.facing)
+    }
+
+    @ViewBuilder
+    private var trainer: some View {
+        let design = BattleArt.design(for: player.id)
+        if let frame = BattleArt.trainerFrame(design: design, facing: player.facing, step: player.step / 2) {
+            Image(nsImage: frame.image).interpolation(.high).resizable()
+                .frame(width: frame.image.size.width * 0.75, height: frame.image.size.height * 0.75)
+                .scaleEffect(x: frame.mirrored ? -1 : 1)
+                .background(Ellipse().fill(Color.black.opacity(0.22)).frame(width: 30, height: 8).offset(y: 23))
+                .offset(y: 14)
+        } else {
+            SpriteView(speciesID: player.profile.speciesID, size: 52, animated: true, shiny: player.profile.shiny)
+        }
+    }
+
+    private var nameTag: some View {
+        Text(player.profile.trainer)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(Capsule().fill(isMe ? Color.blue.opacity(0.85) : Color.black.opacity(0.6)))
+            .overlay(Capsule().stroke(isSelected ? Color.yellow : .clear, lineWidth: 2))
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private var topBadge: some View {
+        if let bubble = player.bubble {
+            Text(bubble)
+                .font(.system(size: 11))
+                .lineLimit(2)
+                .frame(maxWidth: 140)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.black.opacity(0.25)))
+                .foregroundStyle(.black)
+                .fixedSize()
+        } else if player.busy {
+            Text("대결 중").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(Color.orange))
+        }
+    }
+}
+
+/// Plaza art, or a drawn square when the art is unavailable.
+private struct PlazaBackdrop: View {
+    var body: some View {
+        if let art = BattleArt.plaza {
+            Image(nsImage: art).resizable().interpolation(.high)
+        } else {
+            PlazaGround()
+        }
     }
 }
 
