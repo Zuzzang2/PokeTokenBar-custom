@@ -43,14 +43,14 @@ final class StoredCompanionRenderingTests: XCTestCase {
                 let prefix = "\(language.rawValue)\(incubating ? "-egg" : "")"
                 let navigation = PopoverNavigation()
                 navigation.showingCollectionLog = true
-                try await capture(CollectionView(store: store, navigation: navigation),
+                try capture(CollectionView(store: store, navigation: navigation),
                                   to: directory.appendingPathComponent("\(prefix)-log.png"))
                 let bidoof = try XCTUnwrap(store.dexSpecies.first { $0.id == 399 })
                 await store.loadPokemonDetails(speciesID: 399)
-                try await capture(PokemonDetailView(store: store, species: bidoof, onBack: {}),
+                try capture(PokemonDetailView(store: store, species: bidoof, onBack: {}),
                                   to: directory.appendingPathComponent("\(prefix)-detail.png"))
                 if !incubating {
-                    try await capture(ShopView(store: store, nav: PopoverNavigation()),
+                    try capture(ShopView(store: store, nav: PopoverNavigation()),
                                       to: directory.appendingPathComponent("\(prefix)-shop.png"))
                 }
             }
@@ -86,7 +86,7 @@ final class StoredCompanionRenderingTests: XCTestCase {
                               defaults: UserDefaults(suiteName: "stored-render-\(UUID().uuidString)")!)
     }
 
-    private func capture<V: View>(_ view: V, to file: URL) async throws {
+    private func capture<V: View>(_ view: V, to file: URL) throws {
         let size = NSSize(width: PopoverMetrics.contentWidth, height: 520)
         let host = NSHostingView(rootView: view
             .frame(width: size.width, height: size.height)
@@ -100,12 +100,16 @@ final class StoredCompanionRenderingTests: XCTestCase {
         window.contentView = host
         window.orderFront(nil)
         defer { window.close() }
-        // Sprites and the detail fixture arrive asynchronously; spin the run loop so SwiftUI applies them.
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        spinRunLoop(seconds: 3)
         host.layoutSubtreeIfNeeded()
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: file)
+    }
+
+    /// Sprites and the detail fixture arrive asynchronously; spin the run loop so SwiftUI applies them.
+    private func spinRunLoop(seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
     }
 }
