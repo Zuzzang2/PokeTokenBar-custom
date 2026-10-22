@@ -33,14 +33,19 @@ enum BattleArt {
     static var plaza: NSImage? { image("plaza") }
     static var battleField: NSImage? { image("battle_field") }
 
-    static let trainerDesigns = ["t1", "t2"]
+    /// `trainers/local/` holds team-profile characters that stay out of git (third-party characters,
+    /// public repo); a design whose frames are missing is simply not offered.
+    static let trainerDesigns = ["t1", "t2", "pig", "lupin", "bunny", "dino", "bear", "green"]
 
-    static let trainerDesignNames = ["t1": "모자 소년", "t2": "밀짚모자 소녀"]
+    static let trainerDesignNames = [
+        "t1": "모자 소년", "t2": "밀짚모자 소녀", "pig": "부리부리", "lupin": "루팡",
+        "bunny": "리본 토끼", "dino": "메카 공룡", "bear": "분홍 곰", "green": "초록 점토",
+    ]
 
     /// The player's chosen design; peers on older builds (no choice sent) or unknown designs get a
     /// stable pick from their ID so everyone still sees the same look for the same person.
     static func design(for profile: PlazaProfile) -> String {
-        let available = trainerDesigns.filter { image("trainers/\($0)_down0") != nil }
+        let available = trainerDesigns.filter { trainerFrame(design: $0, facing: .down, step: 0) != nil }
         if let chosen = profile.trainerDesign, available.contains(chosen) { return chosen }
         let sum = profile.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         return available.isEmpty ? "t1" : available[sum % available.count]
@@ -49,7 +54,8 @@ enum BattleArt {
     /// Walking frame; `left` reuses the mirrored right-facing art (`mirrored` = true).
     static func trainerFrame(design: String, facing: PlazaFacing, step: Int) -> (image: NSImage, mirrored: Bool)? {
         let dir = facing == .left ? "right" : facing.rawValue
-        guard let image = image("trainers/\(design)_\(dir)\(step % 2)") else { return nil }
+        let name = "\(design)_\(dir)\(step % 2)"
+        guard let image = image("trainers/\(name)") ?? image("trainers/local/\(name)") else { return nil }
         return (image, facing == .left)
     }
 }

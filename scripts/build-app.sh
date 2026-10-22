@@ -36,6 +36,11 @@ cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 mkdir -p "$APP/Contents/Resources/battle/trainers"
 cp assets/battle/*.png "$APP/Contents/Resources/battle/"
 cp assets/battle/trainers/*.png "$APP/Contents/Resources/battle/trainers/"
+# Team-profile characters are local-only (not in git); bundle them when present.
+if compgen -G "assets/battle/trainers/local/*.png" >/dev/null; then
+    mkdir -p "$APP/Contents/Resources/battle/trainers/local"
+    cp assets/battle/trainers/local/*.png "$APP/Contents/Resources/battle/trainers/local/"
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
