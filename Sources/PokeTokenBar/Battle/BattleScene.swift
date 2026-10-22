@@ -6,7 +6,7 @@ import SwiftUI
 // The scene replays `BattleState.events` step by step instead of jumping to the final state.
 
 struct BattleSceneView: View {
-    let session: BattleSession
+    let session: BattleMatch
     let state: BattleState
     let teams: [[BattleMon]]
     @Binding var isPlaying: Bool
