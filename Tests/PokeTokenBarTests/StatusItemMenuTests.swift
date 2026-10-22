@@ -40,6 +40,7 @@ final class StatusItemMenuTests: XCTestCase {
             .init(title: l.dexTitle, keyEquivalent: "d", action: .openDex),
             .init(title: "Settings…", keyEquivalent: ",", action: .openSettings),
             .init(title: l.floatingPetHideLabel, keyEquivalent: "", action: .toggleFloatingPet),
+            .init(title: "대결 (테스트)…", keyEquivalent: "b", action: .openBattle),
             nil,
             .init(title: l.quit, keyEquivalent: "q", action: .quit),
         ])
