@@ -15,6 +15,15 @@ struct BattleCandidate: Identifiable, Sendable {
 
 enum BattleMonBuilder {
     static let maxParty = 6
+    static let maxNicknameLength = 12
+
+    /// Display name in the plaza and battles. It is also the MCPeerID display name, which traps
+    /// above 63 UTF-8 bytes, so it is capped at 12 characters (36 bytes even for Korean).
+    static func trainerName(nickname: String, fallback: String) -> String {
+        let trimmed = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? fallback.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
+        return base.isEmpty ? "트레이너" : String(base.prefix(maxNicknameLength))
+    }
 
     @MainActor
     static func candidates(companion: CompanionStore) -> [BattleCandidate] {

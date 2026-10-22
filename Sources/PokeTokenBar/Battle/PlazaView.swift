@@ -183,7 +183,7 @@ private struct Avatar: View {
 
     @ViewBuilder
     private var trainer: some View {
-        let design = BattleArt.design(for: player.id)
+        let design = BattleArt.design(for: player.profile)
         if let frame = BattleArt.trainerFrame(design: design, facing: player.facing, step: player.step / 2) {
             Image(nsImage: frame.image).interpolation(.high).resizable()
                 .frame(width: frame.image.size.width * 0.75, height: frame.image.size.height * 0.75)

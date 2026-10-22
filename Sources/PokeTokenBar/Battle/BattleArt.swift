@@ -35,10 +35,14 @@ enum BattleArt {
 
     static let trainerDesigns = ["t1", "t2"]
 
-    /// Stable design per player so everyone sees the same look for the same person.
-    static func design(for id: String) -> String {
-        let sum = id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+    static let trainerDesignNames = ["t1": "모자 소년", "t2": "밀짚모자 소녀"]
+
+    /// The player's chosen design; peers on older builds (no choice sent) or unknown designs get a
+    /// stable pick from their ID so everyone still sees the same look for the same person.
+    static func design(for profile: PlazaProfile) -> String {
         let available = trainerDesigns.filter { image("trainers/\($0)_down0") != nil }
+        if let chosen = profile.trainerDesign, available.contains(chosen) { return chosen }
+        let sum = profile.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         return available.isEmpty ? "t1" : available[sum % available.count]
     }
 

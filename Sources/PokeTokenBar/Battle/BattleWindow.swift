@@ -38,6 +38,13 @@ private struct BattleRootView: View {
     @State private var selected: [String] = []      // party order = tap order
     @State private var preparing = false
     @State private var error: String?
+    @AppStorage("battleTrainerDesign") private var trainerDesign = "t1"
+    @AppStorage("battleNickname") private var nickname = ""
+
+    private var defaultName: String {
+        let fullName = NSFullUserName()
+        return fullName.isEmpty ? (Host.current().localizedName ?? "") : fullName
+    }
 
     var body: some View {
         Group {
@@ -58,6 +65,38 @@ private struct BattleRootView: View {
 
     private var partyPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("트레이너").font(.headline)
+            HStack {
+                Text("닉네임").font(.callout)
+                TextField(BattleMonBuilder.trainerName(nickname: "", fallback: defaultName), text: $nickname)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: nickname) {
+                        if nickname.count > BattleMonBuilder.maxNicknameLength {
+                            nickname = String(nickname.prefix(BattleMonBuilder.maxNicknameLength))
+                        }
+                    }
+                Text("\(nickname.count)/\(BattleMonBuilder.maxNicknameLength)").font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 10) {
+                ForEach(BattleArt.trainerDesigns, id: \.self) { design in
+                    Button { trainerDesign = design } label: {
+                        VStack(spacing: 2) {
+                            if let frame = BattleArt.trainerFrame(design: design, facing: .down, step: 0) {
+                                Image(nsImage: frame.image).interpolation(.high).resizable().frame(width: 45, height: 48)
+                            }
+                            Text(BattleArt.trainerDesignNames[design] ?? design).font(.caption)
+                        }
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 8)
+                            .fill(trainerDesign == design ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08)))
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .stroke(trainerDesign == design ? Color.accentColor : .clear, lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Divider()
             Text("파티 선택 (\(selected.count)/\(BattleMonBuilder.maxParty))").font(.headline)
             Text("누른 순서대로 파티에 들어가요. 첫 번째가 선봉이에요. 모두 Lv.50으로 맞춰 싸웁니다.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -99,12 +138,11 @@ private struct BattleRootView: View {
         preparing = true
         defer { preparing = false }
         do {
-            let fullName = NSFullUserName()
-            let trainer = fullName.isEmpty ? (Host.current().localizedName ?? "트레이너") : fullName
+            let trainer = BattleMonBuilder.trainerName(nickname: nickname, fallback: defaultName)
             let picks = selected.compactMap { id in candidates.first { $0.id == id } }
             var team: [BattleMon] = []
             for pick in picks { team.append(try await BattleMonBuilder.build(pick, trainer: trainer)) }
-            let s = PlazaSession(team: team)
+            let s = PlazaSession(team: team, trainerDesign: trainerDesign)
             onSession(s)
             session = s
         } catch {

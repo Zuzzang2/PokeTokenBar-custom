@@ -13,6 +13,8 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     let speciesID: Int
     let shiny: Bool
     let leadName: String
+    /// Optional so presence from builds before the trainer picker still decodes.
+    var trainerDesign: String?
 }
 
 enum PlazaMessage: Codable, Sendable {
@@ -73,11 +75,11 @@ final class PlazaSession: NSObject {
     private var peers: [String: MCPeerID] = [:]      // plaza ID → peer
     private var lastPositionSent = Date.distantPast
 
-    init(team: [BattleMon]) {
+    init(team: [BattleMon], trainerDesign: String) {
         self.team = team
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
-                                   shiny: lead.isShiny, leadName: lead.name)
+                                   shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign)
         me = PlazaPlayer(profile: profile, x: Double.random(in: 110...290), y: Double.random(in: 190...215))
         peerID = MCPeerID(displayName: lead.trainer)
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
