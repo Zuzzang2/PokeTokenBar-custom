@@ -1281,8 +1281,9 @@ final class CompanionStore {
         state.spentTokens += price(of: .egg(tier))
         if let a = state.active {
             state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
+            state.box.append(a)                           // 성장 상태는 보관함에 보존(takeFromBox 로 복귀)
         }
-        state.active = nil            // 놓아줌 (졸업 아님 — collectedFinals 는 미변경)
+        state.active = nil            // 보관함으로 보냄 (졸업 아님 — collectedFinals 는 미변경)
         // 놓아준 종도 이제 dex 에 있으므로 대표 선택은 유지된다. 손상 상태 파일 등으로 정말 보유가
         // 끊긴 경우만 자동 추적으로 복귀한다.
         state.reconcileRepresentativeSelection()
@@ -1295,9 +1296,52 @@ final class CompanionStore {
         state.pendingForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
+        AppLog.write("egg purchased: boxed active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
+        return true
+    }
+
+    // MARK: 보관함
+
+    /// 보관함 한 칸 — 표시용 도감 기록(이름)은 보관할 때 남긴 놓아줌 항목을 instanceID 로 찾는다.
+    struct BoxSlot: Identifiable {
+        let id: Int
+        let mon: MonState
+        let entry: DexEntry?
+    }
+
+    var boxSlots: [BoxSlot] {
+        state.box.enumerated().map { i, m in
+            BoxSlot(id: i, mon: m, entry: state.dex.last { $0.id == m.profile?.instanceID })
+        }
+    }
+
+    /// 알 상태에서 꺼내면 산 알(보증·인큐베이션)이 사라지므로 부화 뒤에만 허용한다.
+    var canTakeFromBox: Bool { hasActive && !isHatching }
+
+    /// 보관함 개체와 현재 포켓몬을 맞바꾼다. 현재 개체는 놓아줌 기록과 함께 보관함으로, 꺼낸 개체의
+    /// 놓아줌 기록은 도감에서 지운다(활성 개체는 `activeDexEntry` 로 따로 합성돼 중복된다).
+    @discardableResult
+    func takeFromBox(at index: Int) -> Bool {
+        guard canTakeFromBox, state.box.indices.contains(index), let current = state.active else { return false }
+        let mon = state.box.remove(at: index)
+        state.dex.append(releasedDexEntry(from: current))
+        state.box.append(current)
+        if let id = mon.profile?.instanceID { state.dex.removeAll { $0.id == id } }
+        state.active = mon
+        state.reconcileRepresentativeSelection()
+        // applySave 와 같은 이유로 이전 개체 기준의 비동기·연출·피드백을 무효화한다.
+        activeGeneration += 1
+        currentLine = nil
+        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        celebration = nil
+        candyFeedbackAmount = 0
+        mintFeedbackNature = nil
+        displayState = .idle
+        AppLog.write("box: took out base=\(mon.baseID), boxed base=\(current.baseID)")
+        save()
+        Task { await loadCurrentLine() }
         return true
     }
 

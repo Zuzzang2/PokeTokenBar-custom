@@ -1443,6 +1443,9 @@ struct L {
         t("\(name)에게 사용할까요?", "Use on \(name)?", "\(name) に使いますか？", "¿Usar en \(name)?", "Utiliser sur \(name) ?", "Usar em \(name)?", "Bei \(name) verwenden?", "Применить к \(name)?")
     }
     var useAfterHatch: String { t("부화 후 사용할 수 있어요", "Usable after hatching", "孵化後に使えます", "Se puede usar después de eclosionar", "Utilisable après l'éclosion", "Dá para usar depois que chocar", "Nach dem Schlüpfen verwendbar", "Можно применить после вылупления") }
+    var boxTitle: String { t("보관함", "Box", "ボックス", "Caja", "Boîte", "Caixa", "Box", "Ящик") }
+    var boxTakeOut: String { t("꺼내기", "Take out", "引き出す", "Sacar", "Retirer", "Retirar", "Herausnehmen", "Забрать") }
+    var boxNeedsHatch: String { t("알이 부화한 뒤 꺼낼 수 있어요", "Available after the egg hatches", "タマゴが孵ってから引き出せます", "Disponible tras eclosionar el huevo", "Disponible après l'éclosion", "Disponível depois que o ovo chocar", "Nach dem Schlüpfen verfügbar", "Доступно после вылупления") }
     var useNeedsPokemon: String { t("사용할 포켓몬이 없어요", "No Pokémon to use it on", "使えるポケモンがいません", "No hay ningún Pokémon en quien usarlo", "Aucun Pokémon sur qui l'utiliser", "Nenhum Pokémon para usar o item", "Kein Pokémon, bei dem du es verwenden kannst", "Не к кому применить") }
 
     /// Rare Candy batch preview, including carryover and graduation waste.
@@ -1537,8 +1540,8 @@ struct L {
     }
     func eggDescription(_ tier: Rarity?) -> String {
         guard let tier, tier != .common else {
-            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                     "Send off your current Pokémon and start fresh with a new egg.",
+            return t("지금 포켓몬을 보관함에 넣고 새 알로 시작해요.",
+                     "Move your current Pokémon to the Box and start a new egg.",
                      "いまのポケモンを手放して新しいタマゴからやり直します。",
                      "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.",
                      "Laisse partir ton Pokémon actuel et repars de zéro avec un nouvel œuf.",
@@ -1547,8 +1550,8 @@ struct L {
                      "Отпустите текущего покемона и начните заново с новым яйцом.")
         }
         let r = rarityLabel(tier)
-        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
-                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
+        return t("지금 포켓몬을 보관함에 넣고 \(r) 이상이 확정으로 나오는 알을 받아요.",
+                 "Move your current Pokémon to the Box for an egg guaranteed to hatch \(r) or better.",
                  "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。",
                  "Suelta a tu Pokémon actual y consigue un huevo garantizado de \(r) o superior.",
                  "Laisse partir ton Pokémon actuel pour un œuf garanti \(r) ou mieux.",
@@ -1577,8 +1580,8 @@ struct L {
     /// → 놓아준 종의 부화 가중치는 100% 를 유지한다. 재인큐베이션은 말하지 않는다(`eggDescription`
     /// 의 "새 알로 다시 시작해요" 와 중복).
     var eggReleaseNote: String {
-        t("놓아준 포켓몬도 도감에 남고, 같은 확률로 다시 만날 수 있어요. 키운 진행도만 사라져요.",
-          "A released Pokémon stays in your Pokédex and can hatch again at the same odds — only the growth progress is lost.",
+        t("보관함의 포켓몬은 가방에서 꺼내 이어서 키울 수 있어요.",
+          "Pokémon in the Box can be taken out from the Bag to keep raising.",
           "手放したポケモンも図鑑に残り、同じ確率でまた出会えます。失われるのは育てた進み具合だけです。",
           "El Pokémon liberado permanece en la Pokédex y puede volver a salir con la misma probabilidad; solo se pierde el progreso de crianza.",
           "Un Pokémon relâché reste dans le Pokédex et peut réapparaître avec la même probabilité ; seule la progression est perdue.",
@@ -1592,8 +1595,8 @@ struct L {
         return t("\(r) 이상 확정", "\(r) or better", "\(r) 以上確定", "\(r) o superior garantizado", "\(r) ou mieux garanti", "\(r) ou melhor garantido", "Garantiert \(r) oder besser", "\(r) или выше")
     }
     func eggConfirm(_ monName: String, _ eggName: String) -> String {
-        t("\(KoreanParticle.object.attach(to: monName)) 놓아주고 \(KoreanParticle.direction.attach(to: eggName)) 바꿀까요?",
-          "Send off \(monName) for the \(eggName)?",
+        t("\(KoreanParticle.object.attach(to: monName)) 보관함에 넣고 \(KoreanParticle.direction.attach(to: eggName)) 바꿀까요?",
+          "Move \(monName) to the Box for the \(eggName)?",
           "\(monName) を手放して \(eggName) にしますか？",
           "¿Soltar a \(monName) y cambiarlo por \(eggName)?",
           "Laisser partir \(monName) pour le \(eggName) ?",

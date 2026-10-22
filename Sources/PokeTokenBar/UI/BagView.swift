@@ -7,12 +7,15 @@ struct BagView: View {
     let nav: PopoverNavigation
 
     var body: some View {
-        if store.ownedItems.isEmpty {
+        if store.ownedItems.isEmpty && store.boxSlots.isEmpty {
             emptyState
         } else {
             // 고정 높이 — 컬렉션과 동일(팝오버 재오픈 시 fitting size 축소 방지).
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
+                    if !store.boxSlots.isEmpty {
+                        BoxSection(store: store, nav: nav)
+                    }
                     ForEach(store.ownedItems, id: \.kind) { item in
                         ItemCard(store: store, nav: nav, kind: item.kind, count: item.count)
                     }
@@ -35,6 +38,52 @@ struct BagView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// 보관함 — 알을 사며 내보낸 개체 목록. 꺼내면 현재 포켓몬과 맞바꾸고 Home 으로 이동한다.
+@MainActor
+private struct BoxSection: View {
+    let store: CompanionStore
+    let nav: PopoverNavigation
+
+    var body: some View {
+        let l = store.l
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(l.boxTitle) \(store.boxSlots.count)").font(.callout.weight(.semibold))
+            ForEach(store.boxSlots) { slot in
+                HStack(spacing: 10) {
+                    SpriteView(speciesID: slot.mon.currentID, size: 40, shiny: slot.mon.displaysShiny)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name(slot)).font(.callout.weight(.semibold))
+                        HStack(spacing: 6) {
+                            Badge(l.rarityLabel(slot.mon.rarity).uppercased(), tint: .rarity(slot.mon.rarity), size: 10)
+                            if let level = slot.mon.profile?.level {
+                                Text("Lv.\(level)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
+                    }
+                    Spacer()
+                    if store.canTakeFromBox {
+                        Button(l.boxTakeOut) {
+                            if store.takeFromBox(at: slot.id) { nav.tab = .home }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                    }
+                }
+            }
+            if !store.canTakeFromBox {
+                Text(l.boxNeedsHatch).font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func name(_ slot: CompanionStore.BoxSlot) -> String {
+        if let entry = slot.entry, let n = store.dexStoredChainNames(entry)?[slot.mon.currentID] { return n }
+        return "#\(slot.mon.currentID)"
     }
 }
 

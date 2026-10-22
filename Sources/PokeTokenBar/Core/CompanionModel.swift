@@ -665,6 +665,8 @@ struct CompanionState: Codable, Sendable {
     var representativeForm: PokemonForm? = nil
     // 도감
     var dex: [DexEntry] = []
+    // 보관함 — 알을 사며 내보낸 개체. 성장 상태를 그대로 보존해 다시 꺼내 이어서 키운다.
+    var box: [MonState] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
     var collectedFinals: Set<String> = []
     var language: AppLanguage = .systemDefault   // 신규 설치 = 시스템 로케일
@@ -716,6 +718,7 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        box = c.lenient([MonState].self, forKey: .box, default: [])
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
