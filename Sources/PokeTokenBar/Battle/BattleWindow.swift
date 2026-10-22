@@ -14,7 +14,7 @@ final class BattleWindowController {
         let window = NSWindow(contentViewController: host)
         window.title = "포켓몬 대결 (테스트)"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 420, height: 560))
+        window.setContentSize(NSSize(width: 432, height: 640))
         window.isReleasedWhenClosed = false
         window.center()
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
@@ -49,7 +49,7 @@ private struct BattleRootView: View {
                 partyPicker
             }
         }
-        .frame(width: 420, height: 600)
+        .frame(width: 432, height: 640)
         .onAppear {
             let owned = BattleMonBuilder.candidates(companion: companion)
             candidates = owned.isEmpty ? BattleMonBuilder.randomCandidates() : owned
@@ -115,6 +115,7 @@ private struct BattleRootView: View {
 
 private struct BattleSessionView: View {
     let session: BattleSession
+    @State private var isPlaying = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -164,25 +165,10 @@ private struct BattleSessionView: View {
     private var battle: some View {
         VStack(spacing: 10) {
             if let theirs = session.theirTeam, let mine = session.myTeam, let state = session.state {
-                let me = session.myIndex, them = session.theirIndex
-                MonCard(mon: theirs[state.active[them]], hp: state.activeHP(them), flipped: true,
-                        remaining: state.hp[them].map { $0 > 0 })
-                MonCard(mon: mine[state.active[me]], hp: state.activeHP(me), flipped: false,
-                        remaining: state.hp[me].map { $0 > 0 })
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(state.log.enumerated()), id: \.offset) { i, line in
-                                Text(line).font(.callout).id(i)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(height: 120)
-                    .padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    .onChange(of: state.log.count) { proxy.scrollTo(state.log.count - 1) }
-                }
-                if session.phase == .battling {
+                let me = session.myIndex
+                let teams = me == 0 ? [mine, theirs] : [theirs, mine]
+                BattleSceneView(session: session, state: state, teams: teams, isPlaying: $isPlaying)
+                if session.phase == .battling && !isPlaying {
                     if session.mustReplace {
                         Text("다음 포켓몬을 고르세요").bold()
                         switchRow(mine: mine, state: state, me: me) { session.replace(with: $0) }
@@ -209,7 +195,8 @@ private struct BattleSessionView: View {
                     if session.waitingForOpponent { Text("상대의 선택을 기다리는 중…").font(.caption).foregroundStyle(.secondary) }
                 }
             }
-            if !session.status.isEmpty { Text(session.status).font(.title2).bold() }
+            if !session.status.isEmpty && !isPlaying { Text(session.status).font(.title2).bold() }
+            Spacer(minLength: 0)
         }
     }
 
@@ -243,39 +230,6 @@ private struct SpriteThumb: View {
             if let data = await SpriteStore.shared.data(speciesID: speciesID, animated: false, shiny: shiny) {
                 sprite = NSImage(data: data)
             }
-        }
-    }
-}
-
-private struct MonCard: View {
-    let mon: BattleMon
-    let hp: Int
-    let flipped: Bool
-    let remaining: [Bool]
-
-    var body: some View {
-        HStack {
-            if flipped { info; Spacer() }
-            SpriteThumb(speciesID: mon.speciesID, shiny: mon.isShiny)
-                .frame(width: 80, height: 80)
-                .scaleEffect(x: flipped ? 1 : -1)
-            if !flipped { Spacer(); info }
-        }
-    }
-
-    private var info: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(mon.name)\(mon.isShiny ? " ✦" : "") Lv.50").bold()
-            HStack(spacing: 3) {
-                Text(mon.trainer).font(.caption).foregroundStyle(.secondary)
-                ForEach(Array(remaining.enumerated()), id: \.offset) { _, alive in
-                    Circle().fill(alive ? Color.red : Color.gray.opacity(0.4)).frame(width: 7, height: 7)
-                }
-            }
-            ProgressView(value: Double(hp), total: Double(mon.maxHP))
-                .tint(Double(hp) / Double(mon.maxHP) > 0.5 ? .green : Double(hp) / Double(mon.maxHP) > 0.2 ? .yellow : .red)
-                .frame(width: 160)
-            Text("\(hp) / \(mon.maxHP)").font(.caption.monospacedDigit())
         }
     }
 }
