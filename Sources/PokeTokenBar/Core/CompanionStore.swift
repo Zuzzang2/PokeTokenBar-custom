@@ -141,6 +141,12 @@ final class CompanionStore {
         } else {
             state.eggUsage = rescaled(state.eggUsage, base: PokemonBalance.eggHatchThreshold)
         }
+        // 보관한 개체도 같은 비율을 지킨다 — 안 그러면 다시 데려온 순간 진행률이 난이도 차만큼 튄다.
+        for index in state.dex.indices {
+            guard var stored = state.dex[index].storedMon else { continue }
+            stored.usedAtStage = rescaled(stored.usedAtStage, base: stored.phaseThreshold)
+            state.dex[index].storedMon = stored
+        }
     }
 
     /// 상점 배율 변경 — 가격은 순수 읽기(파생값)라 재평가할 상태가 없다.
@@ -177,14 +183,6 @@ final class CompanionStore {
     var hasActive: Bool { state.active != nil }
     var rarity: Rarity? { state.active?.rarity }
     var currentIsShiny: Bool { state.active?.displaysShiny ?? false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
-    /// 새 알(리롤) 구매 시 실수로 놓아주지 않도록 2단계 확인이 필요한 고가치 개체인지 판정.
-    /// 이로치(shiny)이거나 전설(legendary)인 경우에만 2단계 경고를 띄운다.
-    /// 희귀(rare)는 고급/희귀 알의 반복 리롤 피로도(alert fatigue)를 방지하기 위해 일반 확인만 거친다.
-    /// 위장 중인 메타몽은 `currentIsShiny`(=false)와 `rarity`(=.common)의 불변식을 그대로 따라
-    /// 리빌 전 정체를 누설하지 않는다.
-    var isHighValueCompanion: Bool {
-        currentIsShiny || rarity == .legendary
-    }
     var currentNature: PokemonNature? { state.active?.nature }
     var growthMultiplier: Int? {
         state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
@@ -326,15 +324,16 @@ final class CompanionStore {
         )
     }
 
-    /// 놓아준 개체의 영구 기록 — 알을 새로 사서 육성을 포기하는 순간 만든다.
+    /// 보관한 개체의 영구 기록 — 알을 새로 사거나 보관한 개체와 교체해 육성 칸을 비우는 순간 만든다.
+    /// 육성 상태(`storedMon`)를 통째로 담아 컬렉션에서 다시 데려오면 그대로 이어 키운다.
     ///
-    /// **도달한 형태만 담는다**(`pathIDs.prefix(stageIndex + 1)`). 도감이 육성 중 보여주던 범위와
-    /// 같아야 놓아준 뒤에도 칸 구성이 그대로 유지된다 — `plannedPathIDs` 나 `pathIDs` 전체를 쓰면
+    /// **도감 칸은 도달한 형태만 담는다**(`pathIDs.prefix(stageIndex + 1)`). 도감이 육성 중 보여주던
+    /// 범위와 같아야 보관한 뒤에도 칸 구성이 그대로 유지된다 — `plannedPathIDs` 나 `pathIDs` 전체를 쓰면
     /// 도달한 적 없는 진화형까지 보유로 잡힌다(`dexSpecies` 가 같은 prefix 규칙을 쓴다).
     ///
     /// 이로치는 `currentIsShiny` — 위장 중인 메타몽은 리빌 전까지 숨긴다(`activeDexEntry` 와 단일 판정).
-    /// `caughtAt` 은 놓아준 시각이다: 포획 로그가 그 값으로 정렬하므로 기록이 남은 시점과 일치해야 한다.
-    private func releasedDexEntry(from a: MonState) -> DexEntry {
+    /// `caughtAt` 은 보관한 시각이다: 포획 로그가 그 값으로 정렬하므로 기록이 남은 시점과 일치해야 한다.
+    private func storedDexEntry(from a: MonState) -> DexEntry {
         // stageIndex 가 음수·범위 밖이어도 최소 한 형태는 남긴다(손상 상태 파일 방어 — MonState.currentID 와 같은 태도).
         let reached = Array(a.pathIDs.prefix(max(1, a.stageIndex + 1)))
         let chain = reached.isEmpty ? [a.baseID] : reached
@@ -353,7 +352,7 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     chain.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            releasedAt: now, form: a.form)
+            releasedAt: now, form: a.form, storedMon: a)
     }
 
     var dexEntries: [DexEntry] {
@@ -1267,11 +1266,10 @@ final class CompanionStore {
         return hasActive && availableTokens >= price(of: .egg(tier))
     }
 
-    /// 알 구매 — 현재 포켓몬을 놓아주고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
-    /// graduate() 의 알-리셋을 미러링하되, 놓아준 개체는 **도감에 남긴다**(`releasedDexEntry`).
-    /// 도감은 "쌓이기만 한다"는 약속을 주는데, 여기가 종이 사라질 수 있던 유일한 경로였다.
+    /// 알 구매 — 현재 포켓몬을 보관함에 넣고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
+    /// graduate() 의 알-리셋을 미러링하되, 보관한 개체는 **육성 상태째 도감에 남긴다**(`storedDexEntry`)
+    /// — 컬렉션에서 다시 데려오면(`raiseStored`) 진화 단계·단계 진행이 그대로 이어진다.
     /// `collectedFinals`(최종체 완성·분기 가중)는 여전히 손대지 않는다 — 끝까지 키운 게 아니다.
-    /// 성장(usedAtStage)은 소멸(추가 비용).
     ///
     /// 여기서 종을 롤하지 않는다 — 롤에는 네트워크가 필요해서 오프라인이면 토큰만 사라진다. 보증만
     /// 상태(`eggTier`)에 적고, 실제 롤은 프리패치/부화 경로가 그 보증을 읽어 수행한다.
@@ -1280,10 +1278,10 @@ final class CompanionStore {
         guard canBuyEgg(tier) else { return false }
         state.spentTokens += price(of: .egg(tier))
         if let a = state.active {
-            state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
+            state.dex.append(storedDexEntry(from: a))   // 보관 — 도감에 남고 나중에 다시 데려올 수 있다
         }
-        state.active = nil            // 놓아줌 (졸업 아님 — collectedFinals 는 미변경)
-        // 놓아준 종도 이제 dex 에 있으므로 대표 선택은 유지된다. 손상 상태 파일 등으로 정말 보유가
+        state.active = nil            // 보관 (졸업 아님 — collectedFinals 는 미변경)
+        // 보관한 종도 이제 dex 에 있으므로 대표 선택은 유지된다. 손상 상태 파일 등으로 정말 보유가
         // 끊긴 경우만 자동 추적으로 복귀한다.
         state.reconcileRepresentativeSelection()
         activeGeneration += 1
@@ -1295,7 +1293,7 @@ final class CompanionStore {
         state.pendingForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
+        AppLog.write("egg purchased: stored active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
         return true
@@ -1305,6 +1303,59 @@ final class CompanionStore {
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
     @discardableResult
     func buyFreshEgg() -> Bool { buyEgg(nil) }
+
+    // MARK: 보관함 (보관한 개체를 다시 내 포켓몬으로)
+
+    /// 컬렉션에서 다시 데려올 수 있는 기록인가 — 졸업하지 않고 보관된 개체만. 졸업분은 최종체까지
+    /// 끝낸 기록이라 다시 키우면 곧바로 재졸업해 도감에 같은 개체가 둘 생긴다. 지금 키우는 개체의
+    /// 합성 항목(`activeDexEntry`)은 `releasedAt` 이 없어 여기서 자연히 빠진다.
+    func isStored(_ entry: DexEntry) -> Bool { entry.isReleased }
+
+    /// 지금 교체할 수 있는가 — 키우는 포켓몬이 있을 때만. 알 상태에서 막는 이유는 품은 알이 산
+    /// 보증(`eggTier`)과 인큐베이션을 들고 있어서다: 알과 활성 포켓몬은 공존할 수 없어(`sanitized`)
+    /// 교체하면 산 알이 사라진다. 라인 로딩 중(`isHatching`)에도 막는다 — 그 로드가 세대 가드에 걸려
+    /// 버려지면 새 개체의 라인을 아무도 다시 불러오지 않는다.
+    var canRaiseStored: Bool { hasActive && !isHatching }
+
+    /// 보관한 개체를 내 포켓몬으로 — 지금 키우는 포켓몬은 육성 상태째 보관함으로 가고(`storedDexEntry`),
+    /// 고른 개체가 보관된 상태 그대로 활성이 된다. 지갑·통계·`collectedFinals` 는 그대로다(교체일 뿐).
+    @discardableResult
+    func raiseStored(_ entryID: String) -> Bool {
+        guard canRaiseStored, let current = state.active,
+              let index = state.dex.firstIndex(where: { $0.id == entryID }),
+              isStored(state.dex[index]) else { return false }
+        let incoming = storedMon(from: state.dex[index])
+        let outgoing = storedDexEntry(from: current)
+        state.dex.remove(at: index)
+        state.dex.append(outgoing)
+        state.active = incoming
+        state.reconcileRepresentativeSelection()
+        activeGeneration += 1
+        currentLine = nil
+        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        candyFeedbackAmount = 0
+        mintFeedbackNature = nil
+        displayState = .idle
+        AppLog.write("stored pokemon raised: base=\(incoming.baseID) stage=\(incoming.stageIndex) — stored base=\(current.baseID)")
+        save()
+        Task { await self.loadCurrentLine() }
+        return true
+    }
+
+    /// 보관 기록 → 육성 상태. 보관 상태가 없으면(이 기능 이전에 놓아준 기록·손상된 보관 상태) 도달한
+    /// 형태에서 단계 진행 0으로 되살린다 — 진화 계획은 라인 로드 때 `normalizedEvolutionState` 가 다시 세운다.
+    /// 프로필은 기록 쪽을 쓴다: 보관 뒤 상세 조회가 채운 성별·특성·기술이 기록에만 있다.
+    private func storedMon(from entry: DexEntry) -> MonState {
+        var mon = entry.storedMon ?? {
+            let path = entry.chainOrder.isEmpty ? [entry.baseID] : entry.chainOrder
+            return MonState(baseID: entry.baseID, pathIDs: path, stageIndex: path.count - 1, usedAtStage: 0,
+                            rarity: entry.rarity, totalForms: path.count, isShiny: entry.isShiny,
+                            nature: entry.nature, hasGrowthBoost: state.hasCollectedFinal(forBaseID: entry.baseID),
+                            form: entry.form)
+        }()
+        mon.profile = entry.profile ?? mon.profile
+        return mon
+    }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장).

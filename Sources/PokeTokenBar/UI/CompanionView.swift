@@ -1006,11 +1006,11 @@ struct CollectionView: View {
             emptyState
         } else if let id = nav.dexDetailCollectionID,
                   let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
-            PokemonDetailView(store: store, species: species) {
+            PokemonDetailView(store: store, species: species, onBack: {
                 // Back to the log would leave it for the next switch to the grid.
                 if !nav.showingCollectionLog { dexReturnAnchor = id }
                 nav.dexDetailCollectionID = nil
-            }
+            }, onRaised: { nav.tab = .home })
                 .id(species.collectionID)
                 .frame(height: Self.contentHeight)
         } else {
@@ -1164,10 +1164,12 @@ struct CollectionView: View {
                             Color.clear.frame(height: 0).id("dexTop")
                             ForEach(visibleEntries) { entry in
                                 // Keeps the segment, so Back from the detail page returns to the log.
-                                DexEntryRow(store: store, entry: entry, dexLinks: dexLinks) {
-                                    logReturnAnchor = entry.id
-                                    navigation.dexDetailCollectionID = $0
-                                }
+                                DexEntryRow(store: store, entry: entry, dexLinks: dexLinks,
+                                            onOpenDexEntry: {
+                                                logReturnAnchor = entry.id
+                                                navigation.dexDetailCollectionID = $0
+                                            },
+                                            onRaised: { navigation.tab = .home })
                             }
                         }
                         .reservesScrollerLane()
@@ -1233,6 +1235,29 @@ struct CollectionView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// 보관한 개체를 다시 내 포켓몬으로 — 포획 로그 행과 상세 화면이 같은 버튼을 쓴다.
+/// 알을 품는 동안은 비활성(`canRaiseStored`)이고 이유는 툴팁으로 알린다. 성공하면 `onRaised`
+/// (홈으로 이동)로 방금 데려온 포켓몬을 보여준다 — 상점 알·가방 사용과 같은 패턴.
+@MainActor
+struct RaiseStoredButton: View {
+    let store: CompanionStore
+    let entryID: String
+    let onRaised: () -> Void
+
+    var body: some View {
+        Button {
+            if store.raiseStored(entryID) { onRaised() }
+        } label: {
+            Label(store.l.raiseStored, systemImage: "arrow.up.circle")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.mini)
+        .fixedSize()
+        .disabled(!store.canRaiseStored)
+        .help(store.canRaiseStored ? store.l.raiseStored : store.l.raiseStoredLockedHint)
     }
 }
 
@@ -1573,6 +1598,7 @@ struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    let onRaised: () -> Void
     private let spriteStore: SpriteStore
     @State private var selectedInstanceID = ""
     @State private var selectedForm: PokemonForm?
@@ -1580,10 +1606,11 @@ struct PokemonDetailView: View {
 
     init(store: CompanionStore, species: CompanionStore.DexSpecies,
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
-         spriteStore: SpriteStore = .shared) {
+         spriteStore: SpriteStore = .shared, onRaised: @escaping () -> Void = {}) {
         self.store = store
         self.species = species
         self.onBack = onBack
+        self.onRaised = onRaised
         self.spriteStore = spriteStore
         _selectedShiny = State(initialValue: selectedShiny)
     }
@@ -1746,11 +1773,23 @@ struct PokemonDetailView: View {
                 }
                 if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                 if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
+                let stored = individual.flatMap { store.isStored($0) ? $0 : nil }
+                if stored != nil { Text(store.l.dexStored).font(.callout).foregroundStyle(.secondary) }
                 let isRepresentative = store.isRepresentative(species)
-                RepresentativeFooterButton(localization: store.l,
-                                           isRepresentative: isRepresentative) {
-                    _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
-                                                         form: species.form)
+                HStack(spacing: 6) {
+                    RepresentativeFooterButton(localization: store.l,
+                                               isRepresentative: isRepresentative) {
+                        _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
+                                                             form: species.form)
+                    }
+                    if let stored {
+                        RaiseStoredButton(store: store, entryID: stored.id, onRaised: onRaised)
+                    }
+                }
+                if stored != nil, !store.canRaiseStored {
+                    Text(store.l.raiseStoredLockedHint)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1782,7 +1821,8 @@ struct PokemonDetailView: View {
             $0.formatted(Date.FormatStyle(date: .numeric, time: .omitted)
                 .locale(Locale(identifier: store.language.rawValue)))
         } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "—")
-        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)"
+        let stored = store.isStored(entry) ? " · \(store.l.dexStored)" : ""
+        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)\(stored)"
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,
@@ -2056,6 +2096,7 @@ private struct DexEntryRow: View {
     let entry: DexEntry
     let dexLinks: [Int: String]
     let onOpenDexEntry: (String) -> Void
+    var onRaised: () -> Void = {}
     @State private var resolved: [Int: String] = [:]
 
     /// 카드 안쪽 여백. 진화 라인이 쓸 수 있는 폭 계산과 단일 소스를 공유한다.
@@ -2069,10 +2110,10 @@ private struct DexEntryRow: View {
                 Badge(store.l.rarityLabel(entry.rarity).uppercased(), tint: .rarity(entry.rarity), size: 10)
                 if store.isActiveDexEntry(entry) {
                     Badge(store.l.dexRaising.uppercased(), tint: .accent, style: .tinted, size: 10)
-                } else if entry.isReleased {
-                    // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
-                    // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
-                    Badge(store.l.dexReleased.uppercased(), tint: .secondary, style: .tinted, size: 10)
+                } else if store.isStored(entry) {
+                    // 보관한 개체 — 아래 버튼으로 다시 키울 수 있다. 졸업분과 다른 종류의 기록이라
+                    // 중립색(secondary)으로 둔다.
+                    Badge(store.l.dexStored.uppercased(), tint: .secondary, style: .tinted, size: 10)
                 }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
@@ -2091,7 +2132,15 @@ private struct DexEntryRow: View {
                         maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, form: entry.form,
                         nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
                         dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry)
-            if let caughtAt = entry.caughtAt {
+            if store.isStored(entry) {
+                HStack(spacing: 6) {
+                    if let caughtAt = entry.caughtAt {
+                        Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    RaiseStoredButton(store: store, entryID: entry.id, onRaised: onRaised)
+                }
+            } else if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }

@@ -558,7 +558,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         namesVersion != Self.currentNamesVersion
             || chainOrder.contains { names?[$0]?.isEmpty != false }
     }
-    /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
+    /// 보관함에 들어간(구버전: 놓아준) 시각 — 알을 새로 사거나 보관한 개체와 교체해 육성 칸을 비운 기록.
+    /// nil = 졸업분(구버전 저장분 포함).
     ///
     /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
     /// **보유 종**을 접는다. 놓아준 개체를 여기 넣지 않으면 그 종이 도감에서 사라진다 —
@@ -566,12 +567,16 @@ struct DexEntry: Codable, Sendable, Identifiable {
     var releasedAt: Date?
     /// 졸업이 아니라 놓아준 기록인가 — 포획 로그가 뱃지를 가르는 판정.
     var isReleased: Bool { releasedAt != nil }
+    /// 보관함에 들어간 순간의 육성 상태 그대로(진화 단계·단계 진행·진화 계획·메타몽 위장).
+    /// 컬렉션에서 다시 데려오면 이 상태에서 이어 키운다. 놓아준 기록(`releasedAt`)에만 붙는다 —
+    /// 졸업분은 다시 키울 수 없다. nil = 이 필드 이전에 놓아준 기록이라 도달한 형태로만 되살린다.
+    var storedMon: MonState?
 
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
          profile: PokemonProfile? = nil, names: [Int: [String: String]]? = nil, releasedAt: Date? = nil,
-         form: PokemonForm? = nil) {
+         form: PokemonForm? = nil, storedMon: MonState? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -586,6 +591,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
             ? Self.currentNamesVersion : nil
         self.releasedAt = releasedAt
         self.form = PokemonForm.resolved(baseID: baseID, form: form)
+        self.storedMon = storedMon
     }
 
     // 하위호환 디코딩 (MonState 와 동일 이유).
@@ -608,6 +614,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
         releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
         form = PokemonForm.resolved(baseID: baseID, form: PokemonForm.decoded(from: decoder, keys: "form", "unownForm"))
+        // 손상된 보관 상태 하나 때문에 개체 기록을 잃지 않는다 — nil 이면 도달한 형태로 되살린다.
+        storedMon = (try? c.decodeIfPresent(MonState.self, forKey: .storedMon)) ?? nil
     }
 }
 

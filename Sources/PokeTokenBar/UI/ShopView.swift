@@ -163,7 +163,7 @@ private struct EggCard: View {
     let nav: PopoverNavigation
     let tier: Rarity?
     @State private var stage: Stage = .idle
-    private enum Stage { case idle, confirm, preciousConfirm }
+    private enum Stage { case idle, confirm }
 
     private var price: Int { store.price(of: .egg(tier)) }
 
@@ -186,12 +186,12 @@ private struct EggCard: View {
                     Text(l.eggDescription(tier))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    // "놓아준다" 바로 아래 — 무엇을 잃는지 읽은 자리에서 무엇이 남는지 이어 읽게 한다.
+                    // "보관한다" 바로 아래 — 보관한 포켓몬이 어떻게 남는지 이어 읽게 한다.
                     // 가격 줄이 아니라 여기인 이유: 이건 가격·구매 가능 여부와 무관한 상품 설명이고,
                     // 아래쪽은 버튼과 `eggShopLockedHint`(왜 못 사는지) 가 쓰는 자리다.
-                    // 놓아줄 대상이 있을 때만 — 알 상태에선 할 말이 아니다.
+                    // 보관할 대상이 있을 때만 — 알 상태에선 할 말이 아니다.
                     if store.hasActive {
-                        Text(l.eggReleaseNote)
+                        Text(l.eggStorageNote)
                             .font(.caption2).foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -237,21 +237,9 @@ private struct EggCard: View {
                 Text(l.eggConfirm(store.displayName, l.eggName(tier)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
-                // 이로치나 전설 등 고가치 포켓몬이면 한 번 더 경고, 아니면 즉시 실행.
-                Button(l.buy) {
-                    if store.isHighValueCompanion { stage = .preciousConfirm } else { commit() }
-                }
-                .buttonStyle(.borderedProminent).controlSize(.small)
-                Button(l.cancel) { stage = .idle }
-                    .buttonStyle(.borderless).controlSize(.small)
-            }
-        case .preciousConfirm:
-            HStack(spacing: 8) {
-                Text(store.rarity == .legendary ? l.freshEggLegendaryWarning : l.freshEggShinyWarning)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.orange).lineLimit(2)
-                Spacer()
-                Button(store.currentIsShiny && store.rarity != .legendary ? l.freshEggDiscardShiny : l.freshEggDiscardValuable) { commit() }
-                    .buttonStyle(.borderedProminent).controlSize(.small).tint(.orange)
+                // 보관이라 잃는 개체가 없다 — 이로치·전설이어도 추가 경고 없이 한 번만 확인한다.
+                Button(l.buy) { commit() }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
                 Button(l.cancel) { stage = .idle }
                     .buttonStyle(.borderless).controlSize(.small)
             }

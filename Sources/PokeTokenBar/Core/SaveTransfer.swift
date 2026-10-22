@@ -167,22 +167,26 @@ enum SaveTransfer {
             var seen = Set<Int>()
             return ids.filter { seen.insert($0).inserted }
         }
-        if var active = s.active {
-            active.usedAtStage = clampToken(active.usedAtStage)
+        // 보관한 개체도 다시 데려오는 순간 활성이 되므로 같은 규칙을 거친다.
+        func sanitizedMon(_ mon: MonState) -> MonState {
+            var mon = mon
+            mon.usedAtStage = clampToken(mon.usedAtStage)
             // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
-            active.totalForms = min(max(1, active.totalForms), 12)
-            active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
-            let currentID = active.currentID
-            active.pathIDs = deduped(active.pathIDs)
-            active.plannedPathIDs = deduped(active.plannedPathIDs)
-            active.stageIndex = active.pathIDs.firstIndex(of: currentID) ?? active.stageIndex
-            active.stageIndex = min(active.stageIndex, max(0, active.pathIDs.count - 1))
-            active.profile?.sanitize()
-            s.active = active
+            mon.totalForms = min(max(1, mon.totalForms), 12)
+            mon.stageIndex = min(max(0, mon.stageIndex), max(0, mon.pathIDs.count - 1))
+            let currentID = mon.currentID
+            mon.pathIDs = deduped(mon.pathIDs)
+            mon.plannedPathIDs = deduped(mon.plannedPathIDs)
+            mon.stageIndex = mon.pathIDs.firstIndex(of: currentID) ?? mon.stageIndex
+            mon.stageIndex = min(mon.stageIndex, max(0, mon.pathIDs.count - 1))
+            mon.profile?.sanitize()
+            return mon
         }
+        if let active = s.active { s.active = sanitizedMon(active) }
         for index in s.dex.indices {
             s.dex[index].chainOrder = deduped(s.dex[index].chainOrder)
             s.dex[index].profile?.sanitize()
+            if let stored = s.dex[index].storedMon { s.dex[index].storedMon = sanitizedMon(stored) }
         }
         s.reconcileRepresentativeSelection()
         return s

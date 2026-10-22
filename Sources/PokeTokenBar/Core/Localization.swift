@@ -1102,8 +1102,21 @@ struct L {
     var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ", "Página anterior", "Page précédente", "Página anterior", "Vorherige Seite", "Предыдущая страница") }
     var dexPageNext: String { t("다음 페이지", "Next page", "次のページ", "Página siguiente", "Page suivante", "Próxima página", "Nächste Seite", "Следующая страница") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht", "Растёт") }
-    /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
-    var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen", "Отпущен") }
+    /// 포획 로그에서 졸업분과 보관한 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
+    var dexStored: String { t("보관 중", "In box", "あずけ中", "En la caja", "Dans la boîte", "Na caixa", "In der Box", "В боксе") }
+    /// 보관한 개체를 다시 키우는 버튼(포획 로그 행·상세 화면). 누르면 지금 포켓몬과 자리를 바꾼다.
+    var raiseStored: String { t("내 포켓몬으로 등록", "Raise this one", "この子を育てる", "Criar a este", "Élever celui-ci", "Treinar este", "Dieses aufziehen", "Растить этого") }
+    /// 알을 품는 동안 교체 버튼이 비활성인 이유 — 품은 알(산 보증 포함)을 지키려고 막는다.
+    var raiseStoredLockedHint: String {
+        t("지금 품고 있는 알이 부화하면 바꿀 수 있어요.",
+          "You can switch once your current egg hatches.",
+          "いま抱えているタマゴが孵ると入れ替えられます。",
+          "Podrás cambiarlo cuando eclosione tu huevo actual.",
+          "Tu pourras changer une fois ton œuf actuel éclos.",
+          "Você poderá trocar quando seu ovo atual chocar.",
+          "Wechseln ist möglich, sobald dein aktuelles Ei geschlüpft ist.",
+          "Сменить можно, когда вылупится текущее яйцо.")
+    }
     var rarityCommon: String { t("일반", "Common", "ノーマル", "Común", "Commun", "Comum", "Gewöhnlich", "Обычный") }
     var rarityUncommon: String { t("고급", "Uncommon", "アンコモン", "Poco común", "Peu commun", "Incomum", "Ungewöhnlich", "Необычный") }
     var rarityRare: String { t("희귀", "Rare", "レア", "Raro", "Rare", "Raro", "Selten", "Редкий") }
@@ -1537,24 +1550,24 @@ struct L {
     }
     func eggDescription(_ tier: Rarity?) -> String {
         guard let tier, tier != .common else {
-            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                     "Send off your current Pokémon and start fresh with a new egg.",
-                     "いまのポケモンを手放して新しいタマゴからやり直します。",
-                     "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.",
-                     "Laisse partir ton Pokémon actuel et repars de zéro avec un nouvel œuf.",
-                     "Solte seu Pokémon atual e recomece com um ovo novo.",
-                     "Verabschiede dein aktuelles Pokémon und starte mit einem neuen Ei.",
-                     "Отпустите текущего покемона и начните заново с новым яйцом.")
+            return t("지금 포켓몬은 보관함에 넣고 새 알로 다시 시작해요.",
+                     "Put your current Pokémon in the box and start fresh with a new egg.",
+                     "いまのポケモンはボックスにあずけて、新しいタマゴからやり直します。",
+                     "Guarda a tu Pokémon actual en la caja y empieza de nuevo con un huevo nuevo.",
+                     "Range ton Pokémon actuel dans la boîte et repars de zéro avec un nouvel œuf.",
+                     "Guarde seu Pokémon atual na caixa e recomece com um ovo novo.",
+                     "Lege dein aktuelles Pokémon in die Box und starte mit einem neuen Ei.",
+                     "Текущий покемон отправится в бокс, а вы начнёте заново с новым яйцом.")
         }
         let r = rarityLabel(tier)
-        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
-                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
-                 "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。",
-                 "Suelta a tu Pokémon actual y consigue un huevo garantizado de \(r) o superior.",
-                 "Laisse partir ton Pokémon actuel pour un œuf garanti \(r) ou mieux.",
-                 "Solte seu Pokémon atual e ganhe um ovo que garante \(r) ou melhor.",
-                 "Verabschiede dein aktuelles Pokémon und erhalte ein Ei, aus dem garantiert ein Pokémon der Seltenheitsstufe \(r) oder höher schlüpft.",
-                 "Отпустите текущего покемона и получите яйцо с гарантией: \(r) или выше.")
+        return t("지금 포켓몬은 보관함에 넣고 \(r) 이상이 확정으로 나오는 알을 받아요.",
+                 "Put your current Pokémon in the box for an egg guaranteed to hatch \(r) or better.",
+                 "いまのポケモンはボックスにあずけて、\(r) 以上が確定で孵るタマゴをもらいます。",
+                 "Guarda a tu Pokémon actual en la caja y consigue un huevo garantizado de \(r) o superior.",
+                 "Range ton Pokémon actuel dans la boîte pour un œuf garanti \(r) ou mieux.",
+                 "Guarde seu Pokémon atual na caixa e ganhe um ovo que garante \(r) ou melhor.",
+                 "Lege dein aktuelles Pokémon in die Box und erhalte ein Ei, aus dem garantiert ein Pokémon der Seltenheitsstufe \(r) oder höher schlüpft.",
+                 "Текущий покемон отправится в бокс, а вы получите яйцо с гарантией: \(r) или выше.")
     }
     /// 알 상태의 상점 알 카드 비활성 사유 — 항목은 보이되 구매 버튼 아래에 한 줄로 붙는다(EggCard).
     var eggShopLockedHint: String {
@@ -1567,24 +1580,20 @@ struct L {
           "Verfügbar, sobald dein aktuelles Ei geschlüpft ist.",
           "Станет доступно, когда вылупится текущее яйцо.")
     }
-    /// 놓아주면 무엇이 남는지 — `eggDescription` 바로 아래 줄(EggCard).
+    /// 보관하면 무엇이 남는지 — `eggDescription` 바로 아래 줄(EggCard).
     ///
-    /// 경고가 아니라 **안심**이 목적이다. `eggDescription` 이 "놓아준다"까지만 말해서 도감까지 잃는다고
-    /// 읽히지만, `buyEgg` 는 `releasedDexEntry` 로 도감에 남긴다.
-    ///
-    /// "같은 확률"은 비유가 아니라 실제 수치다. `chooseBase` 의 가중치는 이미 수집한 base 를 ½ 로
-    /// 깎는데(미수집 부스트), 그 판정인 `collectedFinals` 는 졸업에서만 채워지고 놓아줌에선 그대로다
-    /// → 놓아준 종의 부화 가중치는 100% 를 유지한다. 재인큐베이션은 말하지 않는다(`eggDescription`
-    /// 의 "새 알로 다시 시작해요" 와 중복).
-    var eggReleaseNote: String {
-        t("놓아준 포켓몬도 도감에 남고, 같은 확률로 다시 만날 수 있어요. 키운 진행도만 사라져요.",
-          "A released Pokémon stays in your Pokédex and can hatch again at the same odds — only the growth progress is lost.",
-          "手放したポケモンも図鑑に残り、同じ確率でまた出会えます。失われるのは育てた進み具合だけです。",
-          "El Pokémon liberado permanece en la Pokédex y puede volver a salir con la misma probabilidad; solo se pierde el progreso de crianza.",
-          "Un Pokémon relâché reste dans le Pokédex et peut réapparaître avec la même probabilité ; seule la progression est perdue.",
-          "O Pokémon solto continua na Pokédex e pode voltar a aparecer com a mesma chance; só o progresso de criação se perde.",
-          "Ein freigelassenes Pokémon bleibt im Pokédex und kann mit gleicher Wahrscheinlichkeit wieder schlüpfen; nur der Aufzuchtfortschritt geht verloren.",
-          "Отпущенный покемон остаётся в Покедексе и может вылупиться снова с тем же шансом — теряется только прогресс роста.")
+    /// 경고가 아니라 **안심**이 목적이다. `buyEgg` 는 `storedDexEntry` 로 육성 상태째 도감에 남기고,
+    /// 컬렉션의 `raiseStored` 버튼으로 언제든 다시 데려온다. 재인큐베이션은 말하지 않는다
+    /// (`eggDescription` 의 "새 알로 다시 시작해요" 와 중복).
+    var eggStorageNote: String {
+        t("보관한 포켓몬은 키운 그대로 남아요. 컬렉션에서 언제든 다시 내 포켓몬으로 등록할 수 있어요.",
+          "A stored Pokémon keeps all its growth — raise it again from Collection anytime.",
+          "あずけたポケモンは育てた状態のまま残ります。コレクションからいつでもまた育てられます。",
+          "El Pokémon guardado conserva todo su progreso; puedes volver a criarlo desde la Colección cuando quieras.",
+          "Le Pokémon rangé garde toute sa progression ; tu peux le reprendre depuis la Collection à tout moment.",
+          "O Pokémon guardado mantém todo o progresso; você pode voltar a treiná-lo pela Coleção quando quiser.",
+          "Ein eingelagertes Pokémon behält seinen ganzen Fortschritt – du kannst es jederzeit über die Sammlung wieder aufziehen.",
+          "Покемон в боксе сохраняет весь прогресс — его можно снова растить из Коллекции в любой момент.")
     }
     /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
     func eggGuaranteeHint(_ tier: Rarity) -> String {
@@ -1592,19 +1601,15 @@ struct L {
         return t("\(r) 이상 확정", "\(r) or better", "\(r) 以上確定", "\(r) o superior garantizado", "\(r) ou mieux garanti", "\(r) ou melhor garantido", "Garantiert \(r) oder besser", "\(r) или выше")
     }
     func eggConfirm(_ monName: String, _ eggName: String) -> String {
-        t("\(KoreanParticle.object.attach(to: monName)) 놓아주고 \(KoreanParticle.direction.attach(to: eggName)) 바꿀까요?",
-          "Send off \(monName) for the \(eggName)?",
-          "\(monName) を手放して \(eggName) にしますか？",
-          "¿Soltar a \(monName) y cambiarlo por \(eggName)?",
-          "Laisser partir \(monName) pour le \(eggName) ?",
-          "Soltar \(monName) e trocar pelo \(eggName)?",
-          "\(monName) verabschieden und gegen \(eggName) tauschen?",
-          "Отпустить \(monName) и взять «\(eggName)»?")
+        t("\(KoreanParticle.object.attach(to: monName)) 보관하고 \(KoreanParticle.direction.attach(to: eggName)) 바꿀까요?",
+          "Store \(monName) and switch to the \(eggName)?",
+          "\(monName) をあずけて \(eggName) にしますか？",
+          "¿Guardar a \(monName) y cambiar al \(eggName)?",
+          "Ranger \(monName) et passer au \(eggName) ?",
+          "Guardar \(monName) e trocar pelo \(eggName)?",
+          "\(monName) einlagern und zu \(eggName) wechseln?",
+          "Отправить \(monName) в бокс и взять «\(eggName)»?")
     }
-    var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？", "⚠️ ¡Este es variocolor! ¿Seguro que quieres soltarlo?", "⚠️ Celui-ci est chromatique ! Vraiment le laisser partir ?", "⚠️ Esse é shiny! Quer mesmo soltar?", "⚠️ Dieses Pokémon ist schillernd! Wirklich verabschieden?", "⚠️ Это шайни! Точно отпустить?") }
-    var freshEggLegendaryWarning: String { t("⚠️ 전설 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This is a Legendary Pokémon! Really send it off?", "⚠️ 伝説のポケモンです！本当に手放しますか？", "⚠️ ¡Es un Pokémon legendario! ¿Seguro que quieres soltarlo?", "⚠️ C'est un Pokémon légendaire ! Vraiment le laisser partir ?", "⚠️ Esse é um Pokémon lendário! Quer mesmo soltar?", "⚠️ Dieses Pokémon ist legendär! Wirklich verabschieden?", "⚠️ Это легендарный покемон! Точно отпустить?") }
-    var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す", "Soltar variocolor", "Laisser partir le chromatique", "Soltar o shiny", "Schillerndes Pokémon verabschieden", "Отпустить шайни") }
-    var freshEggDiscardValuable: String { t("놓아주기", "Send off", "手放す", "Soltar", "Laisser partir", "Soltar", "Verabschieden", "Отпустить") }
 
     // MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상)
     func notifCandyTitle(item: String, count: Int) -> String {
