@@ -32,6 +32,10 @@ echo "   archs: $(lipo -archs "$APP/Contents/MacOS/$APP_NAME")"
 # 심볼 strip — 릴리스 바이너리 1.84MB → 0.80MB(-57%). codesign 전에 수행(서명 무효화 방지).
 strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# SPIKE battle art (plaza/battle backgrounds, trainer frames). Source sheets stay out of the bundle.
+mkdir -p "$APP/Contents/Resources/battle/trainers"
+cp assets/battle/*.png "$APP/Contents/Resources/battle/"
+cp assets/battle/trainers/*.png "$APP/Contents/Resources/battle/trainers/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
