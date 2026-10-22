@@ -144,8 +144,9 @@ final class BattleSession: NSObject {
     private func startIfReady() {
         guard state == nil, seed != nil, let a = teams[0], let b = teams[1] else { return }
         var initial = BattleEngine.initialState([a, b])
-        initial.log.append("\(theirTeam?.first?.trainer ?? "상대")이(가) 승부를 걸어왔다!")
-        initial.log.append("가라, \(a[0].name)! / 상대는 \(b[0].name)을(를) 내보냈다!")
+        let mine = myIndex == 0 ? a : b, theirs = myIndex == 0 ? b : a
+        initial.log.append("\(KoreanParticle.subject.attach(to: theirs[0].trainer)) 승부를 걸어왔다!")
+        initial.log.append("가라, \(mine[0].name)! / 상대는 \(KoreanParticle.object.attach(to: theirs[0].name)) 내보냈다!")
         state = initial
         phase = .battling
         status = ""

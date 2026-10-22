@@ -137,7 +137,7 @@ private struct BattleSessionView: View {
             if let inviter = session.pendingInviter {
                 GroupBox {
                     VStack(alignment: .leading) {
-                        Text("\(inviter.displayName)이(가) 대결을 신청했어요!").bold()
+                        Text("\(KoreanParticle.subject.attach(to: inviter.displayName)) 대결을 신청했어요!").bold()
                         HStack {
                             Button("수락") { session.answerInvite(true) }.keyboardShortcut(.defaultAction)
                             Button("거절") { session.answerInvite(false) }

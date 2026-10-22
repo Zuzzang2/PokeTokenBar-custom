@@ -105,7 +105,7 @@ enum BattleEngine {
             else if hit.effectiveness < 1 { next.log.append("효과가 별로인 듯하다…") }
             if hit.critical { next.log.append("급소에 맞았다!") }
             if next.activeHP(defender) == 0 {
-                next.log.append("\(defMon.name)은(는) 쓰러졌다!")
+                next.log.append("\(KoreanParticle.subject.attach(to: defMon.name)) 쓰러졌다!")
                 if next.hp[defender].allSatisfy({ $0 == 0 }) {
                     next.winner = attacker
                     next.log.append("\(atkMon.trainer)의 승리!")

@@ -21,7 +21,12 @@ enum BattleMonBuilder {
         let lang = companion.language
         var out: [BattleCandidate] = []
         if let a = companion.state.active {
-            out.append(BattleCandidate(id: "active", speciesID: a.currentID, name: companion.displayName,
+            // `displayName` reads "Token Egg" until the evolution line loads after launch; the dex
+            // record of the raising line already carries localized names.
+            let recorded = companion.dexEntries.lazy.compactMap { $0.names?[a.currentID] }.first
+            let name = companion.currentLine != nil ? companion.displayName
+                : recorded.flatMap { lang.resolveName($0) } ?? "#\(a.currentID)"
+            out.append(BattleCandidate(id: "active", speciesID: a.currentID, name: name,
                                        isShiny: a.displaysShiny, profile: a.profile, nature: a.nature, isRaising: true))
         }
         for entry in companion.dexEntriesSorted where !companion.isActiveDexEntry(entry) {
