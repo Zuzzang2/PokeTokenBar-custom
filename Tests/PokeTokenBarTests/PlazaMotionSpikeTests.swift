@@ -73,3 +73,20 @@ final class PlazaMotionSpikeTests: XCTestCase {
         XCTAssertTrue(PlazaSession.isWalkable(x: p.x, y: p.y))
     }
 }
+
+// SPIKE: plaza zoom to the window size.
+final class PlazaLayoutSpikeTests: XCTestCase {
+    func testWideWindowScalesPlazaUpByWidth() {
+        let k = PlazaLayout.scale(available: CGSize(width: 800, height: 2000), reservedHeight: 200)
+        XCTAssertEqual(k, 2, accuracy: 0.001)
+    }
+
+    func testShortWindowIsLimitedByHeight() {
+        let k = PlazaLayout.scale(available: CGSize(width: 2000, height: 734), reservedHeight: 200)
+        XCTAssertEqual(k, 2, accuracy: 0.01)          // (734 - 200) / 267
+    }
+
+    func testNeverShrinksBelowNativeSize() {
+        XCTAssertEqual(PlazaLayout.scale(available: CGSize(width: 300, height: 300), reservedHeight: 200), 1)
+    }
+}
