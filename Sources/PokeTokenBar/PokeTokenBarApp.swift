@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var menuLoadTask: Task<Void, Never>?
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
     private var powerObserver: NSObjectProtocol?   // 저전력 토글 → 유효 fps 하한 재평가
+    private var menuAppearanceRefresh: MenuAppearanceRefresh?
 
     /// 스프라이트 전용 서브레이어 — 프레임 교체의 드로잉 비용을 없앤다.
     ///
@@ -107,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             prepareSpriteLayer(on: button)   // 프레임 교체를 레이어 contents 로 — 설정이 먼저다
             let egg = Self.eggImage(up: false)
             setStatusImage(egg, cgFrame: Self.cgFrame(from: egg))   // 초기 알도 같은 경로로(불변식)
+            menuAppearanceRefresh = MenuAppearanceRefresh(button: button) { [weak self] in
+                self?.refreshMenuPresentation()
+            }
         }
 
         popover.behavior = .transient
@@ -175,9 +179,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func applyState() {
+        refreshMenuPresentation()
+        updateCompanion()
+        ensureMenuAnimation()
+        syncMenuAnimation()
+        if needsSpriteLayout { layoutSpriteLayer() }
+    }
+
+    /// Appearance notifications only redraw presentation; they must not persist companion state.
+    private func refreshMenuPresentation() {
         guard let button = statusItem.button else { return }
+        menuAppearanceRefresh?.markRendered()
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
-        Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns())
+        Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns(),
+                           parts: store.menuLimitParts())
+        button.setAccessibilityLabel(store.menuTitle)
         button.toolTip = store.menuToolTip
         needsSpriteLayout = true   // 텍스트 길이가 바뀌면 버튼 폭이 변해 이미지 자리도 움직인다
         // stale 시각 dim 제거 — 슬립/런치 직후 refresh 완료 전 몇 초간 회색으로 보여 '고장/비활성'
@@ -185,9 +201,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // (limitsUpdatedAt 등)에서 제공하고, 메뉴바 아이콘·숫자는 흐리게 하지 않는다.
         button.appearsDisabled = false
 
-        updateCompanion()
-        ensureMenuAnimation()
-        syncMenuAnimation()   // 가시성 상태 주기적 재평가(occlusion 이 잘못 멈춰도 자가 복구)
         // 같은 프레임이면 setStatusImage 가 diff-gate 로 조기 반환해 재배치를 못 했을 수 있다.
         if needsSpriteLayout { layoutSpriteLayer() }
     }
@@ -196,7 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 줄 수에 맞춰 폰트를 자동 축소해 N줄이 메뉴바 높이에 클리핑 없이 들어오게 한다. 한도 항목 색
     /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
     private static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
-                                      colors: [UsageStore.MenuLimitColorRun]) {
+                                      colors: [UsageStore.MenuLimitColorRun],
+                                      parts: [UsageStore.MenuLimitPart]) {
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:
             // titleRect.y 가 음수 → 상단 클리핑 + 하단 여백, 사용자 지적). 그래서 baselineOffset 을
@@ -217,6 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     string: lines.joined(separator: "\n"),
                     attributes: [.font: font, .paragraphStyle: para, .baselineOffset: offset])
                 MenuLimitColoring.apply(colors, to: title)
+                MenuProviderIcons.apply(to: title, parts: parts, font: font,
+                                        height: effLH - 1, appearance: button.effectiveAppearance)
                 return title
             }
             let bounds = button.bounds
@@ -233,11 +249,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // 1줄로 되돌릴 때 이전 attributedTitle 이 남지 않게 먼저 비운다.
             button.attributedTitle = NSAttributedString(string: "")
             let title = lines.first ?? ""
-            if !colors.isEmpty, !title.isEmpty {
+            if !title.isEmpty {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
                 let colored = NSMutableAttributedString(
-                    string: " " + title,
-                    attributes: [.font: button.font ?? NSFont.menuBarFont(ofSize: 0)])
+                    string: " " + title.replacingOccurrences(of: " · ", with: "\u{2002}\u{2002}"),
+                    attributes: [.font: font])
                 MenuLimitColoring.apply(colors, to: colored)
+                MenuProviderIcons.apply(to: colored, parts: parts,
+                                        font: font,
+                                        height: 16, appearance: button.effectiveAppearance)
                 button.attributedTitle = colored
             } else {
                 button.title = title.isEmpty ? "" : " " + title

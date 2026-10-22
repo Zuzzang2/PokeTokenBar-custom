@@ -1267,3 +1267,8 @@ read_when:
   fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
   and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
   Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
+
+
+## Personal menu appearance persistence regression (2026-10-22)
+
+An effectiveAppearance observer invoked applyState, which always called CompanionStore.update/save. AppKit status-button appearance notifications are frequent even without manual theme changes. macOS sampled 74% CPU and 2.15 GB disk writes in 32 minutes through this callback. Renderer-only tests missed the live observation path. Keep appearance handling UI-only; coalesce pending work and compare resolved foreground colors before drawing. Ordinary usage updates keep their persistence behavior. Sweep found the newly added appearance callback as the only presentation observer directly invoking applyState; existing usage observation is intentional. Regression: bash scripts/check-menu-appearance.sh uses the production controller on a real status button, testing 1500 redundant requests, dark transition, normal render invalidation and owner release. Needs a graphical macOS login; no credentials or saved game data are read. Full XCTest remains unavailable in this CLT environment.
