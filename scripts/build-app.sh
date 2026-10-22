@@ -48,6 +48,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>근처 동료와 포켓몬 대결을 하려면 로컬 네트워크 접근이 필요해요.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_ptb-battle._tcp</string>
+        <string>_ptb-battle._udp</string>
+    </array>
 </dict>
 </plist>
 PLIST
