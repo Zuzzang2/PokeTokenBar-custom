@@ -65,7 +65,7 @@ final class CompanionStore {
     /// 상점 배율 — 아이템·알 가격에 곱한다. 낮을수록 싸다.
     private(set) var shopDifficulty: Double
 
-    init(provider: any PokeProviding = PokeAPIClient.shared,
+    init(provider: any PokeProviding = DigimonAwareProvider(inner: PokeAPIClient.shared),
          detailProvider: (any PokemonDetailProviding)? = nil,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
