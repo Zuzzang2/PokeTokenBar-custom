@@ -96,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
+        if ProcessInfo.processInfo.environment["PTB_BATTLE_AUTOOPEN"] == "1" {   // SPIKE: QA entry without the status menu
+            battleWindow.show(companion: companion)
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
