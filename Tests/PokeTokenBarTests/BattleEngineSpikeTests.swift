@@ -51,4 +51,20 @@ final class BattleEngineSpikeTests: XCTestCase {
         let s = BattleEngine.resolve(BattleEngine.initialState(teams), teams: teams, actions: [.move(0), .move(0)], seed: 3)
         XCTAssertEqual(s.winner, 0)
     }
+
+    func testEventsReplayAttackDamageFaintInOrder() {
+        let teams = [[mon("a", types: ["fire"], hp: 150, speed: 90, move: nuke)],
+                     [mon("b", types: ["grass"], hp: 10, speed: 10, move: tackle)]]
+        let s = BattleEngine.resolve(BattleEngine.initialState(teams), teams: teams, actions: [.move(0), .move(0)], seed: 3)
+        let kinds = s.events.compactMap { e -> String? in
+            switch e {
+            case .attack: return "attack"
+            case .damage(let side, let hp, _): return "damage\(side)=\(hp)"
+            case .faint(let side): return "faint\(side)"
+            default: return nil
+            }
+        }
+        XCTAssertEqual(kinds, ["attack", "damage1=0", "faint1"])
+        XCTAssertEqual(s.step, 1)
+    }
 }
