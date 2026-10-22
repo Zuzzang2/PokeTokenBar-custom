@@ -29,11 +29,24 @@ enum BattleAction: Codable, Sendable, Equatable {
     case switchTo(Int)
 }
 
+/// What happened during the last step, in order, so the scene can replay it with animation.
+enum BattleEvent: Sendable, Equatable {
+    case message(String)
+    case switchIn(side: Int, slot: Int)
+    case attack(side: Int)
+    case damage(side: Int, hp: Int, critical: Bool)
+    case miss(side: Int)
+    case faint(side: Int)
+}
+
 struct BattleState: Sendable, Equatable {
     var hp: [[Int]]             // [side][party slot]; side 0 = host, 1 = guest
     var active = [0, 0]
     var turn = 0
+    /// Increments on every resolve/replace; the scene replays `events` when it changes.
+    var step = 0
     var log: [String] = []
+    var events: [BattleEvent] = []
     var winner: Int?
     /// Sides whose active Pokémon fainted and must send in another before the next turn.
     var needsReplacement: [Bool] = [false, false]
@@ -41,6 +54,17 @@ struct BattleState: Sendable, Equatable {
     func activeHP(_ side: Int) -> Int { hp[side][active[side]] }
     func canSwitch(_ side: Int, to slot: Int) -> Bool { slot != active[side] && hp[side][slot] > 0 }
     var awaitingReplacement: Bool { needsReplacement.contains(true) }
+
+    mutating func say(_ text: String) {
+        log.append(text)
+        events.append(.message(text))
+    }
+
+    /// Starts a new step with an empty event list.
+    mutating func beginStep() {
+        step += 1
+        events = []
+    }
 }
 
 /// SplitMix64 — identical sequence on both peers for the same seed.
@@ -68,13 +92,16 @@ enum BattleEngine {
         guard state.winner == nil, !state.awaitingReplacement else { return state }
         var next = state
         next.turn += 1
+        next.beginStep()
         var rng = BattleRNG(seed: seed &+ UInt64(next.turn) &* 0x2545_F491_4F6C_DD1D)
         next.log.append("— \(next.turn)턴 —")
 
         for side in 0..<2 {
             if case .switchTo(let slot) = actions[side], next.canSwitch(side, to: slot) {
-                next.log.append("\(teams[side][next.active[side]].name), 돌아와! 가라, \(teams[side][slot].name)!")
+                next.say("\(teams[side][next.active[side]].name), 돌아와!")
                 next.active[side] = slot
+                next.events.append(.switchIn(side: side, slot: slot))
+                next.say("가라, \(teams[side][slot].name)!")
             }
         }
 
@@ -93,22 +120,26 @@ enum BattleEngine {
             guard next.activeHP(attacker) > 0, next.activeHP(defender) > 0, let move = moves[attacker] else { continue }
             let atkMon = teams[attacker][next.active[attacker]]
             let defMon = teams[defender][next.active[defender]]
-            next.log.append("\(atkMon.name)의 \(move.name)!")
+            next.say("\(atkMon.name)의 \(move.name)!")
+            next.events.append(.attack(side: attacker))
             if let acc = move.accuracy, rng.roll(100) >= acc {
-                next.log.append("공격이 빗나갔다!")
+                next.events.append(.miss(side: defender))
+                next.say("공격이 빗나갔다!")
                 continue
             }
             let hit = damage(attacker: atkMon, defender: defMon, move: move, rng: &rng)
             next.hp[defender][next.active[defender]] = max(0, next.activeHP(defender) - hit.amount)
-            if hit.effectiveness == 0 { next.log.append("효과가 없는 것 같다…") }
-            else if hit.effectiveness > 1 { next.log.append("효과가 굉장했다!") }
-            else if hit.effectiveness < 1 { next.log.append("효과가 별로인 듯하다…") }
-            if hit.critical { next.log.append("급소에 맞았다!") }
+            next.events.append(.damage(side: defender, hp: next.activeHP(defender), critical: hit.critical))
+            if hit.critical { next.say("급소에 맞았다!") }
+            if hit.effectiveness == 0 { next.say("효과가 없는 것 같다…") }
+            else if hit.effectiveness > 1 { next.say("효과가 굉장했다!") }
+            else if hit.effectiveness < 1 { next.say("효과가 별로인 듯하다…") }
             if next.activeHP(defender) == 0 {
-                next.log.append("\(KoreanParticle.subject.attach(to: defMon.name)) 쓰러졌다!")
+                next.events.append(.faint(side: defender))
+                next.say("\(KoreanParticle.subject.attach(to: defMon.name)) 쓰러졌다!")
                 if next.hp[defender].allSatisfy({ $0 == 0 }) {
                     next.winner = attacker
-                    next.log.append("\(atkMon.trainer)의 승리!")
+                    next.say("\(atkMon.trainer)의 승리!")
                 } else {
                     next.needsReplacement[defender] = true
                 }
@@ -120,11 +151,13 @@ enum BattleEngine {
     /// Applies the forced send-ins after a faint. `choices[side]` is ignored for sides that need none.
     static func replace(_ state: BattleState, teams: [[BattleMon]], choices: [Int?]) -> BattleState {
         var next = state
+        next.beginStep()
         for side in 0..<2 where next.needsReplacement[side] {
             guard let slot = choices[side], next.hp[side][slot] > 0 else { continue }
             next.active[side] = slot
             next.needsReplacement[side] = false
-            next.log.append("가라, \(teams[side][slot].name)!")
+            next.events.append(.switchIn(side: side, slot: slot))
+            next.say("가라, \(teams[side][slot].name)!")
         }
         return next
     }
