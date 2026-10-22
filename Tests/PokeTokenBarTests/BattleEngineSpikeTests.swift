@@ -59,7 +59,7 @@ final class BattleEngineSpikeTests: XCTestCase {
         let kinds = s.events.compactMap { e -> String? in
             switch e {
             case .attack: return "attack"
-            case .damage(let side, let hp, _): return "damage\(side)=\(hp)"
+            case .damage(let side, let hp, _, _): return "damage\(side)=\(hp)"
             case .faint(let side): return "faint\(side)"
             default: return nil
             }

@@ -33,8 +33,8 @@ enum BattleAction: Codable, Sendable, Equatable {
 enum BattleEvent: Sendable, Equatable {
     case message(String)
     case switchIn(side: Int, slot: Int)
-    case attack(side: Int)
-    case damage(side: Int, hp: Int, critical: Bool)
+    case attack(side: Int, type: String, physical: Bool)
+    case damage(side: Int, hp: Int, critical: Bool, effectiveness: Double)
     case miss(side: Int)
     case faint(side: Int)
 }
@@ -121,7 +121,7 @@ enum BattleEngine {
             let atkMon = teams[attacker][next.active[attacker]]
             let defMon = teams[defender][next.active[defender]]
             next.say("\(atkMon.name)의 \(move.name)!")
-            next.events.append(.attack(side: attacker))
+            next.events.append(.attack(side: attacker, type: move.type, physical: move.isPhysical))
             if let acc = move.accuracy, rng.roll(100) >= acc {
                 next.events.append(.miss(side: defender))
                 next.say("공격이 빗나갔다!")
@@ -129,7 +129,8 @@ enum BattleEngine {
             }
             let hit = damage(attacker: atkMon, defender: defMon, move: move, rng: &rng)
             next.hp[defender][next.active[defender]] = max(0, next.activeHP(defender) - hit.amount)
-            next.events.append(.damage(side: defender, hp: next.activeHP(defender), critical: hit.critical))
+            next.events.append(.damage(side: defender, hp: next.activeHP(defender), critical: hit.critical,
+                                       effectiveness: hit.effectiveness))
             if hit.critical { next.say("급소에 맞았다!") }
             if hit.effectiveness == 0 { next.say("효과가 없는 것 같다…") }
             else if hit.effectiveness > 1 { next.say("효과가 굉장했다!") }
