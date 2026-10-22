@@ -40,7 +40,7 @@ actor SpriteStore {
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form)
         if let d = mem[key] { touch(key); return d }
         if DigimonCatalog.contains(speciesID) {   // bundled artwork, never fetched
-            guard let file = Bundle.main.resourceURL?.appendingPathComponent("digimon/\(key).png"),
+            guard let file = Bundle.main.resourceURL?.appendingPathComponent("digimon/\(key).\(animated ? "gif" : "png")"),
                   let d = try? Data(contentsOf: file) else { return nil }
             remember(key, d)
             return d

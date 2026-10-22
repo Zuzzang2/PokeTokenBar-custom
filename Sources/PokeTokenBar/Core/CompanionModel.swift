@@ -321,7 +321,7 @@ enum PokemonAssets {
     static let animatedSpeciesIDs = 1...649
 
     static func hasAnimatedSprite(speciesID: Int) -> Bool {
-        animatedSpeciesIDs.contains(speciesID)
+        animatedSpeciesIDs.contains(speciesID) || DigimonCatalog.contains(speciesID)
     }
 }
 
@@ -344,7 +344,7 @@ struct EvoNode: Codable, Sendable {
 
     /// 서비스에 GIF 에셋이 있는 종만 남긴 진화 트리. 지원하지 않는 종부터 그 하위 체인도 제외한다.
     func keepingAnimatedSprites() -> EvoNode? {
-        guard PokemonAssets.hasAnimatedSprite(speciesID: speciesID) || DigimonCatalog.contains(speciesID) else { return nil }
+        guard PokemonAssets.hasAnimatedSprite(speciesID: speciesID) else { return nil }
         return EvoNode(speciesID: speciesID, children: children.compactMap { $0.keepingAnimatedSprites() })
     }
 }
