@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-// SPIKE: standalone battle window opened from the status item menu.
+// SPIKE: standalone plaza/battle window opened from the status item menu.
 
 @MainActor
 final class BattleWindowController {
     private var window: NSWindow?
-    private var session: BattleSession?
+    private var session: PlazaSession?
 
     func show(companion: CompanionStore) {
         if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(); return }
@@ -32,8 +32,8 @@ final class BattleWindowController {
 
 private struct BattleRootView: View {
     let companion: CompanionStore
-    let onSession: (BattleSession) -> Void
-    @State private var session: BattleSession?
+    let onSession: (PlazaSession) -> Void
+    @State private var session: PlazaSession?
     @State private var candidates: [BattleCandidate] = []
     @State private var selected: [String] = []      // party order = tap order
     @State private var preparing = false
@@ -42,7 +42,7 @@ private struct BattleRootView: View {
     var body: some View {
         Group {
             if let session {
-                BattleSessionView(session: session)
+                PlazaRootView(plaza: session)
             } else if preparing {
                 ProgressView("파티 준비 중…")
             } else {
@@ -82,7 +82,7 @@ private struct BattleRootView: View {
                     }
                 }
             }
-            Button("이 파티로 대결 로비 입장") { Task { await enterLobby() } }
+            Button("이 파티로 광장 입장") { Task { await enterLobby() } }
                 .buttonStyle(.borderedProminent)
                 .disabled(selected.isEmpty)
                 .frame(maxWidth: .infinity)
@@ -104,7 +104,7 @@ private struct BattleRootView: View {
             let picks = selected.compactMap { id in candidates.first { $0.id == id } }
             var team: [BattleMon] = []
             for pick in picks { team.append(try await BattleMonBuilder.build(pick, trainer: trainer)) }
-            let s = BattleSession(me: team)
+            let s = PlazaSession(team: team)
             onSession(s)
             session = s
         } catch {
@@ -113,110 +113,7 @@ private struct BattleRootView: View {
     }
 }
 
-private struct BattleSessionView: View {
-    let session: BattleSession
-    @State private var isPlaying = false
-
-    var body: some View {
-        VStack(spacing: 12) {
-            switch session.phase {
-            case .lobby, .connecting: lobby
-            case .battling, .finished, .disconnected: battle
-            }
-        }
-        .padding(16)
-    }
-
-    private var lobby: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("내 파티").font(.headline)
-            HStack {
-                ForEach(Array(session.me.enumerated()), id: \.offset) { _, mon in
-                    SpriteThumb(speciesID: mon.speciesID, shiny: mon.isShiny).frame(width: 48, height: 48)
-                }
-            }
-            if let inviter = session.pendingInviter {
-                GroupBox {
-                    VStack(alignment: .leading) {
-                        Text("\(KoreanParticle.subject.attach(to: inviter.displayName)) 대결을 신청했어요!").bold()
-                        HStack {
-                            Button("수락") { session.answerInvite(true) }.keyboardShortcut(.defaultAction)
-                            Button("거절") { session.answerInvite(false) }
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            Text(session.status).foregroundStyle(.secondary).font(.caption)
-            Text("근처 트레이너").font(.headline)
-            if session.nearby.isEmpty {
-                Text("아직 아무도 없어요. 상대도 이 창에서 로비에 들어와야 보여요.").foregroundStyle(.secondary)
-            }
-            ForEach(session.nearby, id: \.self) { peer in
-                HStack {
-                    Text(peer.displayName).lineLimit(1)
-                    Spacer()
-                    Button("대결 신청") { session.invite(peer) }.disabled(session.phase != .lobby)
-                }
-            }
-            Spacer()
-        }
-    }
-
-    private var battle: some View {
-        VStack(spacing: 10) {
-            if let theirs = session.theirTeam, let mine = session.myTeam, let state = session.state {
-                let me = session.myIndex
-                let teams = me == 0 ? [mine, theirs] : [theirs, mine]
-                BattleSceneView(session: session, state: state, teams: teams, isPlaying: $isPlaying)
-                if session.phase == .battling && !isPlaying {
-                    if session.mustReplace {
-                        Text("다음 포켓몬을 고르세요").bold()
-                        switchRow(mine: mine, state: state, me: me) { session.replace(with: $0) }
-                    } else if !state.awaitingReplacement {
-                        LazyVGrid(columns: [GridItem(), GridItem()]) {
-                            ForEach(Array(mine[state.active[me]].moves.enumerated()), id: \.offset) { i, move in
-                                Button { session.act(.move(i)) } label: {
-                                    VStack {
-                                        Text(move.name).bold()
-                                        Text("\(move.type) · 위력 \(move.power)").font(.caption2)
-                                    }.frame(maxWidth: .infinity)
-                                }
-                                .tint(BadgeTint.type(PokemonType(apiName: move.type)).color)
-                                .buttonStyle(.borderedProminent)
-                                .disabled(session.waitingForOpponent)
-                            }
-                        }
-                        if mine.count > 1 {
-                            Text("교체").font(.caption).foregroundStyle(.secondary)
-                            switchRow(mine: mine, state: state, me: me) { session.act(.switchTo($0)) }
-                                .disabled(session.waitingForOpponent)
-                        }
-                    }
-                    if session.waitingForOpponent { Text("상대의 선택을 기다리는 중…").font(.caption).foregroundStyle(.secondary) }
-                }
-            }
-            if !session.status.isEmpty && !isPlaying { Text(session.status).font(.title2).bold() }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func switchRow(mine: [BattleMon], state: BattleState, me: Int, pick: @escaping (Int) -> Void) -> some View {
-        HStack {
-            ForEach(Array(mine.enumerated()), id: \.offset) { slot, mon in
-                Button { pick(slot) } label: {
-                    VStack(spacing: 0) {
-                        SpriteThumb(speciesID: mon.speciesID, shiny: mon.isShiny).frame(width: 36, height: 36)
-                        Text("\(state.hp[me][slot])").font(.caption2.monospacedDigit())
-                    }
-                }
-                .disabled(!state.canSwitch(me, to: slot))
-                .opacity(state.hp[me][slot] == 0 ? 0.3 : 1)
-            }
-        }
-    }
-}
-
-private struct SpriteThumb: View {
+struct SpriteThumb: View {
     let speciesID: Int
     let shiny: Bool
     @State private var sprite: NSImage?
