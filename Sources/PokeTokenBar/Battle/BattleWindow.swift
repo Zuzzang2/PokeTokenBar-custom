@@ -78,20 +78,22 @@ private struct BattleRootView: View {
                 Text("\(nickname.count)/\(BattleMonBuilder.maxNicknameLength)").font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 10) {
-                ForEach(BattleArt.trainerDesigns, id: \.self) { design in
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                ForEach(BattleArt.trainerDesigns.filter { BattleArt.trainerFrame(design: $0, facing: .down, step: 0) != nil },
+                        id: \.self) { design in
                     Button { trainerDesign = design } label: {
                         VStack(spacing: 2) {
                             if let frame = BattleArt.trainerFrame(design: design, facing: .down, step: 0) {
-                                Image(nsImage: frame.image).interpolation(.high).resizable().frame(width: 45, height: 48)
+                                Image(nsImage: frame.image).interpolation(.high).resizable().scaledToFit().frame(height: 40)
                             }
                             Text(BattleArt.trainerDesignNames[design] ?? design).font(.caption)
                         }
-                        .padding(6)
+                        .frame(maxWidth: .infinity)
+                        .padding(4)
                         .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(trainerDesign == design ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08)))
-                        .overlay(RoundedRectangle(cornerRadius: 8)
-                            .stroke(trainerDesign == design ? Color.accentColor : .clear, lineWidth: 2))
+                            .fill(trainerDesign == design ? Color.blue.opacity(0.22) : Color.secondary.opacity(0.08)))
+                        .overlay(RoundedRectangle(cornerRadius: 8)   // fixed color: accentColor greys out in inactive windows
+                            .stroke(trainerDesign == design ? Color.blue : .clear, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
                 }
