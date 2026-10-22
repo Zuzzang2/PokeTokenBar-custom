@@ -13,8 +13,9 @@ final class BattleWindowController {
         let host = NSHostingController(rootView: BattleRootView(companion: companion) { [weak self] in self?.session = $0 })
         let window = NSWindow(contentViewController: host)
         window.title = "포켓몬 대결 (테스트)"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 432, height: 640))
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.setContentSize(NSSize(width: 760, height: 760))
+        window.contentMinSize = NSSize(width: 432, height: 640)
         window.isReleasedWhenClosed = false
         window.center()
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
@@ -56,7 +57,7 @@ private struct BattleRootView: View {
                 partyPicker
             }
         }
-        .frame(width: 432, height: 640)
+        .frame(minWidth: 432, maxWidth: .infinity, minHeight: 640, maxHeight: .infinity)
         .onAppear {
             let owned = BattleMonBuilder.candidates(companion: companion)
             candidates = owned.isEmpty ? BattleMonBuilder.randomCandidates() : owned

@@ -19,6 +19,17 @@ struct PlazaRootView: View {
     }
 }
 
+/// The plaza keeps its 400×267 logical space (shared with every peer); the view zooms it to fit.
+enum PlazaLayout {
+    /// Largest zoom that fits `available` after leaving `reservedHeight` for header and chat; never below 1.
+    static func scale(available: CGSize, reservedHeight: CGFloat) -> CGFloat {
+        let size = PlazaSession.size
+        let byWidth = available.width / size.width
+        let byHeight = (available.height - reservedHeight) / size.height
+        return max(1, min(byWidth, byHeight))
+    }
+}
+
 private struct PlazaView: View {
     let plaza: PlazaSession
     @State private var selected: String?
@@ -26,6 +37,14 @@ private struct PlazaView: View {
     @FocusState private var fieldAreaFocused: Bool
 
     var body: some View {
+        GeometryReader { geo in
+            let k = PlazaLayout.scale(available: CGSize(width: geo.size.width - 32, height: geo.size.height - 32),
+                                      reservedHeight: 190)
+            content(scale: k).padding(16)
+        }
+    }
+
+    private func content(scale k: CGFloat) -> some View {
         VStack(spacing: 8) {
             header
             ZStack(alignment: .topLeading) {
@@ -51,7 +70,9 @@ private struct PlazaView: View {
                 }
             }
             .frame(width: PlazaSession.size.width, height: PlazaSession.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .scaleEffect(k, anchor: .topLeading)          // zoom the shared 400×267 space to the window
+            .frame(width: PlazaSession.size.width * k, height: PlazaSession.size.height * k, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: 10 * k))
             .focusable()
             .focusEffectDisabled()
             .focused($fieldAreaFocused)
@@ -73,7 +94,8 @@ private struct PlazaView: View {
             }
             chatPanel
         }
-        .padding(16)
+        .frame(width: PlazaSession.size.width * k)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var header: some View {
@@ -90,7 +112,7 @@ private struct PlazaView: View {
                     .font(.caption2.monospacedDigit()).offset(y: 12)
             }
         }
-        .frame(width: PlazaSession.size.width)
+        .frame(maxWidth: .infinity)
     }
 
     private func challengeCard(_ player: PlazaPlayer) -> some View {
@@ -120,7 +142,7 @@ private struct PlazaView: View {
             Button("거절") { plaza.answerChallenge(false) }
         }
         .padding(10)
-        .frame(width: PlazaSession.size.width)
+        .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.18)))
     }
 
@@ -154,7 +176,7 @@ private struct PlazaView: View {
                 Button("보내기") { plaza.say(draft); draft = "" }.disabled(draft.isEmpty)
             }
         }
-        .frame(width: PlazaSession.size.width)
+        .frame(maxWidth: .infinity)
     }
 }
 
