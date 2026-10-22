@@ -31,18 +31,23 @@ private struct PlazaView: View {
             ZStack(alignment: .topLeading) {
                 PlazaBackdrop()
                     .onTapGesture { selected = nil; fieldAreaFocused = true }   // walking needs key focus
-                ForEach(plaza.everyone.sorted { $0.y < $1.y }) { player in   // nearer = drawn on top
+                ForEach(plaza.everyone.sorted { $0.followerY < $1.followerY }) { player in
+                    Follower(player: player)
+                        .position(x: player.followerX, y: player.followerY)
+                        .zIndex(player.followerY)
+                }
+                ForEach(plaza.everyone) { player in
                     Avatar(player: player, isMe: player.id == plaza.me.id, isSelected: selected == player.id)
-                        .position(x: player.x, y: player.y)
-                        .animation(player.id == plaza.me.id ? nil : .linear(duration: 0.12), value: player.x)
-                        .animation(player.id == plaza.me.id ? nil : .linear(duration: 0.12), value: player.y)
+                        .position(x: player.shownX, y: player.shownY)
+                        .zIndex(player.shownY + 0.5)      // nearer = drawn on top, followers included
                         .onTapGesture {
                             if player.id != plaza.me.id { selected = selected == player.id ? nil : player.id }
                             fieldAreaFocused = true
                         }
                 }
                 if let id = selected, let player = plaza.players[id] {
-                    challengeCard(player).position(x: min(310, max(90, player.x)), y: max(55, player.y - 85))
+                    challengeCard(player).position(x: min(310, max(90, player.shownX)), y: max(55, player.shownY - 85))
+                        .zIndex(10_000)
                 }
             }
             .frame(width: PlazaSession.size.width, height: PlazaSession.size.height)
@@ -50,16 +55,17 @@ private struct PlazaView: View {
             .focusable()
             .focusEffectDisabled()
             .focused($fieldAreaFocused)
-            .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
-                let step = 7.0
-                switch press.key {
-                case .upArrow: plaza.walk(dx: 0, dy: -step)
-                case .downArrow: plaza.walk(dx: 0, dy: step)
-                case .leftArrow: plaza.walk(dx: -step, dy: 0)
-                default: plaza.walk(dx: step, dy: 0)
+            .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: [.down, .repeat, .up]) { press in
+                let direction: PlazaFacing = switch press.key {
+                case .upArrow: .up
+                case .downArrow: .down
+                case .leftArrow: .left
+                default: .right
                 }
+                plaza.setKey(direction, pressed: press.phase != .up)   // held keys; the ticker moves
                 return .handled
             }
+            .onChange(of: fieldAreaFocused) { if !fieldAreaFocused { plaza.releaseAllKeys() } }
             .onAppear { fieldAreaFocused = true }
 
             if let id = plaza.incomingChallenge, let player = plaza.players[id] {
@@ -76,6 +82,13 @@ private struct PlazaView: View {
             Text("\(plaza.everyone.count)/\(PlazaSession.capacity)명").font(.caption).foregroundStyle(.secondary)
             Spacer()
             Text("방향키로 이동 · 상대를 눌러 대결 신청").font(.caption).foregroundStyle(.secondary)
+        }
+        .overlay(alignment: .bottomLeading) {
+            if ProcessInfo.processInfo.environment["PTB_PLAZA_DEBUG"] == "1" {   // SPIKE: QA readout
+                Text("pos " + plaza.everyone.map { "\(Int($0.x)),\(Int($0.y))/\(Int($0.shownX)),\(Int($0.shownY))" }
+                    .joined(separator: " | "))
+                    .font(.caption2.monospacedDigit()).offset(y: 12)
+            }
         }
         .frame(width: PlazaSession.size.width)
     }
@@ -145,46 +158,27 @@ private struct PlazaView: View {
     }
 }
 
-/// One trainer on the plaza: walking trainer sprite, lead Pokémon following behind, name tag,
-/// chat bubble and busy badge, centered on the player's position.
+/// One trainer on the plaza: walking trainer sprite, name tag, chat bubble and busy badge,
+/// centered on the player's drawn position. The lead Pokémon is a separate `Follower`.
 private struct Avatar: View {
     let player: PlazaPlayer
     let isMe: Bool
     let isSelected: Bool
 
-    /// Follower sits one step behind the trainer, opposite to where they face.
-    private var followerOffset: CGSize {
-        switch player.facing {
-        case .down: CGSize(width: 22, height: -10)     // diagonal so it peeks out from behind
-        case .up: CGSize(width: -22, height: 8)
-        case .left: CGSize(width: 28, height: 0)
-        case .right: CGSize(width: -28, height: 0)
-        }
-    }
-
     var body: some View {
-        ZStack {
-            if player.facing == .down { follower }          // behind the trainer
-            trainer
-            if player.facing != .down { follower }
-        }
-        .frame(width: 90, height: 90)
-        .overlay(alignment: .bottom) { nameTag.offset(y: 14) }
-        .overlay(alignment: .top) { topBadge.offset(y: -26) }
-        .contentShape(Rectangle().inset(by: 22))      // just the trainer, so neighbours don't steal clicks
-    }
-
-    private var follower: some View {
-        SpriteView(speciesID: player.profile.speciesID, size: 34, animated: true, shiny: player.profile.shiny)
-            .scaleEffect(x: player.facing == .left ? 1 : -1)
-            .offset(x: followerOffset.width, y: 26 + followerOffset.height)
-            .animation(.easeOut(duration: 0.25), value: player.facing)
+        trainer
+            .frame(width: 90, height: 90)
+            .overlay(alignment: .bottom) { nameTag.offset(y: 14) }
+            .overlay(alignment: .top) { topBadge.offset(y: -26) }
+            .contentShape(Rectangle().inset(by: 22))      // just the trainer, so neighbours don't steal clicks
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("트레이너 \(player.profile.trainer) 위치 \(Int(player.shownX)),\(Int(player.shownY))")
     }
 
     @ViewBuilder
     private var trainer: some View {
         let design = BattleArt.design(for: player.profile)
-        if let frame = BattleArt.trainerFrame(design: design, facing: player.facing, step: player.step / 2) {
+        if let frame = BattleArt.trainerFrame(design: design, facing: player.facing, step: player.walkFrame) {
             Image(nsImage: frame.image).interpolation(.high).resizable()
                 .frame(width: frame.image.size.width * 0.75, height: frame.image.size.height * 0.75)
                 .scaleEffect(x: frame.mirrored ? -1 : 1)
@@ -222,6 +216,18 @@ private struct Avatar: View {
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Capsule().fill(Color.orange))
         }
+    }
+}
+
+/// The lead Pokémon trailing its trainer; positioned by `PlazaMotion`, drawn at feet level.
+private struct Follower: View {
+    let player: PlazaPlayer
+
+    var body: some View {
+        SpriteView(speciesID: player.profile.speciesID, size: 34, animated: true, shiny: player.profile.shiny)
+            .scaleEffect(x: player.facing == .left ? 1 : -1)
+            .offset(y: 26)
+            .allowsHitTesting(false)
     }
 }
 

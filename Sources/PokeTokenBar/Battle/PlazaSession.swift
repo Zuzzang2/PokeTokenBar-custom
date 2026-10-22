@@ -30,12 +30,31 @@ enum PlazaMessage: Codable, Sendable {
 struct PlazaPlayer: Identifiable, Equatable {
     var id: String { profile.id }
     let profile: PlazaProfile
-    var x: Double
+    var x: Double               // authoritative position (own input, or last network update)
     var y: Double
+    var shownX: Double          // drawn position; eases toward x/y for remote players
+    var shownY: Double
+    var followerX: Double       // lead Pokémon trailing behind
+    var followerY: Double
     var facing: PlazaFacing = .down
-    var step = 0                // walking frame toggle
+    var walked = 0.0            // distance walked; drives the walking frames
+    var moving = false
     var busy = false
     var bubble: String?
+
+    init(profile: PlazaProfile, x: Double, y: Double, busy: Bool = false) {
+        self.profile = profile
+        self.x = x
+        self.y = y
+        shownX = x
+        shownY = y
+        let behind = PlazaMotion.offset(.down)
+        followerX = x - behind.width
+        followerY = y - behind.height
+        self.busy = busy
+    }
+
+    var walkFrame: Int { moving ? Int(walked / PlazaMotion.stepLength) % 2 : 0 }
 }
 
 struct ChatLine: Identifiable, Equatable {
@@ -49,10 +68,10 @@ struct ChatLine: Identifiable, Equatable {
 final class PlazaSession: NSObject {
     static let serviceType = "ptb-battle"
     static let capacity = 8
-    static let size = CGSize(width: 400, height: 267)   // plaza art is 3:2
+    nonisolated static let size = CGSize(width: 400, height: 267)   // plaza art is 3:2
 
     /// Paved area and the fountain in the middle of the plaza art (fractions of `size`).
-    static func isWalkable(x: Double, y: Double) -> Bool {
+    nonisolated static func isWalkable(x: Double, y: Double) -> Bool {
         let w = size.width, h = size.height
         guard x > w * 0.08, x < w * 0.92, y > h * 0.40, y < h * 0.86 else { return false }
         let fx = (x - w * 0.5) / (w * 0.13), fy = (y - h * 0.54) / (h * 0.12)
@@ -74,6 +93,12 @@ final class PlazaSession: NSObject {
     private let browser: MCNearbyServiceBrowser
     private var peers: [String: MCPeerID] = [:]      // plaza ID → peer
     private var lastPositionSent = Date.distantPast
+    private var heldKeys: Set<PlazaFacing> = []
+    private var pressedAt: [PlazaFacing: Date] = [:]
+    private var pendingRelease: Set<PlazaFacing> = []
+    /// Keeps App Nap from throttling the 60 fps ticker while the plaza is open.
+    private var activity: NSObjectProtocol?
+    private var ticker: Task<Void, Never>?
 
     init(team: [BattleMon], trainerDesign: String) {
         self.team = team
@@ -92,9 +117,15 @@ final class PlazaSession: NSObject {
         browser.delegate = self
         advertiser.startAdvertisingPeer()
         browser.startBrowsingForPeers()
+        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                        reason: "Plaza movement and interpolation")
+        startTicker()
     }
 
     func stop() {
+        ticker?.cancel()
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
         advertiser.stopAdvertisingPeer()
         browser.stopBrowsingForPeers()
         session.disconnect()
@@ -105,17 +136,64 @@ final class PlazaSession: NSObject {
 
     // MARK: - Actions
 
-    func walk(dx: Double, dy: Double) {
-        guard match == nil else { return }
-        let facing: PlazaFacing = dx < 0 ? .left : dx > 0 ? .right : dy < 0 ? .up : .down
-        let x = me.x + dx, y = me.y + dy
-        let moves = Self.isWalkable(x: x, y: y)
-        me = PlazaPlayer(profile: me.profile, x: moves ? x : me.x, y: moves ? y : me.y,
-                         facing: facing, step: me.step + 1, busy: me.busy, bubble: me.bubble)
-        if Date().timeIntervalSince(lastPositionSent) > 0.06 {
+    /// A tap still walks one short step: a key counts as held for at least `minimumHold` seconds.
+    static let minimumHold = 0.12
+
+    func setKey(_ direction: PlazaFacing, pressed: Bool) {
+        if pressed {
+            // A new press (not a key repeat) restarts the hold, cancelling a pending tap release.
+            if !heldKeys.contains(direction) || pendingRelease.contains(direction) {
+                pressedAt = pressedAt.merging([direction: Date()]) { _, new in new }
+                pendingRelease = pendingRelease.subtracting([direction])
+            }
+            heldKeys = heldKeys.union([direction])
+            return
+        }
+        let heldFor = Date().timeIntervalSince(pressedAt[direction] ?? .distantPast)
+        let remaining = Self.minimumHold - heldFor
+        guard remaining > 0 else { heldKeys = heldKeys.subtracting([direction]); return }
+        let pressStart = pressedAt[direction]
+        pendingRelease = pendingRelease.union([direction])
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard let self, self.pendingRelease.contains(direction), self.pressedAt[direction] == pressStart else { return }
+            self.pendingRelease = self.pendingRelease.subtracting([direction])
+            self.heldKeys = self.heldKeys.subtracting([direction])
+        }
+    }
+
+    func releaseAllKeys() { heldKeys = [] }
+
+    /// One frame of motion for everyone, ~60 times a second while the plaza is open.
+    private func startTicker() {
+        ticker = Task { [weak self] in
+            var last = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(16))
+                let now = Date()
+                self?.tick(dt: min(0.05, now.timeIntervalSince(last)))
+                last = now
+            }
+        }
+    }
+
+    private func tick(dt: Double) {
+        let wasMoving = me.moving
+        let held = match == nil ? heldKeys : []
+        if held.isEmpty == false || me.moving || me.followerX != me.shownX - PlazaMotion.offset(me.facing).width {
+            me = PlazaMotion.walk(me, held: held, dt: dt)
+        }
+        if me.moving, Date().timeIntervalSince(lastPositionSent) > 1.0 / 15 {
             lastPositionSent = Date()
             broadcast(.position(x: me.x, y: me.y), reliable: false)
+        } else if wasMoving, !me.moving {
+            broadcast(.position(x: me.x, y: me.y), reliable: true)   // land exactly where we stopped
         }
+        let settled = players.values.allSatisfy { p in
+            !p.moving && p.shownX == p.x && p.shownY == p.y
+                && abs(p.followerX - (p.shownX - PlazaMotion.offset(p.facing).width)) < 0.3
+        }
+        if !settled { players = players.mapValues { PlazaMotion.follow($0, dt: dt) } }
     }
 
     func say(_ text: String) {
@@ -157,7 +235,7 @@ final class PlazaSession: NSObject {
     }
 
     private func setBusy(_ busy: Bool) {
-        me = PlazaPlayer(profile: me.profile, x: me.x, y: me.y, facing: me.facing, step: me.step, busy: busy, bubble: me.bubble)
+        update(me.id) { $0.busy = busy }
         broadcast(.busy(busy), reliable: true)
     }
 
@@ -228,12 +306,7 @@ final class PlazaSession: NSObject {
         switch message {
         case .presence: break
         case .position(let x, let y):
-            update(id) { p in
-                let dx = x - p.x, dy = y - p.y
-                if dx != 0 || dy != 0 {
-                    p.facing = abs(dx) >= abs(dy) ? (dx < 0 ? .left : .right) : (dy < 0 ? .up : .down)
-                    p.step += 1
-                }
+            update(id) { p in   // target only; the ticker eases the drawn position toward it
                 p.x = x
                 p.y = y
             }
