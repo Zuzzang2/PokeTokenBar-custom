@@ -1106,6 +1106,17 @@ struct L {
     var dexStored: String { t("보관 중", "In box", "あずけ中", "En la caja", "Dans la boîte", "Na caixa", "In der Box", "В боксе") }
     /// 보관한 개체를 다시 키우는 버튼(포획 로그 행·상세 화면). 누르면 지금 포켓몬과 자리를 바꾼다.
     var raiseStored: String { t("내 포켓몬으로 등록", "Raise this one", "この子を育てる", "Criar a este", "Élever celui-ci", "Treinar este", "Dieses aufziehen", "Растить этого") }
+    /// 졸업 후 컬렉션에서 데려온 동료의 홈 화면 — 성장 막대 자리에 둔다(더 자라지 않는 이유).
+    var graduatedPartnerNote: String {
+        t("졸업한 포켓몬이라 더 이상 자라지 않아요.",
+          "Already graduated, so it won't grow any further.",
+          "卒業したポケモンなので、これ以上は育ちません。",
+          "Ya se graduó, así que no crecerá más.",
+          "Déjà diplômé, il ne grandira plus.",
+          "Já se formou, então não cresce mais.",
+          "Aufzucht abgeschlossen, es wächst nicht weiter.",
+          "Уже выпущен, больше не растёт.")
+    }
     /// 알을 품는 동안 교체 버튼이 비활성인 이유 — 품은 알(산 보증 포함)을 지키려고 막는다.
     var raiseStoredLockedHint: String {
         t("지금 품고 있는 알이 부화하면 바꿀 수 있어요.",

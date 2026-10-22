@@ -21,7 +21,7 @@ struct RecapContent {
         self.calendar = calendar
         let period = RecapPeriod(scope: scope, containing: now, calendar: calendar)
             .shifted(by: offset, calendar: calendar)
-        recap = UsageRecap.make(ledger: store.dailyLedger, dex: companion.state.dex, period: period,
+        recap = UsageRecap.make(ledger: store.dailyLedger, dex: companion.recordedDex, period: period,
                                 now: now, calendar: calendar)
         // The Pokémon being raised right now, not the pinned representative: the recap is about
         // usage that just happened, so it shows who lived it.

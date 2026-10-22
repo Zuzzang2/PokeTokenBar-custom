@@ -468,6 +468,10 @@ struct MonState: Codable, Sendable {
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
+    /// 졸업한 개체가 컬렉션에서 동료로 돌아왔는가. 성장이 끝난 상태라 다시 졸업하지 않고(사용량은 지갑에만
+    /// 쌓인다), 다른 개체와 바꾸면 원래 졸업 기록으로 되돌아간다 — `graduatedAt` 은 그 기록의 졸업 시각.
+    var isGraduate = false
+    var graduatedAt: Date?
     /// 화면에 이로치로 보여도 되는가 — 위장 중 메타몽은 리빌 전까지 숨긴다. 표시 경로는 전부 이것만 쓴다.
     var displaysShiny: Bool { isShiny && (dittoDisguise == nil || dittoRevealed) }
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
@@ -483,7 +487,8 @@ struct MonState: Codable, Sendable {
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
          profile: PokemonProfile? = nil, hasGrowthBoost: Bool = false,
-         dittoDisguise: Int? = nil, dittoRevealed: Bool = false, form: PokemonForm? = nil) {
+         dittoDisguise: Int? = nil, dittoRevealed: Bool = false, form: PokemonForm? = nil,
+         isGraduate: Bool = false, graduatedAt: Date? = nil) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         if let plannedPathIDs, !plannedPathIDs.isEmpty {
@@ -502,6 +507,8 @@ struct MonState: Codable, Sendable {
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
         self.form = PokemonForm.resolved(baseID: baseID, form: form)
+        self.isGraduate = isGraduate
+        self.graduatedAt = graduatedAt
     }
 
     // 하위호환 디코딩: 구버전 저장에 없는 부화 속성은 기본값.
@@ -531,6 +538,8 @@ struct MonState: Codable, Sendable {
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
         form = PokemonForm.resolved(baseID: baseID, form: PokemonForm.decoded(from: decoder, keys: "form", "unownForm"))
+        isGraduate = try c.decodeIfPresent(Bool.self, forKey: .isGraduate) ?? false
+        graduatedAt = try c.decodeIfPresent(Date.self, forKey: .graduatedAt)
     }
 }
 

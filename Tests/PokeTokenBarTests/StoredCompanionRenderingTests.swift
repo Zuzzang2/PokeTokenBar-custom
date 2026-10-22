@@ -11,9 +11,14 @@ private let storedRenderNames: [Int: [String: String]] = [
 ]
 
 private struct StoredRenderProvider: PokeProviding, PokemonDetailProviding {
+    private static let chains: [Int: [Int]] = [1: [1, 2, 3], 172: [172, 25], 399: [399, 400]]
+
     func line(baseSpeciesID: Int) async throws -> EvoLine {
-        EvoLine(baseID: baseSpeciesID, tree: EvoNode(speciesID: baseSpeciesID, children: []),
-                rarity: .common, names: storedRenderNames)
+        let chain = Self.chains[baseSpeciesID] ?? [baseSpeciesID]
+        let tree = chain.reversed().reduce(nil as EvoNode?) { child, id in
+            EvoNode(speciesID: id, children: child.map { [$0] } ?? [])
+        }!
+        return EvoLine(baseID: baseSpeciesID, tree: tree, rarity: .common, names: storedRenderNames)
     }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
@@ -44,14 +49,20 @@ final class StoredCompanionRenderingTests: XCTestCase {
                 let navigation = PopoverNavigation()
                 navigation.showingCollectionLog = true
                 try capture(CollectionView(store: store, navigation: navigation),
-                                  to: directory.appendingPathComponent("\(prefix)-log.png"))
+                            to: directory.appendingPathComponent("\(prefix)-log.png"))
                 let bidoof = try XCTUnwrap(store.dexSpecies.first { $0.id == 399 })
                 await store.loadPokemonDetails(speciesID: 399)
                 try capture(PokemonDetailView(store: store, species: bidoof, onBack: {}),
-                                  to: directory.appendingPathComponent("\(prefix)-detail.png"))
+                            to: directory.appendingPathComponent("\(prefix)-detail.png"))
                 if !incubating {
                     try capture(ShopView(store: store, nav: PopoverNavigation()),
-                                      to: directory.appendingPathComponent("\(prefix)-shop.png"))
+                                to: directory.appendingPathComponent("\(prefix)-shop.png"))
+                    // 졸업분(이상해씨 라인)을 동료로 데려온 홈 — 성장 막대 대신 졸업 완료 안내.
+                    XCTAssertTrue(store.raiseStored("grad"))
+                    // The title and "final form" need the evolution line, which loads in a task.
+                    for _ in 0..<200 where store.currentLine == nil { try await Task.sleep(for: .milliseconds(10)) }
+                    try capture(CompanionHeader(store: store),
+                                to: directory.appendingPathComponent("\(prefix)-home-graduate.png"))
                 }
             }
         }

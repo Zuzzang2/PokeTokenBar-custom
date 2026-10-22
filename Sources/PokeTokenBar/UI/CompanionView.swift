@@ -736,13 +736,20 @@ struct CompanionHeader: View {
                                     .fixedSize()
                             }
                         }
-                        LabeledProgressBar(value: store.progress,
-                                           label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
-                                                                      total: store.threshold))
-                        if store.tokensToNext > 0 {
-                            let amount = TokenFormatter.compact(store.tokensToNext)
-                            Text(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
+                        if store.isGraduatedPartner {
+                            // 졸업 후 돌아온 동료 — 채울 막대가 없다(다시 졸업하지 않는다).
+                            Text(store.l.graduatedPartnerNote)
                                 .font(.caption2).foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            LabeledProgressBar(value: store.progress,
+                                               label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
+                                                                          total: store.threshold))
+                            if store.tokensToNext > 0 {
+                                let amount = TokenFormatter.compact(store.tokensToNext)
+                                Text(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
                     } else {
                         // 알 인큐베이션 — 부화까지 진행 (임박 시 문구·색 전환)
@@ -1238,7 +1245,7 @@ struct CollectionView: View {
     }
 }
 
-/// 보관한 개체를 다시 내 포켓몬으로 — 포획 로그 행과 상세 화면이 같은 버튼을 쓴다.
+/// 보관·졸업한 개체를 다시 내 포켓몬으로 — 포획 로그 행과 상세 화면이 같은 버튼을 쓴다.
 /// 알을 품는 동안은 비활성(`canRaiseStored`)이고 이유는 툴팁으로 알린다. 성공하면 `onRaised`
 /// (홈으로 이동)로 방금 데려온 포켓몬을 보여준다 — 상점 알·가방 사용과 같은 패턴.
 @MainActor
@@ -1773,8 +1780,10 @@ struct PokemonDetailView: View {
                 }
                 if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                 if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
-                let stored = individual.flatMap { store.isStored($0) ? $0 : nil }
-                if stored != nil { Text(store.l.dexStored).font(.callout).foregroundStyle(.secondary) }
+                if let individual, store.isStored(individual) {
+                    Text(store.l.dexStored).font(.callout).foregroundStyle(.secondary)
+                }
+                let raisable = individual.flatMap { store.isRaisable($0) ? $0 : nil }
                 let isRepresentative = store.isRepresentative(species)
                 HStack(spacing: 6) {
                     RepresentativeFooterButton(localization: store.l,
@@ -1782,11 +1791,11 @@ struct PokemonDetailView: View {
                         _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
                                                              form: species.form)
                     }
-                    if let stored {
-                        RaiseStoredButton(store: store, entryID: stored.id, onRaised: onRaised)
+                    if let raisable {
+                        RaiseStoredButton(store: store, entryID: raisable.id, onRaised: onRaised)
                     }
                 }
-                if stored != nil, !store.canRaiseStored {
+                if raisable != nil, !store.canRaiseStored {
                     Text(store.l.raiseStoredLockedHint)
                         .font(.caption2).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2132,7 +2141,7 @@ private struct DexEntryRow: View {
                         maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, form: entry.form,
                         nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
                         dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry)
-            if store.isStored(entry) {
+            if store.isRaisable(entry) {
                 HStack(spacing: 6) {
                     if let caughtAt = entry.caughtAt {
                         Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)

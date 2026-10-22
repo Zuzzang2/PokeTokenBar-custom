@@ -9,6 +9,20 @@ private struct StorageNoProvider: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
 }
 
+/// base → base+1 → base+2 의 3형태 라인 — 졸업분 `grad`(1→2→3)와 활성(10→11→12)에 맞는다.
+/// 라인이 로드돼야 `applyUsage` 의 진화·졸업 판정이 실제로 돈다.
+private struct StorageLineProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        EvoLine(baseID: baseSpeciesID,
+                tree: EvoNode(speciesID: baseSpeciesID, children: [
+                    EvoNode(speciesID: baseSpeciesID + 1, children: [
+                        EvoNode(speciesID: baseSpeciesID + 2, children: [])])]),
+                rarity: .common, names: [:])
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 @MainActor
 final class StoredCompanionTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -17,7 +31,9 @@ final class StoredCompanionTests: XCTestCase {
     private static let activeJSON = "{\"baseID\":10,\"pathIDs\":[10,11],\"plannedPathIDs\":[10,11,12],"
         + "\"stageIndex\":1,\"usedAtStage\":123456789,\"rarity\":\"common\",\"totalForms\":3,"
         + "\"isShiny\":true,\"nature\":\"bold\"}"
-    private static let graduatedJSON = "{\"id\":\"grad\",\"baseID\":1,\"finalID\":3,\"chainOrder\":[1,2,3],\"rarity\":\"common\"}"
+    private static let graduatedJSON = "{\"id\":\"grad\",\"baseID\":1,\"finalID\":3,\"chainOrder\":[1,2,3],"
+        + "\"rarity\":\"common\",\"caughtAt\":600000000}"
+    private let graduatedAt = Date(timeIntervalSinceReferenceDate: 600_000_000)
     /// 보관 상태를 함께 가진 보관 기록.
     private static let storedJSON = "{\"id\":\"box1\",\"baseID\":20,\"finalID\":21,\"chainOrder\":[20,21],"
         + "\"rarity\":\"rare\",\"caughtAt\":700000000,\"releasedAt\":700000000,"
@@ -35,19 +51,21 @@ final class StoredCompanionTests: XCTestCase {
         let dex = ([Self.graduatedJSON] + extraDex).joined(separator: ",")
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":10000000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d\",\"active\":\(active ? Self.activeJSON : "null"),\"dex\":[\(dex)],"
-            + "\"collectedFinals\":[\"1:3\"]}"
+            + "\"collectedFinals\":[\"1:3\"],\"inventory\":{\"rareCandy\":5}}"
         try? json.data(using: .utf8)!.write(to: url)
     }
 
-    private func open(_ url: URL, defaults: UserDefaults? = nil) -> CompanionStore {
-        CompanionStore(provider: StorageNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 3),
+    private func open(_ url: URL, provider: any PokeProviding = StorageNoProvider(),
+                      defaults: UserDefaults? = nil) -> CompanionStore {
+        CompanionStore(provider: provider, clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 3),
                        defaults: defaults ?? UserDefaults(suiteName: "stored-\(UUID().uuidString)")!)
     }
 
-    private func store(active: Bool = true, extraDex: [String] = []) -> CompanionStore {
+    private func store(active: Bool = true, extraDex: [String] = [],
+                       provider: any PokeProviding = StorageNoProvider()) -> CompanionStore {
         let url = fileURL()
         write(active: active, extraDex: extraDex, to: url)
-        return open(url)
+        return open(url, provider: provider)
     }
 
     /// [핵심] 알 구매는 놓아주기가 아니라 보관이다 — 진화 단계·단계 진행·진화 계획·개체 속성이 그대로 남는다.
@@ -118,13 +136,60 @@ final class StoredCompanionTests: XCTestCase {
         XCTAssertTrue(s.state.dex.contains { $0.id == "box1" }, "보관 기록 유지")
     }
 
-    /// 졸업분은 다시 키울 수 없다 — 최종체를 끝낸 기록이라 곧바로 재졸업해 같은 개체가 둘 생긴다.
-    func testGraduatedEntryCannotBeRaised() throws {
-        let s = store()
+    /// [핵심] 졸업분은 성장이 끝난 동료로 돌아온다 — 최종체 그대로, 원래 졸업 시각을 들고.
+    /// 라인이 로드된 뒤 토큰을 아무리 써도 다시 졸업하지 않는다(같은 개체 기록이 둘 생기지 않게).
+    func testGraduatedEntryReturnsAsAFinishedPartner() async throws {
+        let s = store(provider: StorageLineProvider())
         let graduated = try XCTUnwrap(s.state.dex.first { $0.id == "grad" })
-        XCTAssertFalse(s.isStored(graduated))
-        XCTAssertFalse(s.raiseStored("grad"))
-        XCTAssertEqual(s.state.active?.baseID, 10, "활성 유지")
+        XCTAssertFalse(s.isStored(graduated), "졸업분은 보관 배지가 없다")
+        XCTAssertTrue(s.isRaisable(graduated), "그래도 데려올 수 있다")
+
+        XCTAssertTrue(s.raiseStored("grad"))
+        let active = try XCTUnwrap(s.state.active)
+        XCTAssertEqual(active.pathIDs, [1, 2, 3])
+        XCTAssertEqual(active.stageIndex, 2, "최종체로 돌아온다")
+        XCTAssertTrue(active.isGraduate)
+        XCTAssertEqual(active.graduatedAt, graduatedAt)
+        XCTAssertTrue(s.isGraduatedPartner)
+        XCTAssertFalse(s.state.dex.contains { $0.id == "grad" }, "데리고 있는 동안 기록은 활성으로 옮겨진다")
+
+        for _ in 0..<200 where s.currentLine == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNotNil(s.currentLine, "라인이 있어야 졸업 판정이 실제로 돈다")
+        let records = s.state.dex.count
+        s.applyUsage(100_000_000_000)
+        XCTAssertEqual(s.state.active?.isGraduate, true, "다시 졸업하지 않는다")
+        XCTAssertEqual(s.state.dex.count, records, "같은 개체 기록이 늘지 않는다")
+        XCTAssertFalse(s.canUseRareCandy, "사탕으로도 다시 졸업시킬 수 없다")
+        XCTAssertEqual(s.recordedDex.filter { !$0.isReleased }.count, 1, "요약의 졸업 집계는 그대로")
+    }
+
+    /// 졸업한 동료를 다른 개체와 바꾸면 보관이 아니라 원래 졸업 기록으로 돌아간다.
+    func testSwappingOutAGraduateRestoresItsGraduationRecord() throws {
+        let s = store(extraDex: [Self.storedJSON])
+        XCTAssertTrue(s.raiseStored("grad"))
+        XCTAssertTrue(s.raiseStored("box1"))
+        let restored = try XCTUnwrap(s.state.dex.first { $0.baseID == 1 })
+        XCTAssertFalse(restored.isReleased, "졸업 기록으로 복원")
+        XCTAssertNil(restored.storedMon)
+        XCTAssertEqual(restored.caughtAt, graduatedAt, "원래 졸업 시각")
+        XCTAssertEqual(restored.chainOrder, [1, 2, 3])
+        XCTAssertEqual(restored.finalID, 3)
+        XCTAssertEqual(s.state.collectedFinals, ["1:3"])
+    }
+
+    /// 졸업한 동료를 데리고 알을 사도 졸업 기록으로 돌아간다. 동료 상태는 재시작에도 유지된다.
+    func testGraduatePartnerSurvivesRelaunchAndReturnsOnEggPurchase() throws {
+        let url = fileURL()
+        write(to: url)
+        XCTAssertTrue(open(url).raiseStored("grad"))
+
+        let relaunched = open(url)
+        XCTAssertEqual(relaunched.state.active?.isGraduate, true)
+        XCTAssertEqual(relaunched.state.active?.graduatedAt, graduatedAt)
+        XCTAssertTrue(relaunched.buyFreshEgg())
+        let restored = try XCTUnwrap(relaunched.state.dex.first { $0.baseID == 1 })
+        XCTAssertFalse(restored.isReleased)
+        XCTAssertEqual(restored.caughtAt, graduatedAt)
     }
 
     /// 지금 키우는 개체의 합성 항목은 보관 기록이 아니다(버튼이 뜨지 않는다).

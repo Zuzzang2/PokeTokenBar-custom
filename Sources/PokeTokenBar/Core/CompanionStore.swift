@@ -187,6 +187,8 @@ final class CompanionStore {
     var growthMultiplier: Int? {
         state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
     }
+    /// 지금 포켓몬이 졸업 후 컬렉션에서 돌아온 동료인가 — 성장 막대 대신 졸업 완료를 보여준다.
+    var isGraduatedPartner: Bool { state.active?.isGraduate == true }
 
     /// 메뉴바와 플로팅 펫이 그릴 대표 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존한다.
     /// 저장된 값이라 상시 렌더링 경로가 도감 전체를 다시 접거나 불필요한 상태를 관찰하지 않는다.
@@ -334,6 +336,8 @@ final class CompanionStore {
     /// 이로치는 `currentIsShiny` — 위장 중인 메타몽은 리빌 전까지 숨긴다(`activeDexEntry` 와 단일 판정).
     /// `caughtAt` 은 보관한 시각이다: 포획 로그가 그 값으로 정렬하므로 기록이 남은 시점과 일치해야 한다.
     private func storedDexEntry(from a: MonState) -> DexEntry {
+        // 졸업 후 돌아온 동료는 보관이 아니라 원래 졸업 기록으로 되돌린다 — 졸업 시각·졸업 통계가 그대로다.
+        if a.isGraduate { return graduatedDexEntry(from: a, caughtAt: a.graduatedAt) }
         // stageIndex 가 음수·범위 밖이어도 최소 한 형태는 남긴다(손상 상태 파일 방어 — MonState.currentID 와 같은 태도).
         let reached = Array(a.pathIDs.prefix(max(1, a.stageIndex + 1)))
         let chain = reached.isEmpty ? [a.baseID] : reached
@@ -358,6 +362,13 @@ final class CompanionStore {
     var dexEntries: [DexEntry] {
         guard let activeDexEntry else { return state.dex }
         return state.dex + [activeDexEntry]
+    }
+
+    /// 영구 기록 전체 — 졸업 후 동료로 데려온 개체는 자리를 비우는 순간 되돌아갈 졸업 기록으로 포함한다.
+    /// 요약의 졸업 집계가 이 개체를 데리고 있는 동안에도 줄지 않게 한다.
+    var recordedDex: [DexEntry] {
+        guard let a = state.active, a.isGraduate else { return state.dex }
+        return state.dex + [graduatedDexEntry(from: a, caughtAt: a.graduatedAt)]
     }
 
     /// 합성된 현재 포켓몬 항목인지 판별한다. caughtAt 이 없는 구버전 졸업 항목과 혼동하지 않는다.
@@ -904,6 +915,9 @@ final class CompanionStore {
     /// 프로바이더별 ledger 는 이미 전진해 델타가 영구 유실된다. 진화 판정만 라인 로드 후로 미룬다.
     func applyUsage(_ delta: Int) {
         guard state.active != nil else { return }
+        // 졸업 후 돌아온 동료는 성장이 끝났다 — 다시 졸업시키면 같은 개체 기록이 둘 생긴다.
+        // 사용량은 호출부가 이미 usedSinceInstall(지갑·통계)에 적립했다.
+        if state.active!.isGraduate { save(); return }
         state.active!.usedAtStage += delta
         reconcileActiveProfileGrowth()
         guard let line = currentLine else { save(); return }
@@ -1027,15 +1041,7 @@ final class CompanionStore {
         if let details = pokemonDetailsByID[a.currentID] { a.profile?.enrich(with: details) }
         let finalID = a.currentID
         state.collectedFinals.insert("\(a.baseID):\(finalID)")
-        state.dex.append(DexEntry(id: a.profile?.instanceID ?? UUID().uuidString,
-                                  baseID: a.baseID, finalID: finalID,
-                                  chainOrder: a.pathIDs, rarity: a.rarity, caughtAt: clock(),
-                                  isShiny: a.isShiny, nature: a.nature,
-                                  profile: a.profile,
-                                  names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
-                                      Dictionary(uniqueKeysWithValues:
-                                          a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
-                                  }, form: a.form))
+        state.dex.append(graduatedDexEntry(from: a, caughtAt: clock()))
         let name = formDisplayName(currentLine?.localizedName(finalID, state.language) ?? "",
                                    speciesID: finalID, form: a.form)
         justGraduated = name
@@ -1051,6 +1057,19 @@ final class CompanionStore {
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
+    }
+
+    /// 졸업 기록 — 졸업 순간과, 졸업 후 동료로 돌아온 개체가 다시 자리를 비울 때(원래 졸업 시각) 같은 모양으로 만든다.
+    private func graduatedDexEntry(from a: MonState, caughtAt: Date?) -> DexEntry {
+        DexEntry(id: a.profile?.instanceID ?? UUID().uuidString,
+                 baseID: a.baseID, finalID: a.currentID,
+                 chainOrder: a.pathIDs, rarity: a.rarity, caughtAt: caughtAt,
+                 isShiny: a.isShiny, nature: a.nature,
+                 profile: a.profile,
+                 names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
+                     Dictionary(uniqueKeysWithValues:
+                         a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
+                 }, form: a.form)
     }
 
     // MARK: 인벤토리 / 이상한 사탕
@@ -1075,7 +1094,7 @@ final class CompanionStore {
     /// Use the same rounded, difficulty-adjusted thresholds as actual growth.
     /// Preview the apparent evolution path so hidden identities cannot change the picker.
     private var rareCandyStageCosts: [Int] {
-        guard var mon = state.active, currentLine != nil else { return [] }
+        guard var mon = state.active, !mon.isGraduate, currentLine != nil else { return [] }
         if mon.dittoDisguise != nil && !mon.dittoRevealed && mon.usedAtStage >= stageThreshold(for: mon) {
             // The accepted batch is already saved. Wait for the reveal before accepting another.
             return []
@@ -1306,10 +1325,13 @@ final class CompanionStore {
 
     // MARK: 보관함 (보관한 개체를 다시 내 포켓몬으로)
 
-    /// 컬렉션에서 다시 데려올 수 있는 기록인가 — 졸업하지 않고 보관된 개체만. 졸업분은 최종체까지
-    /// 끝낸 기록이라 다시 키우면 곧바로 재졸업해 도감에 같은 개체가 둘 생긴다. 지금 키우는 개체의
+    /// 보관 기록인가(포획 로그의 "보관 중" 배지) — 졸업하지 않고 자리를 비운 개체. 지금 키우는 개체의
     /// 합성 항목(`activeDexEntry`)은 `releasedAt` 이 없어 여기서 자연히 빠진다.
     func isStored(_ entry: DexEntry) -> Bool { entry.isReleased }
+
+    /// 컬렉션에서 내 포켓몬으로 데려올 수 있는가 — 영구 기록이면 보관분·졸업분 모두. 졸업분은 성장이 끝난
+    /// 동료로 돌아온다(`MonState.isGraduate`). 지금 키우는 개체의 합성 항목은 `state.dex` 에 없어 빠진다.
+    func isRaisable(_ entry: DexEntry) -> Bool { state.dex.contains { $0.id == entry.id } }
 
     /// 지금 교체할 수 있는가 — 키우는 포켓몬이 있을 때만. 알 상태에서 막는 이유는 품은 알이 산
     /// 보증(`eggTier`)과 인큐베이션을 들고 있어서다: 알과 활성 포켓몬은 공존할 수 없어(`sanitized`)
@@ -1317,13 +1339,13 @@ final class CompanionStore {
     /// 버려지면 새 개체의 라인을 아무도 다시 불러오지 않는다.
     var canRaiseStored: Bool { hasActive && !isHatching }
 
-    /// 보관한 개체를 내 포켓몬으로 — 지금 키우는 포켓몬은 육성 상태째 보관함으로 가고(`storedDexEntry`),
-    /// 고른 개체가 보관된 상태 그대로 활성이 된다. 지갑·통계·`collectedFinals` 는 그대로다(교체일 뿐).
+    /// 보관·졸업한 개체를 내 포켓몬으로 — 지금 키우는 포켓몬은 육성 상태째 보관함으로 가고(`storedDexEntry`,
+    /// 졸업 후 돌아온 동료라면 원래 졸업 기록으로), 고른 개체가 활성이 된다. 지갑·통계·`collectedFinals` 는
+    /// 그대로다(교체일 뿐).
     @discardableResult
     func raiseStored(_ entryID: String) -> Bool {
         guard canRaiseStored, let current = state.active,
-              let index = state.dex.firstIndex(where: { $0.id == entryID }),
-              isStored(state.dex[index]) else { return false }
+              let index = state.dex.firstIndex(where: { $0.id == entryID }) else { return false }
         let incoming = storedMon(from: state.dex[index])
         let outgoing = storedDexEntry(from: current)
         state.dex.remove(at: index)
@@ -1342,17 +1364,24 @@ final class CompanionStore {
         return true
     }
 
-    /// 보관 기록 → 육성 상태. 보관 상태가 없으면(이 기능 이전에 놓아준 기록·손상된 보관 상태) 도달한
-    /// 형태에서 단계 진행 0으로 되살린다 — 진화 계획은 라인 로드 때 `normalizedEvolutionState` 가 다시 세운다.
+    /// 기록 → 육성 상태. 졸업분은 최종체에서 성장이 끝난 동료로(`isGraduate`, 원래 졸업 시각 보존).
+    /// 보관 상태가 없으면(이 기능 이전에 놓아준 기록·손상된 보관 상태) 도달한 형태에서 단계 진행 0으로
+    /// 되살린다 — 진화 계획은 라인 로드 때 `normalizedEvolutionState` 가 다시 세운다.
     /// 프로필은 기록 쪽을 쓴다: 보관 뒤 상세 조회가 채운 성별·특성·기술이 기록에만 있다.
     private func storedMon(from entry: DexEntry) -> MonState {
-        var mon = entry.storedMon ?? {
-            let path = entry.chainOrder.isEmpty ? [entry.baseID] : entry.chainOrder
-            return MonState(baseID: entry.baseID, pathIDs: path, stageIndex: path.count - 1, usedAtStage: 0,
-                            rarity: entry.rarity, totalForms: path.count, isShiny: entry.isShiny,
-                            nature: entry.nature, hasGrowthBoost: state.hasCollectedFinal(forBaseID: entry.baseID),
-                            form: entry.form)
-        }()
+        let path = entry.chainOrder.isEmpty ? [entry.baseID] : entry.chainOrder
+        var mon: MonState
+        if !entry.isReleased {
+            mon = MonState(baseID: entry.baseID, pathIDs: path, stageIndex: path.count - 1, usedAtStage: 0,
+                           rarity: entry.rarity, totalForms: path.count, isShiny: entry.isShiny,
+                           nature: entry.nature, form: entry.form, isGraduate: true, graduatedAt: entry.caughtAt)
+        } else {
+            mon = entry.storedMon ?? MonState(
+                baseID: entry.baseID, pathIDs: path, stageIndex: path.count - 1, usedAtStage: 0,
+                rarity: entry.rarity, totalForms: path.count, isShiny: entry.isShiny,
+                nature: entry.nature, hasGrowthBoost: state.hasCollectedFinal(forBaseID: entry.baseID),
+                form: entry.form)
+        }
         mon.profile = entry.profile ?? mon.profile
         return mon
     }
