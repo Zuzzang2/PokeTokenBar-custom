@@ -35,11 +35,11 @@ enum BattleArt {
 
     /// `trainers/local/` holds team-profile characters that stay out of git (third-party characters,
     /// public repo); a design whose frames are missing is simply not offered.
-    static let trainerDesigns = ["t1", "t2", "pig", "lupin", "bunny", "dino", "bear", "green"]
+    static let trainerDesigns = ["t1", "t2", "pig", "lupin", "bunny", "dino", "bear", "green", "otter"]
 
     static let trainerDesignNames = [
         "t1": "모자 소년", "t2": "밀짚모자 소녀", "pig": "부리부리", "lupin": "루팡",
-        "bunny": "리본 토끼", "dino": "메카 공룡", "bear": "분홍 곰", "green": "초록 점토",
+        "bunny": "리본 토끼", "dino": "메카 공룡", "bear": "분홍 곰", "green": "초록 점토", "otter": "수달",
     ]
 
     /// The player's chosen design; peers on older builds (no choice sent) or unknown designs get a
