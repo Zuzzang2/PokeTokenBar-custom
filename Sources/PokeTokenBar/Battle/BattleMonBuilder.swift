@@ -69,6 +69,9 @@ enum BattleMonBuilder {
         let stats = PokemonStatCalculator.stats(details: details, profile: profile, nature: nature)
         var name = candidate.name
         if name.hasPrefix("#"), digimon == nil { name = await MoveDataClient.shared.speciesName(candidate.speciesID) ?? details.name }
+        let moves: [BattleMove]
+        if let own = DigimonCatalog.battleMoves(speciesID: candidate.speciesID) { moves = own }
+        else { moves = await pickMoves(details: details) }
         return BattleMon(
             trainer: trainer,
             name: name,
@@ -76,7 +79,7 @@ enum BattleMonBuilder {
             isShiny: candidate.isShiny,
             types: details.types,
             stats: Dictionary(uniqueKeysWithValues: stats.map { ($0.name, $0.value) }),
-            moves: await pickMoves(details: details))
+            moves: moves)
     }
 
     /// Last four damaging level-up moves learnable by 50. Falls back to Tackle.

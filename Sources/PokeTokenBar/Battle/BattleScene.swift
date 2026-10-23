@@ -39,6 +39,9 @@ struct BattleSceneView: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // The scene is laid out on a fixed 400×260 canvas; scale it up to the width the window offers.
+            GeometryReader { geo in
+            let k = max(1, min(geo.size.width / 400, 3))
             ZStack {
                 BattleBackdrop()
                 // Sprite frames are 160 tall and bottom-aligned, so center = feet - 80.
@@ -61,6 +64,11 @@ struct BattleSceneView: View {
             .frame(width: 400, height: 260)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .offset(x: shake)
+            .scaleEffect(k, anchor: .topLeading)
+            .frame(width: 400 * k, height: 260 * k, alignment: .topLeading)
+            }
+            .aspectRatio(400.0 / 260.0, contentMode: .fit)
+            .frame(maxWidth: 880)   // leave the window's height for the move buttons
 
             textBox
         }

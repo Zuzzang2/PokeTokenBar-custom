@@ -48,3 +48,74 @@ final class DigimonTests: XCTestCase {
         XCTAssertNil(DigimonCatalog.details(speciesID: 25))
     }
 }
+
+final class DigimonSkillTests: XCTestCase {
+    private var allIDs: [Int] {
+        DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine
+            + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.omegamonID]
+    }
+
+    func testEveryDigimonHasFourOwnSkillsWithRisingPower() throws {
+        for id in allIDs {
+            let moves = try XCTUnwrap(DigimonCatalog.battleMoves(speciesID: id), "\(id)")
+            XCTAssertEqual(moves.count, 4, "\(id)")
+            XCTAssertEqual(Set(moves.map(\.name)).count, 4, "\(id) skill names are distinct")
+            XCTAssertEqual(moves.map(\.power), moves.map(\.power).sorted(), "\(id) power rises with the slot")
+            XCTAssertTrue(moves.allSatisfy { $0.power > 0 && ($0.accuracy ?? 100) >= 90 })
+        }
+    }
+
+    func testPowerGrowsWithEvolutionStage() throws {
+        for line in [DigimonCatalog.agumonLine, DigimonCatalog.gabumonLine] + DigimonCatalog.extraLines {
+            let tops = try line.map { try XCTUnwrap(DigimonCatalog.battleMoves(speciesID: $0)).last!.power }
+            XCTAssertEqual(tops, tops.sorted())
+            XCTAssertLessThan(tops.first!, tops.last!)
+        }
+        let omega = try XCTUnwrap(DigimonCatalog.battleMoves(speciesID: DigimonCatalog.omegamonID)).last!.power
+        let war = try XCTUnwrap(DigimonCatalog.battleMoves(speciesID: 9005)).last!.power
+        XCTAssertGreaterThan(omega, war)
+    }
+
+    func testPokemonKeepTheirPokeAPIMoves() {
+        XCTAssertNil(DigimonCatalog.battleMoves(speciesID: 25))
+    }
+}
+
+final class SavedPartyTests: XCTestCase {
+    private func candidate(_ id: String, _ species: Int, shiny: Bool = false) -> BattleCandidate {
+        BattleCandidate(id: id, speciesID: species, name: "#\(species)", isShiny: shiny, profile: nil, nature: nil,
+                        isRaising: false)
+    }
+
+    private func party(_ name: String, _ ids: [(String, Int)]) -> SavedParty {
+        SavedParty(name: name, members: ids.map { .init(id: $0.0, speciesID: $0.1, name: "#\($0.1)", shiny: false) })
+    }
+
+    func testSavingUnderTheSameNameReplacesAndCapsTheList() {
+        var list: [SavedParty] = []
+        for i in 0..<10 { list = SavedPartyStore.adding(party("조합 \(i)", [("a", 1)]), to: list) }
+        XCTAssertEqual(list.count, SavedPartyStore.maxSaved)
+        XCTAssertEqual(list.first?.name, "조합 9")
+        list = SavedPartyStore.adding(party("조합 5", [("b", 2)]), to: list)
+        XCTAssertEqual(list.filter { $0.name == "조합 5" }.count, 1)
+        XCTAssertEqual(list.first?.members.first?.id, "b")
+    }
+
+    func testResolveKeepsOrderAndFallsBackToTheSameSpecies() {
+        let owned = [candidate("x", 25), candidate("y", 6), candidate("z", 9001)]
+        let result = SavedPartyStore.resolve(party("p", [("y", 6), ("gone", 25), ("nope", 150)]), candidates: owned, limit: 6)
+        XCTAssertEqual(result.ids, ["y", "x"])   // "gone" falls back to the other Pikachu; Mewtwo is missing
+        XCTAssertEqual(result.missing, 1)
+    }
+
+    func testDefaultNameSkipsTakenNumbers() {
+        XCTAssertEqual(SavedPartyStore.defaultName(in: [party("조합 1", [("a", 1)])]), "조합 2")
+    }
+
+    func testRoundTripThroughDefaults() {
+        let defaults = UserDefaults(suiteName: "SavedPartyTests-\(UUID().uuidString)")!
+        let list = [party("조합 1", [("a", 1), ("b", 2)])]
+        SavedPartyStore.save(list, to: defaults)
+        XCTAssertEqual(SavedPartyStore.load(defaults), list)
+    }
+}

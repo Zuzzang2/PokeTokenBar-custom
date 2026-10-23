@@ -78,6 +78,91 @@ enum DigimonCatalog {
     private static let entries: [Int: Entry] = Dictionary(
         uniqueKeysWithValues: (handWritten + lineSpecs.flatMap(lineEntries)).map { ($0.id, $0) })
 
+    // MARK: Digimon skills
+
+    /// A Digimon's own attack. Power and accuracy come from the stage tier and the slot, not from
+    /// per-move numbers, so every line scales the same way.
+    private struct Skill {
+        let name: String
+        let type: String
+        let physical: Bool
+        init(_ name: String, _ type: String, _ physical: Bool) {
+            self.name = name
+            self.type = type
+            self.physical = physical
+        }
+    }
+
+    /// Four skills per species, weakest to signature.
+    private static let skills: [Int: [Skill]] = [
+        9001: [Skill("몸통박치기", "normal", true), Skill("점프 어택", "normal", true), Skill("버블 블로우", "water", false), Skill("코로 브레스", "fire", false)],
+        9002: [Skill("빅 클로", "normal", true), Skill("헤드 어택", "normal", true), Skill("화염 발톱", "fire", true), Skill("페퍼 브레스", "fire", false)],
+        9003: [Skill("꼬리 후리기", "normal", true), Skill("뿔 박치기", "normal", true), Skill("메가 플레임", "fire", false), Skill("대폭염", "fire", false)],
+        9004: [Skill("메탈 클로", "steel", true), Skill("트라이던트 암", "steel", true), Skill("기가 미사일", "fire", false), Skill("기가 디스트로이어", "steel", false)],
+        9005: [Skill("드라몬 킬러", "dragon", true), Skill("브레이브 실드", "steel", true), Skill("용기의 일격", "fighting", true), Skill("가이아 포스", "fire", false)],
+        9006: [Skill("다크 클로", "dark", true), Skill("칠흑 발톱", "dark", true), Skill("어둠의 숨결", "dark", false), Skill("암흑 불꽃", "dark", false)],
+        9007: [Skill("그림자 뿔", "dark", true), Skill("흑룡 꼬리", "dragon", true), Skill("블랙 메가 플레임", "dark", false), Skill("칠흑 대폭염", "dark", false)],
+        9008: [Skill("뼈 휘두르기", "ghost", true), Skill("어둠의 포효", "dark", false), Skill("해골 미사일", "ghost", false), Skill("파멸 포격", "dark", false)],
+        9011: [Skill("몸통박치기", "normal", true), Skill("뿔 박치기", "normal", true), Skill("뿔 돌진", "normal", true), Skill("작은 눈보라", "ice", false)],
+        9012: [Skill("송곳니 물기", "normal", true), Skill("프티 파이어", "fire", false), Skill("푸른 발톱", "ice", true), Skill("블루 블래스터", "ice", false)],
+        9013: [Skill("거친 송곳니", "normal", true), Skill("프로즌 클로", "ice", true), Skill("서리 숨결", "ice", false), Skill("폭풍 송곳니", "ice", false)],
+        9014: [Skill("늑대 발톱", "fighting", true), Skill("월광 킥", "fighting", true), Skill("아이스 클로", "ice", true), Skill("월광의 포효", "ice", false)],
+        9015: [Skill("메탈 클로", "steel", true), Skill("아이스 미사일", "ice", false), Skill("코큐토스 브레스", "ice", false), Skill("메탈 울프 레이저", "steel", false)],
+        9021: [Skill("그레이 소드", "steel", true), Skill("가루 캐논", "ice", false), Skill("트랜센던트 소드", "fighting", true), Skill("슈프림 캐논", "fire", false)],
+        9031: [Skill("몸통박치기", "normal", true), Skill("구르기", "normal", true), Skill("불꽃 거품", "fire", false), Skill("꼬마 불꽃", "fire", false)],
+        9032: [Skill("록 브레이커", "normal", true), Skill("파이어볼", "fire", false), Skill("불타는 발톱", "fire", true), Skill("파이로 스피어", "fire", false)],
+        9033: [Skill("꼬리 휘두르기", "normal", true), Skill("화염 클로", "fire", true), Skill("파이로 블래스터", "fire", false), Skill("인페르노 브레스", "fire", false)],
+        9034: [Skill("강철 발톱", "steel", true), Skill("가슴 캐논", "fire", false), Skill("용 파괴포", "dragon", false), Skill("아토믹 블래스터", "fire", false)],
+        9035: [Skill("로얄 창격", "steel", true), Skill("성스러운 방패", "steel", true), Skill("크림슨 라이트", "fire", false), Skill("파이널 엘리시온", "steel", false)],
+        9041: [Skill("몸통박치기", "normal", true), Skill("구르기", "normal", true), Skill("거품 공격", "water", false), Skill("번뜩 박치기", "normal", true)],
+        9042: [Skill("브이 헤드버트", "normal", true), Skill("브이 펀치", "fighting", true), Skill("드래곤 점프", "dragon", true), Skill("브이 블래스트", "dragon", false)],
+        9043: [Skill("엑스 너클", "fighting", true), Skill("슬래시 킥", "fighting", true), Skill("엑스 레이저", "dragon", false), Skill("엑스 인페르노", "dragon", false)],
+        9044: [Skill("더블 건", "steel", false), Skill("데저트 캐논", "steel", false), Skill("용 날개 베기", "dragon", true), Skill("패일 파이널", "dragon", false)],
+        9045: [Skill("임페리얼 클로", "dragon", true), Skill("용 날개 돌풍", "flying", false), Skill("포지티브 레이", "dragon", false), Skill("메가 크러시", "steel", false)],
+        9051: [Skill("몸통박치기", "normal", true), Skill("쪼기", "flying", true), Skill("뾰족 거품", "water", false), Skill("꼬마 불꽃", "fire", false)],
+        9052: [Skill("쪼기", "flying", true), Skill("날개 치기", "flying", true), Skill("매직 파이어", "fire", false), Skill("스피닝 니들", "flying", false)],
+        9053: [Skill("날갯짓", "flying", true), Skill("화염 깃털", "fire", false), Skill("메테오 윙", "fire", false), Skill("불새 급강하", "flying", true)],
+        9054: [Skill("송곳 부리", "flying", true), Skill("불꽃 날개", "fire", false), Skill("섀도 윙", "dark", false), Skill("가루다 폭풍", "flying", false)],
+        9055: [Skill("불사조 급습", "flying", true), Skill("성스러운 불꽃", "fire", false), Skill("별빛 폭발", "fire", false), Skill("불사조 대화염", "fire", false)],
+        9061: [Skill("몸통박치기", "normal", true), Skill("뛰어오르기", "normal", true), Skill("거품 공격", "water", false), Skill("꼬마 바람", "flying", false)],
+        9062: [Skill("몸통박치기", "normal", true), Skill("에어 샷", "normal", false), Skill("날개 박치기", "flying", true), Skill("부머 버블", "normal", false)],
+        9063: [Skill("성스러운 주먹", "fighting", true), Skill("헤븐즈 너클", "fighting", true), Skill("홀리 빔", "psychic", false), Skill("천벌", "psychic", false)],
+        9064: [Skill("성검 슬래시", "steel", true), Skill("천사의 날개", "flying", false), Skill("게이트 오브 데스티니", "psychic", false), Skill("성검 일섬", "steel", true)],
+        9065: [Skill("빛의 화살", "psychic", false), Skill("천상의 날개", "flying", false), Skill("세븐 헤븐즈", "psychic", false), Skill("최후의 심판", "psychic", false)],
+        9071: [Skill("몸통박치기", "normal", true), Skill("끈끈이 거품", "bug", false), Skill("꿈틀 박치기", "normal", true), Skill("작은 번개", "electric", false)],
+        9072: [Skill("텐타 박치기", "bug", true), Skill("가시 침", "bug", true), Skill("슈퍼 쇼크", "electric", false), Skill("스파크 썬더", "electric", false)],
+        9073: [Skill("집게 공격", "bug", true), Skill("뿔 찌르기", "bug", true), Skill("일렉트로 쇼크", "electric", false), Skill("호른 썬더", "electric", false)],
+        9074: [Skill("뿔 충격", "bug", true), Skill("번개 뿔", "electric", true), Skill("호른 버스터", "bug", true), Skill("메가 블래스터", "electric", false)],
+        9075: [Skill("장수풍뎅이 돌진", "bug", true), Skill("헤라클 호른", "bug", true), Skill("천둥 번개", "electric", false), Skill("기가 블래스터", "electric", false)],
+        9081: [Skill("몸통박치기", "normal", true), Skill("구르기", "normal", true), Skill("거품 공격", "water", false), Skill("물풍선", "water", false)],
+        9082: [Skill("고마 박치기", "normal", true), Skill("물보라", "water", false), Skill("마블 샷", "water", false), Skill("파도 돌진", "water", true)],
+        9083: [Skill("뿔 찌르기", "normal", true), Skill("얼음 작살", "ice", true), Skill("하푼 토네이도", "water", true), Skill("하푼 블리자드", "ice", false)],
+        9084: [Skill("망치 휘두르기", "fighting", true), Skill("바다 해머", "water", true), Skill("벽력 해머", "electric", true), Skill("바다의 노여움", "water", false)],
+        9085: [Skill("꼬리 휘두르기", "normal", true), Skill("해일", "water", false), Skill("심해 레이저", "water", false), Skill("해룡의 포효", "dragon", false)],
+    ]
+
+    /// Power by stage tier (baby … ultimate, then Omegamon) and slot.
+    private static let powerTiers: [[Int]] = [
+        [25, 30, 35, 40], [40, 55, 70, 80], [55, 70, 85, 95],
+        [65, 80, 95, 110], [80, 95, 110, 125], [95, 110, 125, 140]]
+    private static let slotAccuracy = [100, 100, 95, 90]
+    /// Shiny-only branch members and Omegamon sit at other tiers than their id suggests.
+    private static let tierOverrides: [Int: Int] = [9006: 1, 9007: 2, 9008: 3, 9021: 5]
+
+    private static func tier(of id: Int) -> Int {
+        tierOverrides[id] ?? max(0, min(4, id - ((id / 10) * 10 + 1)))
+    }
+
+    /// Battle moves for a Digimon, or nil for anything else (Pokémon use PokéAPI data).
+    static func battleMoves(speciesID id: Int) -> [BattleMove]? {
+        guard let list = skills[id] else { return nil }
+        let powers = powerTiers[tier(of: id)]
+        return list.enumerated().map { i, skill in
+            BattleMove(name: skill.name, type: skill.type, power: powers[i], accuracy: slotAccuracy[i],
+                       isPhysical: skill.physical, priority: 0)
+        }
+    }
+
     static func contains(_ id: Int) -> Bool { entries[id] != nil }
 
     private struct Stage {
@@ -172,6 +257,18 @@ enum DigimonCatalog {
         return eligible.isEmpty ? children : eligible
     }
 
+    /// Profile move list: the Digimon's own skills at spread-out levels.
+    private static func skillOptions(_ e: Entry) -> [PokemonMoveOption] {
+        guard let list = skills[e.id] else {
+            return e.moves.map {
+                PokemonMoveOption(name: $0.name, learnMethods: [PokemonMoveLearnMethod(method: "level-up", level: $0.level)])
+            }
+        }
+        return zip(list, [1, 10, 20, 30]).map { skill, level in
+            PokemonMoveOption(name: skill.name, learnMethods: [PokemonMoveLearnMethod(method: "level-up", level: level)])
+        }
+    }
+
     static func details(speciesID: Int) -> PokemonDetails? {
         guard let e = entries[speciesID] else { return nil }
         let keys = PokemonStatCalculator.order
@@ -180,9 +277,7 @@ enum DigimonCatalog {
             baseExperience: 100, genderRate: -1, types: e.types,
             baseStats: Dictionary(uniqueKeysWithValues: zip(keys, e.stats).map { ($0, $1) }),
             abilities: [PokemonAbilityOption(name: e.ability, slot: 1, isHidden: false)],
-            moves: e.moves.map {
-                PokemonMoveOption(name: $0.name, learnMethods: [PokemonMoveLearnMethod(method: "level-up", level: $0.level)])
-            })
+            moves: skillOptions(e))
     }
 }
 

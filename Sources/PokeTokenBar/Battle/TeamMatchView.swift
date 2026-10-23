@@ -22,7 +22,7 @@ struct TeamMatchView: View {
                     }
                 }
                 Text(caption.isEmpty ? " " : caption)
-                    .font(.callout).frame(maxWidth: .infinity, minHeight: 36)
+                    .font(.title3).frame(maxWidth: .infinity, minHeight: 48)
                     .padding(8).background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
                 HStack(alignment: .top, spacing: 12) {
                     ForEach([me, TeamBattleState.partner(of: me)], id: \.self) { ally in
@@ -55,9 +55,9 @@ struct TeamMatchView: View {
         let targetable = isFoe && pendingMove != nil && state.canTarget(trainer)
         return VStack(spacing: 4) {
             if let mon {
-                SpriteThumb(speciesID: mon.speciesID, shiny: mon.isShiny).frame(width: 72, height: 72)
+                SpriteThumb(speciesID: mon.speciesID, shiny: mon.isShiny).frame(width: 120, height: 120)
                     .opacity(hp == 0 ? 0.25 : 1)
-                Text(mon.name).font(.callout.bold()).lineLimit(1)
+                Text(mon.name).font(.title3.bold()).lineLimit(1)
                 ProgressView(value: Double(hp), total: Double(max(1, mon.maxHP)))
                     .tint(hp * 2 > mon.maxHP ? .green : hp * 5 > mon.maxHP ? .yellow : .red)
                 Text("\(hp)/\(mon.maxHP)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)

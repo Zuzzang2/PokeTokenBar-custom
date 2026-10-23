@@ -41,6 +41,9 @@ private struct BattleRootView: View {
     @State private var selected: [String] = []      // party order = tap order
     @State private var preparing = false
     @State private var error: String?
+    @State private var savedParties: [SavedParty] = SavedPartyStore.load()
+    @State private var partyName = ""
+    @State private var partyNote = ""
     @AppStorage("battleTrainerDesign") private var trainerDesign = "t1"
     @AppStorage("battleNickname") private var nickname = ""
 
@@ -105,6 +108,7 @@ private struct BattleRootView: View {
             Text("파티 선택 (\(selected.count)/\(BattleMonBuilder.maxParty))").font(.headline)
             Text("누른 순서대로 파티에 들어가요. 첫 번째가 선봉이에요. 모두 Lv.50으로 맞춰 싸웁니다.")
                 .font(.caption).foregroundStyle(.secondary)
+            savedPartiesSection
             if let error { Text("준비 실패: \(error)").foregroundStyle(.red).font(.caption) }
             ScrollView {
                 VStack(spacing: 4) {
@@ -132,6 +136,73 @@ private struct BattleRootView: View {
                 .frame(maxWidth: .infinity)
         }
         .padding(16)
+    }
+
+    /// Favourite combinations: save the current party under a name, load or delete it later.
+    private var savedPartiesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField(SavedPartyStore.defaultName(in: savedParties), text: $partyName)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: partyName) {
+                        if partyName.count > SavedPartyStore.maxNameLength {
+                            partyName = String(partyName.prefix(SavedPartyStore.maxNameLength))
+                        }
+                    }
+                Button("현재 조합 저장") { saveCurrentParty() }
+                    .disabled(selected.isEmpty)
+            }
+            if savedParties.isEmpty {
+                Text("마음에 드는 조합을 저장해 두면 다음에 한 번에 불러올 수 있어요. (최대 \(SavedPartyStore.maxSaved)개)")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(savedParties) { party in
+                    HStack(spacing: 6) {
+                        Button { load(party) } label: {
+                            HStack(spacing: 4) {
+                                Text(party.name).font(.callout.bold())
+                                ForEach(Array(party.members.enumerated()), id: \.offset) { _, m in
+                                    SpriteThumb(speciesID: m.speciesID, shiny: m.shiny).frame(width: 26, height: 26)
+                                }
+                                Spacer(minLength: 0)
+                                Text("불러오기").font(.caption).foregroundStyle(.tint)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Button { delete(party) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help("이 조합 삭제")
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.1)))
+                }
+            }
+            if !partyNote.isEmpty { Text(partyNote).font(.caption).foregroundStyle(.orange) }
+        }
+    }
+
+    private func saveCurrentParty() {
+        let members = selected.compactMap { id in candidates.first { $0.id == id } }
+            .map { SavedParty.Member(id: $0.id, speciesID: $0.speciesID, name: $0.name, shiny: $0.isShiny) }
+        guard !members.isEmpty else { return }
+        let trimmed = partyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? SavedPartyStore.defaultName(in: savedParties) : trimmed
+        savedParties = SavedPartyStore.adding(SavedParty(name: name, members: members), to: savedParties)
+        SavedPartyStore.save(savedParties)
+        partyName = ""
+        partyNote = ""
+    }
+
+    private func load(_ party: SavedParty) {
+        let result = SavedPartyStore.resolve(party, candidates: candidates, limit: BattleMonBuilder.maxParty)
+        selected = result.ids
+        partyNote = result.missing > 0 ? "\(result.missing)마리는 더 이상 없어서 빠졌어요." : ""
+    }
+
+    private func delete(_ party: SavedParty) {
+        savedParties = savedParties.filter { $0.id != party.id }
+        SavedPartyStore.save(savedParties)
     }
 
     private func toggle(_ id: String) {
