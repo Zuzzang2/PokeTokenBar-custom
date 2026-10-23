@@ -56,14 +56,19 @@ enum BattleMonBuilder {
     }
 
     static func build(_ candidate: BattleCandidate, trainer: String) async throws -> BattleMon {
-        let details = try await PokeAPIClient.shared.pokemonDetails(speciesID: candidate.speciesID)
+        // Digimon are not in PokéAPI; their stats and moves live in the bundled catalog.
+        let digimon = DigimonCatalog.details(speciesID: candidate.speciesID)
+        let details: PokemonDetails
+        if let digimon { details = digimon } else {
+            details = try await PokeAPIClient.shared.pokemonDetails(speciesID: candidate.speciesID)
+        }
         var profile = candidate.profile ?? PokemonProfile.generate(seed: UInt64.random(in: 1...UInt64.max))
         profile.enrich(with: details)
         profile.level = 50
         let nature = candidate.nature ?? PokemonNature.allCases.randomElement()
         let stats = PokemonStatCalculator.stats(details: details, profile: profile, nature: nature)
         var name = candidate.name
-        if name.hasPrefix("#") { name = await MoveDataClient.shared.speciesName(candidate.speciesID) ?? details.name }
+        if name.hasPrefix("#"), digimon == nil { name = await MoveDataClient.shared.speciesName(candidate.speciesID) ?? details.name }
         return BattleMon(
             trainer: trainer,
             name: name,
