@@ -17,6 +17,31 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     var trainerDesign: String?
     /// Builds before collection sharing omit this, so a peer without it cannot answer a request.
     var sharesCollection: Bool?
+    /// Same idea for 2:2 team battles: builds without it cannot answer an invitation.
+    var teamBattle: Bool?
+    /// Popularity other trainers gave this one; omitted by builds without it.
+    var popularity: Int?
+}
+
+/// Who is in a 2:2 team battle: `ids` = [host, host's partner, foe 1, foe 2].
+struct TeamRoster: Codable, Sendable, Equatable {
+    let matchID: String
+    let ids: [String]
+    let names: [String]
+}
+
+/// The host picking a partner and two foes in the plaza.
+struct TeamDraft: Equatable {
+    let partner: String
+    var foes: [String] = []
+}
+
+/// An invitation (or, for the host, the wait for everyone's answer) before a team battle starts.
+struct PendingTeam: Equatable {
+    let roster: TeamRoster
+    let isHost: Bool
+    var accepted: Set<String> = []
+    var answered = false
 }
 
 /// One owned Pokémon in the collection a trainer shares when another trainer asks to see it.
@@ -47,11 +72,18 @@ enum PlazaMessage: Codable, Sendable {
     case battle(BattleMessage)
     case collectionRequest
     case collection([CollectionEntry])
+    case teamInvite(TeamRoster)
+    case teamReply(matchID: String, accept: Bool)
+    case teamStart(matchID: String)
+    case teamCancel(matchID: String)
+    case team(TeamBattleMessage)
+    case popularityVote
+    case popularity(Int)
 }
 
 struct PlazaPlayer: Identifiable, Equatable {
     var id: String { profile.id }
-    let profile: PlazaProfile
+    var profile: PlazaProfile
     var x: Double               // authoritative position (own input, or last network update)
     var y: Double
     var shownX: Double          // drawn position; eases toward x/y for remote players
@@ -103,6 +135,12 @@ final class PlazaSession: NSObject {
     private(set) var notice = ""
     private(set) var viewedCollection: ViewedCollection?
     private(set) var moveTarget: CGPoint?
+    private(set) var teamDraft: TeamDraft?
+    private(set) var pendingTeam: PendingTeam?
+    private(set) var teamMatch: TeamBattleMatch?
+    /// When this player last gave popularity; one vote per calendar day, to anyone.
+    private(set) var lastVoteDate = UserDefaults.standard.object(forKey: PlazaSession.lastVoteKey) as? Date
+    private var votersThisSession: Set<String> = []
 
     let team: [BattleMon]
     private let collection: [CollectionEntry]
@@ -125,7 +163,8 @@ final class PlazaSession: NSObject {
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign,
-                                   sharesCollection: true)
+                                   sharesCollection: true, teamBattle: true,
+                                   popularity: Self.storedPopularity)
         let spawn = PlazaMap.randomSpawn()
         me = PlazaPlayer(profile: profile, x: spawn.x, y: spawn.y)
         peerID = MCPeerID(displayName: lead.trainer)
@@ -188,7 +227,7 @@ final class PlazaSession: NSObject {
 
     /// Right-click: walk to a world point, until it is reached, blocked or a key is pressed.
     func walk(to point: CGPoint) {
-        guard match == nil else { return }
+        guard match == nil, teamMatch == nil else { return }
         moveTarget = point
     }
 
@@ -207,8 +246,9 @@ final class PlazaSession: NSObject {
 
     private func tick(dt: Double) {
         let wasMoving = me.moving
-        let held = match == nil ? heldKeys : []
-        if !held.isEmpty || match != nil { moveTarget = nil }   // keys win over a pending click
+        let inBattle = match != nil || teamMatch != nil
+        let held = inBattle ? [] : heldKeys
+        if !held.isEmpty || inBattle { moveTarget = nil }   // keys win over a pending click
         if held.isEmpty == false || moveTarget != nil || me.moving
             || me.followerX != me.shownX - PlazaMotion.offset(me.facing).width {
             me = PlazaMotion.walk(me, held: held, dt: dt, toward: moveTarget)
@@ -238,7 +278,7 @@ final class PlazaSession: NSObject {
     }
 
     func challenge(_ id: String) {
-        guard match == nil, outgoingChallenge == nil, let target = players[id], !target.busy else { return }
+        guard match == nil, outgoingChallenge == nil, !isInTeamFlow, let target = players[id], !target.busy else { return }
         outgoingChallenge = id
         notice = "\(KoreanParticle.direction.attach(to: target.profile.trainer)) 대결 신청을 보냈어요…"
         send(.challenge, to: id)
@@ -249,6 +289,162 @@ final class PlazaSession: NSObject {
         incomingChallenge = nil
         send(.challengeReply(accept: accept), to: id)
         if accept { startMatch(with: id, isHost: false) }
+    }
+
+    // MARK: - Popularity
+
+    private static let popularityKey = "plazaPopularity"
+    private static let lastVoteKey = "plazaLastPopularityVote"
+    static var storedPopularity: Int { UserDefaults.standard.integer(forKey: popularityKey) }
+
+    var canVoteToday: Bool { lastVoteDate.map { !Calendar.current.isDateInToday($0) } ?? true }
+
+    /// Gives `id` one popularity point. Once per calendar day in total, not per trainer.
+    func raisePopularity(of id: String) {
+        guard canVoteToday, id != me.id, let target = players[id] else { return }
+        let now = Date()
+        UserDefaults.standard.set(now, forKey: Self.lastVoteKey)
+        lastVoteDate = now
+        send(.popularityVote, to: id)
+        notice = "\(KoreanParticle.object.attach(to: target.profile.trainer)) 응원했어요 ♥ 인기도가 올라갔어요!"
+    }
+
+    private func receivePopularity(_ message: PlazaMessage, from id: String) {
+        switch message {
+        case .popularityVote:
+            // A trainer can give one point per session here, on top of their own once-a-day limit.
+            guard votersThisSession.insert(id).inserted else { return }
+            let total = Self.storedPopularity + 1
+            UserDefaults.standard.set(total, forKey: Self.popularityKey)
+            update(me.id) { $0.profile.popularity = total }
+            broadcast(.popularity(total), reliable: true)
+            appendChat(from: "광장", text: "\(KoreanParticle.subject.attach(to: players[id]?.profile.trainer ?? "누군가")) 인기도를 올려줬어요 ♥ (\(total))")
+        case .popularity(let total):
+            update(id) { $0.profile.popularity = total }
+        default:
+            break
+        }
+    }
+
+    // MARK: - 2:2 team battle
+
+    private var isInTeamFlow: Bool { teamDraft != nil || pendingTeam != nil || teamMatch != nil }
+    static let teamInviteTimeout = 25.0
+
+    func canJoinTeam(_ player: PlazaPlayer) -> Bool { player.profile.teamBattle == true && !player.busy }
+
+    /// Host step 1: `partner` becomes the teammate; the next two picks are the opponents.
+    func beginTeamDraft(partner id: String) {
+        guard match == nil, outgoingChallenge == nil, incomingChallenge == nil, !isInTeamFlow,
+              let target = players[id], canJoinTeam(target) else { return }
+        teamDraft = TeamDraft(partner: id)
+        notice = ""
+    }
+
+    func cancelTeamDraft() { teamDraft = nil }
+
+    /// Host step 2: pick opponents; the second one sends the invitations.
+    func draftPick(_ id: String) {
+        guard var draft = teamDraft, id != me.id, id != draft.partner, !draft.foes.contains(id),
+              let target = players[id], canJoinTeam(target) else { return }
+        draft.foes.append(id)
+        guard draft.foes.count == 2 else { teamDraft = draft; return }
+        teamDraft = nil
+        let ids = [me.id, draft.partner] + draft.foes
+        let roster = TeamRoster(matchID: UUID().uuidString, ids: ids,
+                                names: ids.map { id in everyone.first { $0.id == id }?.profile.trainer ?? "?" })
+        pendingTeam = PendingTeam(roster: roster, isHost: true, answered: true)
+        for other in ids.dropFirst() { send(.teamInvite(roster), to: other) }
+        expireTeamInvite(roster.matchID)
+    }
+
+    func answerTeamInvite(_ accept: Bool) {
+        guard var pending = pendingTeam, !pending.isHost, !pending.answered else { return }
+        let host = pending.roster.ids[0]
+        send(.teamReply(matchID: pending.roster.matchID, accept: accept), to: host)
+        if accept {
+            pending.answered = true
+            pendingTeam = pending
+        } else {
+            pendingTeam = nil
+        }
+    }
+
+    /// Host: abandon an invitation round and tell everyone who was asked.
+    func cancelPendingTeam() {
+        guard let pending = pendingTeam else { return }
+        if pending.isHost {
+            for other in pending.roster.ids.dropFirst() { send(.teamCancel(matchID: pending.roster.matchID), to: other) }
+        } else {
+            send(.teamReply(matchID: pending.roster.matchID, accept: false), to: pending.roster.ids[0])
+        }
+        pendingTeam = nil
+    }
+
+    func leaveTeamMatch() {
+        teamMatch = nil
+        setBusy(false)
+    }
+
+    private func expireTeamInvite(_ matchID: String) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.teamInviteTimeout))
+            guard let self, self.pendingTeam?.roster.matchID == matchID, self.teamMatch == nil else { return }
+            self.notice = "팀 대결 신청에 응답이 없어 취소됐어요."
+            self.cancelPendingTeam()
+        }
+    }
+
+    private func startTeamMatch(_ roster: TeamRoster) {
+        guard let myIndex = roster.ids.firstIndex(of: me.id) else { return }
+        pendingTeam = nil
+        notice = ""
+        teamMatch = TeamBattleMatch(me: team, roster: roster.ids, myIndex: myIndex) { [weak self] message, to in
+            self?.send(.team(message), to: roster.ids[to])
+        }
+        setBusy(true)
+    }
+
+    private func receiveTeam(_ message: PlazaMessage, from id: String) {
+        switch message {
+        case .teamInvite(let roster):
+            guard roster.ids.count == 4, roster.ids[0] == id, roster.ids.contains(me.id),
+                  roster.names.count == 4 else { return }
+            if match != nil || incomingChallenge != nil || outgoingChallenge != nil || isInTeamFlow || me.busy {
+                send(.teamReply(matchID: roster.matchID, accept: false), to: id)
+            } else {
+                pendingTeam = PendingTeam(roster: roster, isHost: false)
+                expireTeamInvite(roster.matchID)
+            }
+        case .teamReply(let matchID, let accept):
+            guard var pending = pendingTeam, pending.isHost, pending.roster.matchID == matchID,
+                  pending.roster.ids.contains(id) else { return }
+            guard accept else {
+                notice = "\(KoreanParticle.subject.attach(to: players[id]?.profile.trainer ?? "참가자")) 거절해서 팀 대결이 취소됐어요."
+                cancelPendingTeam()
+                return
+            }
+            pending.accepted.insert(id)
+            pendingTeam = pending
+            if pending.accepted.count == 3 {
+                for other in pending.roster.ids.dropFirst() { send(.teamStart(matchID: matchID), to: other) }
+                startTeamMatch(pending.roster)
+            }
+        case .teamStart(let matchID):
+            guard let pending = pendingTeam, !pending.isHost, pending.answered,
+                  pending.roster.matchID == matchID, pending.roster.ids[0] == id else { return }
+            startTeamMatch(pending.roster)
+        case .teamCancel(let matchID):
+            guard let pending = pendingTeam, !pending.isHost, pending.roster.matchID == matchID,
+                  pending.roster.ids[0] == id else { return }
+            pendingTeam = nil
+            notice = "팀 대결이 취소됐어요."
+        case .team(let battle):
+            guard let teamMatch, let index = teamMatch.roster.firstIndex(of: id) else { return }
+            teamMatch.receive(battle, from: index)
+        default:
+            break
+        }
     }
 
     func requestCollection(_ id: String) {
@@ -341,6 +537,12 @@ final class PlazaSession: NSObject {
         if outgoingChallenge == id { outgoingChallenge = nil; notice = "" }
         if match?.opponentID == id { match?.opponentLeft() }
         if viewedCollection?.playerID == id { viewedCollection = nil }
+        if teamDraft?.partner == id || teamDraft?.foes.contains(id) == true { teamDraft = nil }
+        if let pending = pendingTeam, pending.roster.ids.contains(id) {
+            notice = "참가자가 떠나 팀 대결이 취소됐어요."
+            if pending.isHost { cancelPendingTeam() } else { pendingTeam = nil }
+        }
+        if teamMatch?.roster.contains(id) == true { teamMatch?.participantLeft() }
     }
 
     private func receive(_ message: PlazaMessage, from peer: MCPeerID) {
@@ -365,7 +567,7 @@ final class PlazaSession: NSObject {
         case .busy(let busy):
             update(id) { $0.busy = busy }
         case .challenge:
-            if match != nil || incomingChallenge != nil || outgoingChallenge != nil {
+            if match != nil || incomingChallenge != nil || outgoingChallenge != nil || isInTeamFlow {
                 send(.challengeReply(accept: false), to: id)
             } else {
                 incomingChallenge = id
@@ -385,6 +587,10 @@ final class PlazaSession: NSObject {
         case .collection(let entries):
             guard viewedCollection?.playerID == id else { return }
             viewedCollection?.entries = Array(entries.prefix(CollectionEntry.maxShared))
+        case .teamInvite, .teamReply, .teamStart, .teamCancel, .team:
+            receiveTeam(message, from: id)
+        case .popularityVote, .popularity:
+            receivePopularity(message, from: id)
         }
     }
 

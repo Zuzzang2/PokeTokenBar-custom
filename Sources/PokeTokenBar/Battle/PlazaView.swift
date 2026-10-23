@@ -8,7 +8,10 @@ struct PlazaRootView: View {
     let plaza: PlazaSession
 
     var body: some View {
-        if let match = plaza.match {
+        if let teamMatch = plaza.teamMatch {
+            TeamMatchView(match: teamMatch) { plaza.leaveTeamMatch() }
+                .padding(16)
+        } else if let match = plaza.match {
             MatchView(match: match, opponentName: plaza.players[match.opponentID]?.profile.trainer) {
                 plaza.leaveMatch()
             }
@@ -65,6 +68,7 @@ private struct PlazaView: View {
             if let id = plaza.incomingChallenge, let player = plaza.players[id] {
                 incomingBanner(player)
             }
+            teamBanner
             chatPanel.frame(height: 150)
         }
         .padding(16)
@@ -109,7 +113,11 @@ private struct PlazaView: View {
                         .position(x: player.shownX, y: player.shownY - Avatar.feet)   // x/y are the feet
                         .zIndex(player.shownY + 0.5)      // nearer = drawn on top, followers included
                         .onTapGesture {
-                            if player.id != plaza.me.id { selected = selected == player.id ? nil : player.id }
+                            if plaza.teamDraft != nil {
+                                plaza.draftPick(player.id)   // choosing opponents for a 2:2 team battle
+                            } else if player.id != plaza.me.id {
+                                selected = selected == player.id ? nil : player.id
+                            }
                             fieldAreaFocused = true
                         }
                 }
@@ -126,7 +134,7 @@ private struct PlazaView: View {
             Text("광장").font(.headline)
             Text("\(plaza.everyone.count)/\(PlazaSession.capacity)명").font(.caption).foregroundStyle(.secondary)
             Spacer()
-            Text("방향키·우클릭으로 이동 · 상대를 눌러 대결 신청·컬렉션 보기").font(.caption).foregroundStyle(.secondary)
+            Text("방향키·우클릭으로 이동 · 상대를 눌러 대결·2:2 팀 대결·컬렉션 보기").font(.caption).foregroundStyle(.secondary)
         }
         .overlay(alignment: .bottomLeading) {
             if ProcessInfo.processInfo.environment["PTB_PLAZA_DEBUG"] == "1" {   // SPIKE: QA readout
@@ -142,6 +150,12 @@ private struct PlazaView: View {
         VStack(spacing: 6) {
             Text(player.profile.trainer).font(.callout.bold())
             Text("대표 포켓몬: \(player.profile.leadName)").font(.caption)
+            Text("인기도 ♥ \(player.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
+            if player.profile.popularity != nil {
+                Button(plaza.canVoteToday ? "인기도 올리기 ♥" : "오늘은 이미 올렸어요") { plaza.raisePopularity(of: player.id) }
+                    .controlSize(.small)
+                    .disabled(!plaza.canVoteToday)
+            }
             if player.profile.sharesCollection == true {
                 Button("컬렉션 보기") { plaza.requestCollection(player.id); selected = nil }
                     .controlSize(.small)
@@ -156,11 +170,55 @@ private struct PlazaView: View {
                 Button("대결 신청") { plaza.challenge(player.id); selected = nil }
                     .buttonStyle(.borderedProminent)
                     .disabled(plaza.outgoingChallenge != nil)
+                if plaza.canJoinTeam(player) {
+                    Button("2:2 팀 대결") { plaza.beginTeamDraft(partner: player.id); selected = nil }
+                        .controlSize(.small)
+                        .disabled(plaza.outgoingChallenge != nil || plaza.pendingTeam != nil)
+                }
             }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(.regularMaterial))
         .shadow(radius: 4)
+    }
+
+    private func trainerName(_ id: String) -> String { plaza.players[id]?.profile.trainer ?? "?" }
+
+    /// The 2:2 team battle flow: choosing opponents, answering an invitation, waiting for everyone.
+    @ViewBuilder private var teamBanner: some View {
+        if let draft = plaza.teamDraft {
+            teamRow {
+                Text("\(KoreanParticle.object.attach(to: trainerName(draft.partner))) 파트너로 · 상대 2명을 눌러 고르세요 (\(draft.foes.count)/2)").bold()
+                Spacer()
+                Button("취소") { plaza.cancelTeamDraft() }
+            }
+        } else if let pending = plaza.pendingTeam {
+            let r = pending.roster
+            let sides = "\(r.names[0])·\(r.names[1]) vs \(r.names[2])·\(r.names[3])"
+            teamRow {
+                if pending.isHost {
+                    Text("2:2 팀 대결 응답을 기다리는 중 (\(pending.accepted.count)/3) · \(sides)")
+                    Spacer()
+                    Button("취소") { plaza.cancelPendingTeam() }
+                } else if !pending.answered {
+                    Text("\(KoreanParticle.subject.attach(to: r.names[0])) 2:2 팀 대결을 신청했어요! \(sides)").bold()
+                    Spacer()
+                    Button("수락") { plaza.answerTeamInvite(true) }.buttonStyle(.borderedProminent)
+                    Button("거절") { plaza.answerTeamInvite(false) }
+                } else {
+                    Text("다른 참가자를 기다리는 중… \(sides)")
+                    Spacer()
+                    Button("취소") { plaza.cancelPendingTeam() }
+                }
+            }
+        }
+    }
+
+    private func teamRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(content: content)
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.18)))
     }
 
     private func incomingBanner(_ player: PlazaPlayer) -> some View {
@@ -320,7 +378,8 @@ private struct Avatar: View {
     }
 
     private var nameTag: some View {
-        Text(player.profile.trainer)
+        Text(player.profile.popularity.map { $0 > 0 ? "\(player.profile.trainer) ♥\($0)" : player.profile.trainer }
+             ?? player.profile.trainer)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 1)
@@ -354,9 +413,9 @@ private struct Follower: View {
     let player: PlazaPlayer
 
     var body: some View {
-        SpriteView(speciesID: player.profile.speciesID, size: 34, animated: true, shiny: player.profile.shiny)
+        SpriteView(speciesID: player.profile.speciesID, size: 48, animated: true, shiny: player.profile.shiny)
             .scaleEffect(x: player.facing == .left ? 1 : -1)
-            .offset(y: 26)
+            .offset(y: 19)   // keeps the feet where the 34pt sprite stood
             .allowsHitTesting(false)
     }
 }
