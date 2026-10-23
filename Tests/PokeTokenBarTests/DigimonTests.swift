@@ -10,9 +10,24 @@ final class DigimonTests: XCTestCase {
             let line = try await provider.line(baseSpeciesID: base)
             XCTAssertEqual(line.totalForms, 5)
             XCTAssertEqual(line.rarity, .rare)
-            XCTAssertEqual(line.tree.finalIDs, [base + 4])
+            // Agumon also carries the shiny-only Black line, ending at SkullGreymon.
+            XCTAssertEqual(line.tree.finalIDs, base == 9001 ? [9005, 9008] : [base + 4])
             XCTAssertNotEqual(line.localizedName(base, .en), "#\(base)")
         }
+    }
+
+    func testShinyTakesBlackBranchAndNormalNeverDoes() async throws {
+        let tree = try await provider.line(baseSpeciesID: 9001).tree
+        XCTAssertEqual(DigimonCatalog.eligibleChildren(tree.children, shiny: true).map(\.speciesID), [9006])
+        XCTAssertEqual(DigimonCatalog.eligibleChildren(tree.children, shiny: false).map(\.speciesID), [9002])
+        let pokemonKids = pokemon.tree.children
+        XCTAssertEqual(DigimonCatalog.eligibleChildren(pokemonKids, shiny: true).count, pokemonKids.count)
+    }
+
+    func testOmegamonIsGrantedNotHatched() async throws {
+        XCTAssertFalse(DigimonCatalog.baseIDs.contains(DigimonCatalog.omegamonID))
+        XCTAssertEqual(DigimonCatalog.line(baseSpeciesID: DigimonCatalog.omegamonID)?.rarity, .legendary)
+        XCTAssertNotNil(DigimonCatalog.details(speciesID: DigimonCatalog.omegamonID))
     }
 
     func testIndexAddsDigimonBasesAndDelegatesPokemon() async throws {
@@ -25,7 +40,7 @@ final class DigimonTests: XCTestCase {
     }
 
     func testDetailsCoverEveryStageWithAllSixStats() throws {
-        for id in DigimonCatalog.agumonLine + DigimonCatalog.gabumonLine {
+        for id in DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine + [DigimonCatalog.omegamonID] {
             let d = try XCTUnwrap(DigimonCatalog.details(speciesID: id))
             XCTAssertEqual(Set(d.baseStats.keys), Set(PokemonStatCalculator.order))
             XCTAssertFalse(d.moves.isEmpty)

@@ -13,6 +13,12 @@ enum DigimonCatalog {
     }
 
     static let agumonLine: [Int] = [9001, 9002, 9003, 9004, 9005]
+    /// Shiny Koromon branches off to this line instead of Agumon's; normal ones never take it.
+    static let blackAgumonLine: [Int] = [9006, 9007, 9008]
+    static let shinyOnlyIDs: Set<Int> = Set(blackAgumonLine)
+    /// Granted on the graduation that completes both of these finals. Not in `baseIDs`, so never hatched.
+    static let omegamonID = 9021
+    static let omegamonRequirements: Set<String> = ["9001:9005", "9011:9015"]
     static let gabumonLine: [Int] = [9011, 9012, 9013, 9014, 9015]
     static let baseIDs: [Int] = [agumonLine[0], gabumonLine[0]]
     /// Same as `PokeAPIClient`'s capture-rate threshold for `.rare`.
@@ -34,6 +40,19 @@ enum DigimonCatalog {
         Entry(id: 9005, names: ["ko": "워그레이몬", "en": "WarGreymon", "ja": "ウォーグレイモン"], types: ["fire", "dragon"],
               stats: [100, 135, 115, 90, 90, 90], ability: "blaze",
               moves: [("dragon-claw", 1), ("flare-blitz", 1), ("dragon-dance", 34), ("outrage", 46)]),
+
+        Entry(id: 9006, names: ["ko": "블랙아구몬", "en": "BlackAgumon", "ja": "ブラックアグモン"], types: ["dark"],
+              stats: [65, 72, 55, 60, 50, 70], ability: "blaze",
+              moves: [("scratch", 1), ("ember", 1), ("bite", 14), ("shadow-claw", 22)]),
+        Entry(id: 9007, names: ["ko": "블랙그레이몬", "en": "BlackGreymon", "ja": "ブラックグレイモン"], types: ["dark", "dragon"],
+              stats: [90, 105, 85, 85, 70, 70], ability: "blaze",
+              moves: [("ember", 1), ("headbutt", 1), ("dark-pulse", 24), ("dragon-claw", 32)]),
+        Entry(id: 9008, names: ["ko": "스컬그레이몬", "en": "SkullGreymon", "ja": "スカルグレイモン"], types: ["dark", "ghost"],
+              stats: [100, 130, 70, 100, 60, 80], ability: "blaze",
+              moves: [("shadow-claw", 1), ("crunch", 1), ("hex", 30), ("hyper-beam", 42)]),
+        Entry(id: 9021, names: ["ko": "오메가몬", "en": "Omegamon", "ja": "オメガモン"], types: ["dragon", "steel"],
+              stats: [110, 140, 120, 110, 100, 100], ability: "blaze",
+              moves: [("flash-cannon", 1), ("dragon-claw", 1), ("sacred-sword", 40), ("fire-blast", 55)]),
 
         Entry(id: 9011, names: ["ko": "뿔몬", "en": "Tsunomon", "ja": "ツノモン"], types: ["normal"],
               stats: [50, 38, 40, 38, 38, 42], ability: "run-away",
@@ -59,10 +78,30 @@ enum DigimonCatalog {
         return EvoNode(speciesID: ids[0], children: tail.isEmpty ? [] : [chain(Array(tail))])
     }
 
+    private static func names(_ ids: [Int]) -> [Int: [String: String]] {
+        Dictionary(uniqueKeysWithValues: ids.map { ($0, entries[$0]!.names) })
+    }
+
     static func line(baseSpeciesID: Int) -> EvoLine? {
-        guard let ids = [agumonLine, gabumonLine].first(where: { $0.first == baseSpeciesID }) else { return nil }
-        return EvoLine(baseID: baseSpeciesID, tree: chain(ids), rarity: .rare,
-                       names: Dictionary(uniqueKeysWithValues: ids.map { ($0, entries[$0]!.names) }))
+        if baseSpeciesID == omegamonID {
+            return EvoLine(baseID: omegamonID, tree: EvoNode(speciesID: omegamonID, children: []),
+                           rarity: .legendary, names: names([omegamonID]))
+        }
+        if baseSpeciesID == agumonLine[0] {
+            let tree = EvoNode(speciesID: baseSpeciesID,
+                               children: [chain(agumonLine).children[0], chain(blackAgumonLine)])
+            return EvoLine(baseID: baseSpeciesID, tree: tree, rarity: .rare,
+                           names: names(agumonLine + blackAgumonLine))
+        }
+        guard let ids = [gabumonLine].first(where: { $0.first == baseSpeciesID }) else { return nil }
+        return EvoLine(baseID: baseSpeciesID, tree: chain(ids), rarity: .rare, names: names(ids))
+    }
+
+    /// Of `children`, the ones this individual may evolve into: shiny takes the shiny-only branch,
+    /// normal never does. Nodes without a shiny-only child (every Pokémon) keep all children.
+    static func eligibleChildren(_ children: [EvoNode], shiny: Bool) -> [EvoNode] {
+        let eligible = children.filter { shinyOnlyIDs.contains($0.speciesID) == shiny }
+        return eligible.isEmpty ? children : eligible
     }
 
     static func details(speciesID: Int) -> PokemonDetails? {
