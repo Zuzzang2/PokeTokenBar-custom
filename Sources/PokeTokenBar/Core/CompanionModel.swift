@@ -321,7 +321,7 @@ enum PokemonAssets {
     static let animatedSpeciesIDs = 1...649
 
     static func hasAnimatedSprite(speciesID: Int) -> Bool {
-        animatedSpeciesIDs.contains(speciesID)
+        animatedSpeciesIDs.contains(speciesID) || DigimonCatalog.contains(speciesID)
     }
 }
 

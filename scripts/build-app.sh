@@ -41,6 +41,7 @@ if compgen -G "assets/battle/trainers/local/*.png" >/dev/null; then
     mkdir -p "$APP/Contents/Resources/battle/trainers/local"
     cp assets/battle/trainers/local/*.png "$APP/Contents/Resources/battle/trainers/local/"
 fi
+cp -R assets/digimon "$APP/Contents/Resources/digimon"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

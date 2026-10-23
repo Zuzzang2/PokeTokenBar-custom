@@ -39,6 +39,12 @@ actor SpriteStore {
         if animated, !PokemonAssets.hasAnimatedSprite(speciesID: speciesID) { return nil }
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form)
         if let d = mem[key] { touch(key); return d }
+        if DigimonCatalog.contains(speciesID) {   // bundled artwork, never fetched
+            guard let file = Bundle.main.resourceURL?.appendingPathComponent("digimon/\(key).\(animated ? "gif" : "png")"),
+                  let d = try? Data(contentsOf: file) else { return nil }
+            remember(key, d)
+            return d
+        }
         let ext = animated ? "gif" : "png"
         let file = directory.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }

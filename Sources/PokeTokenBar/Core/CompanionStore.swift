@@ -65,7 +65,7 @@ final class CompanionStore {
     /// 상점 배율 — 아이템·알 가격에 곱한다. 낮을수록 싸다.
     private(set) var shopDifficulty: Double
 
-    init(provider: any PokeProviding = PokeAPIClient.shared,
+    init(provider: any PokeProviding = DigimonAwareProvider(inner: PokeAPIClient.shared),
          detailProvider: (any PokemonDetailProviding)? = nil,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
@@ -930,8 +930,8 @@ final class CompanionStore {
                    let planned = node.children.first(where: { $0.speciesID == a.plannedPathIDs[nextIndex] }) {
                     next = planned
                 } else {
-                    next = pickPlannedChild(node, baseID: a.baseID)
-                    let fallbackRoute = [node.speciesID] + makeEvolutionPlan(from: next, baseID: a.baseID)
+                    next = pickPlannedChild(node, baseID: a.baseID, shiny: a.isShiny)
+                    let fallbackRoute = [node.speciesID] + makeEvolutionPlan(from: next, baseID: a.baseID, shiny: a.isShiny)
                     let repaired = Self.repairedPlan(realizedPath: a.pathIDs, stageIndex: a.stageIndex,
                                                      fallbackRoute: fallbackRoute)
                     state.active!.plannedPathIDs = repaired
@@ -960,19 +960,19 @@ final class CompanionStore {
         save()
     }
 
-    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
-        let fresh = node.children.filter { ch in
+    private func pickPlannedChild(_ node: EvoNode, baseID: Int, shiny: Bool) -> EvoNode {
+        let fresh = DigimonCatalog.eligibleChildren(node.children, shiny: shiny).filter { ch in
             ch.finalIDs.contains { !state.collectedFinals.contains("\(baseID):\($0)") }
         }
-        let pool = fresh.isEmpty ? node.children : fresh
+        let pool = fresh.isEmpty ? DigimonCatalog.eligibleChildren(node.children, shiny: shiny) : fresh
         return pool[Int(rng.next() % UInt64(pool.count))]
     }
 
-    private func makeEvolutionPlan(from root: EvoNode, baseID: Int) -> [Int] {
+    private func makeEvolutionPlan(from root: EvoNode, baseID: Int, shiny: Bool) -> [Int] {
         var plan = [root.speciesID]
         var node = root
         while !node.children.isEmpty {
-            let next = pickPlannedChild(node, baseID: baseID)
+            let next = pickPlannedChild(node, baseID: baseID, shiny: shiny)
             plan.append(next.speciesID)
             node = next
         }
@@ -1012,7 +1012,7 @@ final class CompanionStore {
         if canReusePlan {
             plan = candidate.path
         } else {
-            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID)
+            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID, shiny: saved.isShiny)
             plan = realized.path + suffix.dropFirst()
         }
         normalized.pathIDs = realized.path
@@ -1042,6 +1042,7 @@ final class CompanionStore {
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
+        grantOmegamonIfEarned()
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
@@ -1052,6 +1053,23 @@ final class CompanionStore {
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
+    }
+
+    /// WarGreymon + MetalGarurumon graduated → Omegamon goes straight into the dex (once), so it can be
+    /// picked as the representative. It never hatches: `DigimonCatalog.baseIDs` excludes it.
+    private func grantOmegamonIfEarned() {
+        let id = DigimonCatalog.omegamonID
+        guard state.collectedFinals.isSuperset(of: DigimonCatalog.omegamonRequirements),
+              !state.dex.contains(where: { $0.baseID == id }),
+              let line = DigimonCatalog.line(baseSpeciesID: id),
+              let details = DigimonCatalog.details(speciesID: id) else { return }
+        var profile = PokemonProfile.generate(seed: rng.next())
+        profile.advanceGrowth(to: PokemonBalance.graduationTotal(.legendary), rarity: .legendary)
+        profile.enrich(with: details)
+        state.dex.append(DexEntry(id: profile.instanceID, baseID: id, finalID: id, chainOrder: [id],
+                                  rarity: .legendary, caughtAt: clock(), nature: nil,
+                                  profile: profile, names: line.names))
+        notifyCompanionEvent(l.omegamonUnlockedTitle, l.omegamonUnlockedBody(line.localizedName(id, state.language)))
     }
 
     // MARK: 인벤토리 / 이상한 사탕
@@ -1665,7 +1683,7 @@ final class CompanionStore {
            Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
             dittoDisguise = line.baseID
         }
-        let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID)
+        let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID, shiny: isShiny)
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
@@ -1714,7 +1732,7 @@ final class CompanionStore {
         // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
         let previousRarity = m.rarity
         m.baseID = dittoLine.baseID
-        let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID)
+        let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID, shiny: m.isShiny)
         m.pathIDs = [dittoLine.baseID]
         m.plannedPathIDs = evolutionPlan
         m.stageIndex = 0
