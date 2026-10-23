@@ -22,6 +22,23 @@ final class PlazaMotionSpikeTests: XCTestCase {
         XCTAssertEqual(fast.facing, .right)
     }
 
+    /// Right-click walking covers ground at walk speed and lands exactly on the target.
+    func testWalkTowardTargetStopsExactlyOnIt() {
+        let start = PlazaMap.spawnCenter
+        let target = CGPoint(x: start.x + 20, y: start.y)
+        var p = player()
+        for _ in 0..<60 { p = PlazaMotion.walk(p, held: [], dt: 1 / 60, toward: target) }
+        XCTAssertEqual(p.x, target.x, accuracy: 0.001)
+        XCTAssertEqual(p.y, target.y, accuracy: 0.001)
+        XCTAssertEqual(p.facing, .right)
+    }
+
+    func testHeldKeyOverridesTarget() {
+        let start = PlazaMap.spawnCenter
+        let p = PlazaMotion.walk(player(), held: [.left], dt: 0.1, toward: CGPoint(x: start.x + 50, y: start.y))
+        XCTAssertLessThan(p.x, start.x)
+    }
+
     func testDiagonalIsNotFaster() {
         let p = walk(player(), held: [.right, .up], seconds: 0.2, fps: 60)
         let moved = hypot(p.x - PlazaMap.spawnCenter.x, p.y - PlazaMap.spawnCenter.y)

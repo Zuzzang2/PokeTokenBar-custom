@@ -68,6 +68,12 @@ private struct PlazaView: View {
             chatPanel.frame(height: 150)
         }
         .padding(16)
+        .sheet(isPresented: Binding(get: { plaza.viewedCollection != nil },
+                                    set: { if !$0 { plaza.closeCollection() } })) {
+            if let viewed = plaza.viewedCollection {
+                CollectionSheet(viewed: viewed) { plaza.closeCollection() }
+            }
+        }
     }
 
     /// The visible part of the town: world drawn at `PlazaLayout.zoom`, shifted by the camera.
@@ -80,6 +86,13 @@ private struct PlazaView: View {
             .scaleEffect(k, anchor: .topLeading)
             .offset(x: -cam.x * k, y: -cam.y * k)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .overlay {
+                RightClickCatcher { point in
+                    selected = nil
+                    fieldAreaFocused = true
+                    plaza.walk(to: CGPoint(x: point.x / k + cam.x, y: point.y / k + cam.y))
+                }
+            }
     }
 
     private var world: some View {
@@ -113,7 +126,7 @@ private struct PlazaView: View {
             Text("광장").font(.headline)
             Text("\(plaza.everyone.count)/\(PlazaSession.capacity)명").font(.caption).foregroundStyle(.secondary)
             Spacer()
-            Text("방향키로 이동 · 상대를 눌러 대결 신청").font(.caption).foregroundStyle(.secondary)
+            Text("방향키·우클릭으로 이동 · 상대를 눌러 대결 신청·컬렉션 보기").font(.caption).foregroundStyle(.secondary)
         }
         .overlay(alignment: .bottomLeading) {
             if ProcessInfo.processInfo.environment["PTB_PLAZA_DEBUG"] == "1" {   // SPIKE: QA readout
@@ -129,6 +142,8 @@ private struct PlazaView: View {
         VStack(spacing: 6) {
             Text(player.profile.trainer).font(.callout.bold())
             Text("대표 포켓몬: \(player.profile.leadName)").font(.caption)
+            Button("컬렉션 보기") { plaza.requestCollection(player.id); selected = nil }
+                .controlSize(.small)
             if player.busy {
                 Text("대결 중").font(.caption.bold()).foregroundStyle(.orange)
             } else if plaza.outgoingChallenge == player.id {
@@ -192,6 +207,80 @@ private struct PlazaView: View {
 
 /// One trainer on the plaza: walking trainer sprite, name tag, chat bubble and busy badge,
 /// centered on the player's drawn position. The lead Pokémon is a separate `Follower`.
+/// Catches right-clicks (and control-clicks) over the field and reports the point in view coordinates,
+/// top-left origin. Every other event falls through to the SwiftUI views underneath.
+private struct RightClickCatcher: NSViewRepresentable {
+    let onRightClick: (CGPoint) -> Void
+
+    final class CatcherView: NSView {
+        var onRightClick: ((CGPoint) -> Void)?
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent else { return nil }
+            let rightClick = event.type == .rightMouseDown
+                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+            return rightClick ? self : nil
+        }
+        override func rightMouseDown(with event: NSEvent) { report(event) }
+        override func mouseDown(with event: NSEvent) { report(event) }   // control-click
+        private func report(_ event: NSEvent) {
+            onRightClick?(convert(event.locationInWindow, from: nil))
+        }
+    }
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.onRightClick = onRightClick
+        return view
+    }
+
+    func updateNSView(_ view: CatcherView, context: Context) { view.onRightClick = onRightClick }
+}
+
+/// Another trainer's shared collection: sprite, name and a shiny mark per owned Pokémon.
+private struct CollectionSheet: View {
+    let viewed: ViewedCollection
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("\(viewed.trainer)의 컬렉션").font(.headline)
+                if let entries = viewed.entries {
+                    Text("\(entries.count)마리 · 이로치 \(entries.filter(\.shiny).count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("닫기", action: onClose).keyboardShortcut(.cancelAction)
+            }
+            if let entries = viewed.entries {
+                if entries.isEmpty {
+                    Text("공유된 포켓몬이 없어요.").foregroundStyle(.secondary).frame(maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 8)], spacing: 8) {
+                            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                                VStack(spacing: 2) {
+                                    SpriteView(speciesID: entry.speciesID, size: 56, shiny: entry.shiny)
+                                    Text(entry.shiny ? "\(entry.name) ✦" : entry.name)
+                                        .font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
+                            }
+                        }
+                    }
+                }
+            } else {
+                ProgressView("불러오는 중…").frame(maxHeight: .infinity)
+            }
+        }
+        .padding(16)
+        .frame(width: 460, height: 420)
+    }
+}
+
 private struct Avatar: View {
     /// Distance from the view's center down to the trainer's feet; positions and collisions use the feet.
     static let feet: CGFloat = 38

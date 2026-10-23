@@ -13,17 +13,24 @@ enum PlazaMotion {
     static let snapDistance = 120.0       // farther than this is a teleport (rejoin), not a walk
     static let stepLength = 10.0          // points per walking frame
 
-    /// Advances the local player by `dt` seconds with the held direction keys.
-    static func walk(_ p: PlazaPlayer, held: Set<PlazaFacing>, dt: Double) -> PlazaPlayer {
+    /// Advances the local player by `dt` seconds with the held direction keys, or, with no key held,
+    /// toward a right-click `target` (stops on it exactly).
+    static func walk(_ p: PlazaPlayer, held: Set<PlazaFacing>, dt: Double, toward target: CGPoint? = nil) -> PlazaPlayer {
         var next = p
         var vx = 0.0, vy = 0.0
         if held.contains(.left) { vx -= 1 }
         if held.contains(.right) { vx += 1 }
         if held.contains(.up) { vy -= 1 }
         if held.contains(.down) { vy += 1 }
+        var reach = Double.infinity   // click-to-move never overshoots the target
+        if held.isEmpty, let target {
+            vx = target.x - p.x
+            vy = target.y - p.y
+            reach = hypot(vx, vy)
+        }
         let length = hypot(vx, vy)
         if length > 0 {
-            let d = walkSpeed * dt / length
+            let d = min(walkSpeed * dt, reach) / length
             // Try each axis on its own so an obstacle on one axis still lets you slide on the other.
             if PlazaSession.isWalkable(x: next.x + vx * d, y: next.y) { next.x += vx * d }
             if PlazaSession.isWalkable(x: next.x, y: next.y + vy * d) { next.y += vy * d }

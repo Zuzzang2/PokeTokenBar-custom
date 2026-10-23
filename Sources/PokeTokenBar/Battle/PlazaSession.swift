@@ -17,6 +17,22 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     var trainerDesign: String?
 }
 
+/// One owned Pokémon in the collection a trainer shares when another trainer asks to see it.
+struct CollectionEntry: Codable, Sendable, Equatable {
+    let speciesID: Int
+    let name: String
+    let shiny: Bool
+    /// Cap on what one trainer shares, keeping the reliable message small.
+    static let maxShared = 300
+}
+
+/// The collection the local player is looking at; `entries` is nil until the owner answers.
+struct ViewedCollection: Equatable {
+    let playerID: String
+    let trainer: String
+    var entries: [CollectionEntry]?
+}
+
 enum PlazaMessage: Codable, Sendable {
     case presence(PlazaProfile, x: Double, y: Double, busy: Bool)
     case position(x: Double, y: Double)
@@ -25,6 +41,8 @@ enum PlazaMessage: Codable, Sendable {
     case challenge
     case challengeReply(accept: Bool)
     case battle(BattleMessage)
+    case collectionRequest
+    case collection([CollectionEntry])
 }
 
 struct PlazaPlayer: Identifiable, Equatable {
@@ -79,8 +97,11 @@ final class PlazaSession: NSObject {
     private(set) var outgoingChallenge: String?
     private(set) var match: BattleMatch?
     private(set) var notice = ""
+    private(set) var viewedCollection: ViewedCollection?
+    private(set) var moveTarget: CGPoint?
 
     let team: [BattleMon]
+    private let collection: [CollectionEntry]
     private let peerID: MCPeerID
     private let session: MCSession
     private let advertiser: MCNearbyServiceAdvertiser
@@ -94,8 +115,9 @@ final class PlazaSession: NSObject {
     private var activity: NSObjectProtocol?
     private var ticker: Task<Void, Never>?
 
-    init(team: [BattleMon], trainerDesign: String) {
+    init(team: [BattleMon], collection: [CollectionEntry] = [], trainerDesign: String) {
         self.team = team
+        self.collection = Array(collection.prefix(CollectionEntry.maxShared))
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign)
@@ -159,6 +181,12 @@ final class PlazaSession: NSObject {
 
     func releaseAllKeys() { heldKeys = [] }
 
+    /// Right-click: walk to a world point, until it is reached, blocked or a key is pressed.
+    func walk(to point: CGPoint) {
+        guard match == nil else { return }
+        moveTarget = point
+    }
+
     /// One frame of motion for everyone, ~60 times a second while the plaza is open.
     private func startTicker() {
         ticker = Task { [weak self] in
@@ -175,8 +203,13 @@ final class PlazaSession: NSObject {
     private func tick(dt: Double) {
         let wasMoving = me.moving
         let held = match == nil ? heldKeys : []
-        if held.isEmpty == false || me.moving || me.followerX != me.shownX - PlazaMotion.offset(me.facing).width {
-            me = PlazaMotion.walk(me, held: held, dt: dt)
+        if !held.isEmpty || match != nil { moveTarget = nil }   // keys win over a pending click
+        if held.isEmpty == false || moveTarget != nil || me.moving
+            || me.followerX != me.shownX - PlazaMotion.offset(me.facing).width {
+            me = PlazaMotion.walk(me, held: held, dt: dt, toward: moveTarget)
+            if let target = moveTarget, !me.moving || hypot(target.x - me.x, target.y - me.y) < 0.5 {
+                moveTarget = nil   // arrived or blocked
+            }
         }
         if me.moving, Date().timeIntervalSince(lastPositionSent) > 1.0 / 15 {
             lastPositionSent = Date()
@@ -212,6 +245,14 @@ final class PlazaSession: NSObject {
         send(.challengeReply(accept: accept), to: id)
         if accept { startMatch(with: id, isHost: false) }
     }
+
+    func requestCollection(_ id: String) {
+        guard let target = players[id] else { return }
+        viewedCollection = ViewedCollection(playerID: id, trainer: target.profile.trainer, entries: nil)
+        send(.collectionRequest, to: id)
+    }
+
+    func closeCollection() { viewedCollection = nil }
 
     func leaveMatch() {
         match = nil
@@ -287,6 +328,7 @@ final class PlazaSession: NSObject {
         if incomingChallenge == id { incomingChallenge = nil }
         if outgoingChallenge == id { outgoingChallenge = nil; notice = "" }
         if match?.opponentID == id { match?.opponentLeft() }
+        if viewedCollection?.playerID == id { viewedCollection = nil }
     }
 
     private func receive(_ message: PlazaMessage, from peer: MCPeerID) {
@@ -326,6 +368,11 @@ final class PlazaSession: NSObject {
             }
         case .battle(let battleMessage):
             if match?.opponentID == id { match?.receive(battleMessage) }
+        case .collectionRequest:
+            send(.collection(collection), to: id)
+        case .collection(let entries):
+            guard viewedCollection?.playerID == id else { return }
+            viewedCollection?.entries = Array(entries.prefix(CollectionEntry.maxShared))
         }
     }
 

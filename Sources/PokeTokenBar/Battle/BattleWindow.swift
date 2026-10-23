@@ -145,7 +145,8 @@ private struct BattleRootView: View {
             let picks = selected.compactMap { id in candidates.first { $0.id == id } }
             var team: [BattleMon] = []
             for pick in picks { team.append(try await BattleMonBuilder.build(pick, trainer: trainer)) }
-            let s = PlazaSession(team: team, trainerDesign: trainerDesign)
+            let shared = candidates.map { CollectionEntry(speciesID: $0.speciesID, name: $0.name, shiny: $0.isShiny) }
+            let s = PlazaSession(team: team, collection: shared, trainerDesign: trainerDesign)
             onSession(s)
             session = s
         } catch {
