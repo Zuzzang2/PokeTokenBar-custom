@@ -14,7 +14,9 @@ final class BattleWindowController {
         let window = NSWindow(contentViewController: host)
         window.title = "포켓몬 대결 (테스트)"
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        window.setContentSize(NSSize(width: 760, height: 760))
+        // The plaza needs room for the field plus the roster panel: big, but never past the screen.
+        let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
+        window.setContentSize(NSSize(width: min(1280, screen.width * 0.92), height: min(960, screen.height * 0.9)))
         window.contentMinSize = NSSize(width: 432, height: 640)
         window.isReleasedWhenClosed = false
         window.center()

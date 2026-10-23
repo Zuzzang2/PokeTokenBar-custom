@@ -24,7 +24,7 @@ struct PlazaRootView: View {
 
 /// The town is bigger than the window: a fixed zoom, and a camera that follows the local player.
 enum PlazaLayout {
-    static let zoom: CGFloat = 1.3
+    static let zoom: CGFloat = 1.5
 
     /// Top-left of the visible world rect (world points) centred on `center`, clamped to the map.
     static func camera(center: CGPoint, viewport: CGSize) -> CGPoint {
@@ -45,6 +45,7 @@ private struct PlazaView: View {
     var body: some View {
         VStack(spacing: 8) {
             header
+            HStack(spacing: 8) {
             GeometryReader { geo in
                 viewport(size: geo.size)
             }
@@ -64,6 +65,8 @@ private struct PlazaView: View {
             }
             .onChange(of: fieldAreaFocused) { if !fieldAreaFocused { plaza.releaseAllKeys() } }
             .onAppear { fieldAreaFocused = true }
+            roster
+            }
 
             if let id = plaza.incomingChallenge, let player = plaza.players[id] {
                 incomingBanner(player)
@@ -155,6 +158,8 @@ private struct PlazaView: View {
                 Button(plaza.canVoteToday ? "인기도 올리기 ♥" : "오늘은 이미 올렸어요") { plaza.raisePopularity(of: player.id) }
                     .controlSize(.small)
                     .disabled(!plaza.canVoteToday)
+            } else {
+                Text("인기도 올리기: 상대 앱을 업데이트해야 해요").font(.caption2).foregroundStyle(.secondary)
             }
             if player.profile.sharesCollection == true {
                 Button("컬렉션 보기") { plaza.requestCollection(player.id); selected = nil }
@@ -167,11 +172,11 @@ private struct PlazaView: View {
             } else if plaza.outgoingChallenge == player.id {
                 Text("응답을 기다리는 중…").font(.caption)
             } else {
-                Button("대결 신청") { plaza.challenge(player.id); selected = nil }
+                Button("대결하기") { plaza.challenge(player.id); selected = nil }
                     .buttonStyle(.borderedProminent)
                     .disabled(plaza.outgoingChallenge != nil)
                 if plaza.canJoinTeam(player) {
-                    Button("2:2 팀 대결") { plaza.beginTeamDraft(partner: player.id); selected = nil }
+                    Button("2대2 하기") { plaza.beginTeamDraft(partner: player.id); selected = nil }
                         .controlSize(.small)
                         .disabled(plaza.outgoingChallenge != nil || plaza.pendingTeam != nil)
                 }
@@ -180,6 +185,77 @@ private struct PlazaView: View {
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(.regularMaterial))
         .shadow(radius: 4)
+    }
+
+    // MARK: Roster — always-visible buttons for everyone in the plaza
+
+    private var roster: some View {
+        let others = plaza.everyone.filter { $0.id != plaza.me.id }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("광장 사람들").font(.headline)
+            Text("내 인기도 ♥ \(plaza.me.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
+            if others.isEmpty {
+                Text("아직 다른 트레이너가 없어요.").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(others) { rosterRow($0) }
+                }
+            }
+        }
+        .padding(10)
+        .frame(width: 236)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
+    }
+
+    private func rosterRow(_ player: PlazaPlayer) -> some View {
+        let id = player.id
+        let teamBusy = plaza.pendingTeam != nil || plaza.teamMatch != nil
+        let canTeam = plaza.canJoinTeam(player) && !teamBusy && plaza.outgoingChallenge == nil
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(player.profile.trainer).font(.callout.bold()).lineLimit(1)
+                Text("♥ \(player.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
+                Spacer(minLength: 0)
+                if player.busy { Text("대결 중").font(.caption2.bold()).foregroundStyle(.orange) }
+            }
+            if let draft = plaza.teamDraft {
+                Button(id == draft.partner ? "내 파트너" : "상대로 선택 (\(draft.foes.count)/2)") {
+                    plaza.draftPick(id)
+                    fieldAreaFocused = true
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(id == draft.partner || !plaza.canJoinTeam(player))
+            } else {
+                HStack(spacing: 6) {
+                    Button("대결하기") { plaza.challenge(id); fieldAreaFocused = true }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(player.busy || plaza.outgoingChallenge != nil || teamBusy)
+                    Button("2대2 하기") { plaza.beginTeamDraft(partner: id); fieldAreaFocused = true }
+                        .disabled(!canTeam)
+                        .help(player.profile.teamBattle == true ? "이 사람과 한 팀이 돼서 2:2 대결" : "상대 앱을 업데이트해야 해요")
+                }
+                HStack(spacing: 6) {
+                    Button(plaza.canVoteToday ? "인기도 올리기 ♥" : "오늘은 올렸어요") {
+                        plaza.raisePopularity(of: id)
+                        fieldAreaFocused = true
+                    }
+                    .tint(.pink)
+                    .disabled(!plaza.canVoteToday || player.profile.popularity == nil)
+                    .help(player.profile.popularity == nil ? "상대 앱을 업데이트해야 해요" : "하루에 한 번, 한 명에게 올릴 수 있어요")
+                    Button("컬렉션") { plaza.requestCollection(id) }
+                        .disabled(player.profile.sharesCollection != true)
+                }
+            }
+            if player.profile.teamBattle != true || player.profile.popularity == nil {
+                Text("상대 앱이 오래돼 일부 버튼이 꺼져 있어요").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .controlSize(.small)
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.12)))
     }
 
     private func trainerName(_ id: String) -> String { plaza.players[id]?.profile.trainer ?? "?" }
