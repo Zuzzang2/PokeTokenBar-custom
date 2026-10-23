@@ -66,17 +66,11 @@ struct ChatLine: Identifiable, Equatable {
 @MainActor
 @Observable
 final class PlazaSession: NSObject {
-    static let serviceType = "ptb-battle"
+    /// Bumped with the town map: older builds use a 400×267 space and must not share a plaza.
+    static let serviceType = "ptb-plaza2"
     static let capacity = 8
-    nonisolated static let size = CGSize(width: 400, height: 267)   // plaza art is 3:2
-
-    /// Paved area and the fountain in the middle of the plaza art (fractions of `size`).
-    nonisolated static func isWalkable(x: Double, y: Double) -> Bool {
-        let w = size.width, h = size.height
-        guard x > w * 0.08, x < w * 0.92, y > h * 0.40, y < h * 0.86 else { return false }
-        let fx = (x - w * 0.5) / (w * 0.13), fy = (y - h * 0.54) / (h * 0.12)
-        return fx * fx + fy * fy > 1
-    }
+    nonisolated static var size: CGSize { PlazaMap.size }
+    nonisolated static func isWalkable(x: Double, y: Double) -> Bool { PlazaMap.isWalkable(x: x, y: y) }
 
     private(set) var me: PlazaPlayer
     private(set) var players: [String: PlazaPlayer] = [:]
@@ -105,7 +99,8 @@ final class PlazaSession: NSObject {
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign)
-        me = PlazaPlayer(profile: profile, x: Double.random(in: 110...290), y: Double.random(in: 190...215))
+        let spawn = PlazaMap.randomSpawn()
+        me = PlazaPlayer(profile: profile, x: spawn.x, y: spawn.y)
         peerID = MCPeerID(displayName: lead.trainer)
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: ["id": profile.id],

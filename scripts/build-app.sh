@@ -60,8 +60,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSLocalNetworkUsageDescription</key><string>근처 동료와 포켓몬 대결을 하려면 로컬 네트워크 접근이 필요해요.</string>
     <key>NSBonjourServices</key>
     <array>
-        <string>_ptb-battle._tcp</string>
-        <string>_ptb-battle._udp</string>
+        <string>_ptb-plaza2._tcp</string>
+        <string>_ptb-plaza2._udp</string>
     </array>
 </dict>
 </plist>

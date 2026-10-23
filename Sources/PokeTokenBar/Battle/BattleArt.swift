@@ -30,7 +30,7 @@ enum BattleArt {
         return nil
     }
 
-    static var plaza: NSImage? { image("plaza") }
+    static var town: NSImage? { image("town") }
     static var battleField: NSImage? { image("battle_field") }
 
     /// `trainers/local/` holds team-profile characters that stay out of git (third-party characters,

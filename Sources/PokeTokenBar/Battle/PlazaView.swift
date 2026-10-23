@@ -19,14 +19,17 @@ struct PlazaRootView: View {
     }
 }
 
-/// The plaza keeps its 400×267 logical space (shared with every peer); the view zooms it to fit.
+/// The town is bigger than the window: a fixed zoom, and a camera that follows the local player.
 enum PlazaLayout {
-    /// Largest zoom that fits `available` after leaving `reservedHeight` for header and chat; never below 1.
-    static func scale(available: CGSize, reservedHeight: CGFloat) -> CGFloat {
-        let size = PlazaSession.size
-        let byWidth = available.width / size.width
-        let byHeight = (available.height - reservedHeight) / size.height
-        return max(1, min(byWidth, byHeight))
+    static let zoom: CGFloat = 1.3
+
+    /// Top-left of the visible world rect (world points) centred on `center`, clamped to the map.
+    static func camera(center: CGPoint, viewport: CGSize) -> CGPoint {
+        let map = PlazaMap.size
+        func axis(_ c: CGFloat, _ view: CGFloat, _ world: CGFloat) -> CGFloat {
+            view >= world ? 0 : min(max(0, c - view / 2), world - view)
+        }
+        return CGPoint(x: axis(center.x, viewport.width, map.width), y: axis(center.y, viewport.height, map.height))
     }
 }
 
@@ -37,42 +40,12 @@ private struct PlazaView: View {
     @FocusState private var fieldAreaFocused: Bool
 
     var body: some View {
-        GeometryReader { geo in
-            let k = PlazaLayout.scale(available: CGSize(width: geo.size.width - 32, height: geo.size.height - 32),
-                                      reservedHeight: 190)
-            content(scale: k).padding(16)
-        }
-    }
-
-    private func content(scale k: CGFloat) -> some View {
         VStack(spacing: 8) {
             header
-            ZStack(alignment: .topLeading) {
-                PlazaBackdrop()
-                    .onTapGesture { selected = nil; fieldAreaFocused = true }   // walking needs key focus
-                ForEach(plaza.everyone.sorted { $0.followerY < $1.followerY }) { player in
-                    Follower(player: player)
-                        .position(x: player.followerX, y: player.followerY)
-                        .zIndex(player.followerY)
-                }
-                ForEach(plaza.everyone) { player in
-                    Avatar(player: player, isMe: player.id == plaza.me.id, isSelected: selected == player.id)
-                        .position(x: player.shownX, y: player.shownY)
-                        .zIndex(player.shownY + 0.5)      // nearer = drawn on top, followers included
-                        .onTapGesture {
-                            if player.id != plaza.me.id { selected = selected == player.id ? nil : player.id }
-                            fieldAreaFocused = true
-                        }
-                }
-                if let id = selected, let player = plaza.players[id] {
-                    challengeCard(player).position(x: min(310, max(90, player.shownX)), y: max(55, player.shownY - 85))
-                        .zIndex(10_000)
-                }
+            GeometryReader { geo in
+                viewport(size: geo.size)
             }
-            .frame(width: PlazaSession.size.width, height: PlazaSession.size.height)
-            .scaleEffect(k, anchor: .topLeading)          // zoom the shared 400×267 space to the window
-            .frame(width: PlazaSession.size.width * k, height: PlazaSession.size.height * k, alignment: .topLeading)
-            .clipShape(RoundedRectangle(cornerRadius: 10 * k))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .focusable()
             .focusEffectDisabled()
             .focused($fieldAreaFocused)
@@ -92,10 +65,47 @@ private struct PlazaView: View {
             if let id = plaza.incomingChallenge, let player = plaza.players[id] {
                 incomingBanner(player)
             }
-            chatPanel
+            chatPanel.frame(height: 150)
         }
-        .frame(width: PlazaSession.size.width * k)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(16)
+    }
+
+    /// The visible part of the town: world drawn at `PlazaLayout.zoom`, shifted by the camera.
+    private func viewport(size: CGSize) -> some View {
+        let k = PlazaLayout.zoom
+        let cam = PlazaLayout.camera(center: CGPoint(x: plaza.me.shownX, y: plaza.me.shownY),
+                                     viewport: CGSize(width: size.width / k, height: size.height / k))
+        return world
+            .frame(width: PlazaMap.size.width, height: PlazaMap.size.height)
+            .scaleEffect(k, anchor: .topLeading)
+            .offset(x: -cam.x * k, y: -cam.y * k)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    private var world: some View {
+            ZStack(alignment: .topLeading) {
+                PlazaBackdrop()
+                    .onTapGesture { selected = nil; fieldAreaFocused = true }   // walking needs key focus
+                ForEach(plaza.everyone.sorted { $0.followerY < $1.followerY }) { player in
+                    Follower(player: player)
+                        .position(x: player.followerX, y: player.followerY - Avatar.feet)
+                        .zIndex(player.followerY)
+                }
+                ForEach(plaza.everyone) { player in
+                    Avatar(player: player, isMe: player.id == plaza.me.id, isSelected: selected == player.id)
+                        .position(x: player.shownX, y: player.shownY - Avatar.feet)   // x/y are the feet
+                        .zIndex(player.shownY + 0.5)      // nearer = drawn on top, followers included
+                        .onTapGesture {
+                            if player.id != plaza.me.id { selected = selected == player.id ? nil : player.id }
+                            fieldAreaFocused = true
+                        }
+                }
+                if let id = selected, let player = plaza.players[id] {
+                    challengeCard(player).position(x: min(PlazaMap.size.width - 90, max(90, player.shownX)),
+                                                   y: max(55, player.shownY - Avatar.feet - 85))
+                        .zIndex(10_000)
+                }
+            }
     }
 
     private var header: some View {
@@ -183,6 +193,8 @@ private struct PlazaView: View {
 /// One trainer on the plaza: walking trainer sprite, name tag, chat bubble and busy badge,
 /// centered on the player's drawn position. The lead Pokémon is a separate `Follower`.
 private struct Avatar: View {
+    /// Distance from the view's center down to the trainer's feet; positions and collisions use the feet.
+    static let feet: CGFloat = 38
     let player: PlazaPlayer
     let isMe: Bool
     let isSelected: Bool
@@ -253,10 +265,10 @@ private struct Follower: View {
     }
 }
 
-/// Plaza art, or a drawn square when the art is unavailable.
+/// Town map art, or a drawn square when the art is unavailable.
 private struct PlazaBackdrop: View {
     var body: some View {
-        if let art = BattleArt.plaza {
+        if let art = BattleArt.town {
             Image(nsImage: art).resizable().interpolation(.high)
         } else {
             PlazaGround()
