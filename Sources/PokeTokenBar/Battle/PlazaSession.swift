@@ -15,6 +15,8 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     let leadName: String
     /// Optional so presence from builds before the trainer picker still decodes.
     var trainerDesign: String?
+    /// Builds before collection sharing omit this, so a peer without it cannot answer a request.
+    var sharesCollection: Bool?
 }
 
 /// One owned Pokémon in the collection a trainer shares when another trainer asks to see it.
@@ -31,6 +33,8 @@ struct ViewedCollection: Equatable {
     let playerID: String
     let trainer: String
     var entries: [CollectionEntry]?
+    /// No answer within `PlazaSession.collectionTimeout`.
+    var timedOut = false
 }
 
 enum PlazaMessage: Codable, Sendable {
@@ -120,7 +124,8 @@ final class PlazaSession: NSObject {
         self.collection = Array(collection.prefix(CollectionEntry.maxShared))
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
-                                   shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign)
+                                   shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign,
+                                   sharesCollection: true)
         let spawn = PlazaMap.randomSpawn()
         me = PlazaPlayer(profile: profile, x: spawn.x, y: spawn.y)
         peerID = MCPeerID(displayName: lead.trainer)
@@ -250,7 +255,14 @@ final class PlazaSession: NSObject {
         guard let target = players[id] else { return }
         viewedCollection = ViewedCollection(playerID: id, trainer: target.profile.trainer, entries: nil)
         send(.collectionRequest, to: id)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.collectionTimeout))
+            guard let self, self.viewedCollection?.playerID == id, self.viewedCollection?.entries == nil else { return }
+            self.viewedCollection?.timedOut = true
+        }
     }
+
+    static let collectionTimeout = 6.0
 
     func closeCollection() { viewedCollection = nil }
 

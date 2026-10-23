@@ -142,8 +142,12 @@ private struct PlazaView: View {
         VStack(spacing: 6) {
             Text(player.profile.trainer).font(.callout.bold())
             Text("대표 포켓몬: \(player.profile.leadName)").font(.caption)
-            Button("컬렉션 보기") { plaza.requestCollection(player.id); selected = nil }
-                .controlSize(.small)
+            if player.profile.sharesCollection == true {
+                Button("컬렉션 보기") { plaza.requestCollection(player.id); selected = nil }
+                    .controlSize(.small)
+            } else {
+                Text("컬렉션 보기: 상대 앱을 업데이트해야 해요").font(.caption2).foregroundStyle(.secondary)
+            }
             if player.busy {
                 Text("대결 중").font(.caption.bold()).foregroundStyle(.orange)
             } else if plaza.outgoingChallenge == player.id {
@@ -272,6 +276,9 @@ private struct CollectionSheet: View {
                         }
                     }
                 }
+            } else if viewed.timedOut {
+                Text("응답이 없어요. 상대가 광장을 나갔거나 이 기능이 없는 버전일 수 있어요.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxHeight: .infinity)
             } else {
                 ProgressView("불러오는 중…").frame(maxHeight: .infinity)
             }
