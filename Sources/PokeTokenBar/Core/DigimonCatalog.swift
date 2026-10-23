@@ -54,8 +54,9 @@ enum DigimonCatalog {
               stats: [100, 130, 70, 100, 60, 80], ability: "blaze",
               moves: [("shadow-claw", 1), ("crunch", 1), ("hex", 30), ("hyper-beam", 42)]),
         Entry(id: 9021, names: ["ko": "오메가몬", "en": "Omegamon", "ja": "オメガモン"], types: ["dragon", "steel"],
-              stats: [110, 140, 120, 110, 100, 100], ability: "blaze",
-              moves: [("flash-cannon", 1), ("dragon-claw", 1), ("sacred-sword", 40), ("fire-blast", 55)]),
+              stats: [140, 155, 130, 140, 120, 115], ability: "blaze",
+              moves: [("dragon-claw", 1), ("sacred-sword", 1), ("flash-cannon", 30), ("fire-blast", 40),
+                      ("dragon-pulse", 45), ("hyper-beam", 50)]),
 
         Entry(id: 9011, names: ["ko": "뿔몬", "en": "Tsunomon", "ja": "ツノモン"], types: ["normal"],
               stats: [50, 38, 40, 38, 38, 42], ability: "run-away",
