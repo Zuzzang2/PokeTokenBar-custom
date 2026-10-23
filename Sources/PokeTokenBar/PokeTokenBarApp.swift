@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var store: UsageStore!
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
+    private let selfUpdater = SelfUpdater()
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
     private let battleWindow = BattleWindowController()   // SPIKE
@@ -582,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled)
+            floatingPetEnabled: store.floatingPetEnabled, updateInProgress: selfUpdater.isBusy)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
@@ -597,8 +598,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .openSettings: showPopover { $0.showSettings = true }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .openBattle: battleWindow.show(companion: companion)
+        case .updateToLatest: updateToLatestMain()
         case .quit: NSApp.terminate(nil)
         case nil: break
+        }
+    }
+
+    /// Right-click menu: build the newest `main` and relaunch. Confirms first; reports failures.
+    private func updateToLatestMain() {
+        Task { @MainActor in
+            await selfUpdater.updateToLatestMain(
+                confirm: {
+                    let alert = NSAlert()
+                    alert.messageText = "최신 버전(main)으로 업데이트할까요?"
+                    alert.informativeText = "main의 최신 커밋을 내려받아 빌드해요. 몇 분 걸리고, 끝나면 앱이 자동으로 다시 켜져요. "
+                        + "현재 빌드: \(SelfUpdater.currentBuild)"
+                    alert.addButton(withTitle: "업데이트")
+                    alert.addButton(withTitle: "취소")
+                    NSApp.activate(ignoringOtherApps: true)
+                    return alert.runModal() == .alertFirstButtonReturn
+                },
+                show: { title, message in
+                    let alert = NSAlert()
+                    alert.messageText = title
+                    alert.informativeText = message
+                    NSApp.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                })
         }
     }
 

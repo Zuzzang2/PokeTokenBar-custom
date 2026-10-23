@@ -4,6 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="2.5.6"
+# Plaza peers show each other's build, so a teammate on an older commit is easy to spot.
+BUILD="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+git diff --quiet HEAD 2>/dev/null || BUILD="$BUILD+local"
+# Remote the in-app "update to latest main" pulls from; credentials in the URL are stripped.
+REPO_URL="$(git remote get-url origin 2>/dev/null | sed -E 's#//[^@/]*@#//#' || true)"
 APP_NAME="PokeTokenBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
@@ -54,6 +59,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>PTBBuild</key><string>$BUILD</string>
+    <key>PTBRepoURL</key><string>$REPO_URL</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>

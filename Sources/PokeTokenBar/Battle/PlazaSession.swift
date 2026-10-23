@@ -21,6 +21,8 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     var teamBattle: Bool?
     /// Popularity other trainers gave this one; omitted by builds without it.
     var popularity: Int?
+    /// Git commit the sender's app was built from (nil on builds before this field).
+    var appBuild: String?
 }
 
 /// Who is in a 2:2 team battle: `ids` = [host, host's partner, foe 1, foe 2].
@@ -164,7 +166,7 @@ final class PlazaSession: NSObject {
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign,
                                    sharesCollection: true, teamBattle: true,
-                                   popularity: Self.storedPopularity)
+                                   popularity: Self.storedPopularity, appBuild: Self.myBuild)
         let spawn = PlazaMap.randomSpawn()
         me = PlazaPlayer(profile: profile, x: spawn.x, y: spawn.y)
         peerID = MCPeerID(displayName: lead.trainer)
@@ -292,6 +294,9 @@ final class PlazaSession: NSObject {
     }
 
     // MARK: - Popularity
+
+    /// Build id baked into Info.plist by `build-app.sh` (nil when run without a bundle).
+    static let myBuild: String? = Bundle.main.object(forInfoDictionaryKey: "PTBBuild") as? String
 
     private static let popularityKey = "plazaPopularity"
     private static let lastVoteKey = "plazaLastPopularityVote"

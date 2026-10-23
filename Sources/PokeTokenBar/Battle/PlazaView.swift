@@ -194,6 +194,7 @@ private struct PlazaView: View {
         return VStack(alignment: .leading, spacing: 8) {
             Text("광장 사람들").font(.headline)
             Text("내 인기도 ♥ \(plaza.me.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
+            Text("내 빌드 \(PlazaSession.myBuild ?? "알 수 없음")").font(.caption2).foregroundStyle(.secondary)
             if others.isEmpty {
                 Text("아직 다른 트레이너가 없어요.").font(.caption).foregroundStyle(.secondary)
             }
@@ -251,11 +252,18 @@ private struct PlazaView: View {
             if player.profile.teamBattle != true || player.profile.popularity == nil {
                 Text("상대 앱이 오래돼 일부 버튼이 꺼져 있어요").font(.caption2).foregroundStyle(.secondary)
             }
+            Text(buildNote(player)).font(.caption2)
+                .foregroundStyle(player.profile.appBuild == PlazaSession.myBuild ? Color.secondary : Color.orange)
         }
         .controlSize(.small)
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.12)))
+    }
+
+    private func buildNote(_ player: PlazaPlayer) -> String {
+        guard let build = player.profile.appBuild else { return "빌드: 구버전 (업데이트 필요)" }
+        return build == PlazaSession.myBuild ? "빌드 \(build) · 같은 버전" : "빌드 \(build) · 내 빌드와 달라요"
     }
 
     private func trainerName(_ id: String) -> String { plaza.players[id]?.profile.trainer ?? "?" }

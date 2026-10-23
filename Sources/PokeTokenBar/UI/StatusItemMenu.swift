@@ -7,7 +7,7 @@ import AppKit
 @MainActor
 enum StatusItemMenu {
     enum Action: Equatable {
-        case refresh, openDex, openSettings, toggleFloatingPet, openBattle, quit
+        case refresh, openDex, openSettings, toggleFloatingPet, openBattle, updateToLatest, quit
     }
 
     struct Entry: Equatable {
@@ -18,7 +18,8 @@ enum StatusItemMenu {
     }
 
     /// `nil` elements are separators.
-    static func entries(l: L, todayTokens: Int, todayCost: UsageCost?, floatingPetEnabled: Bool) -> [Entry?] {
+    static func entries(l: L, todayTokens: Int, todayCost: UsageCost?, floatingPetEnabled: Bool,
+                        updateInProgress: Bool = false) -> [Entry?] {
         [
             Entry(title: summary(l: l, todayTokens: todayTokens, todayCost: todayCost), keyEquivalent: "", action: nil),
             nil,
@@ -28,6 +29,9 @@ enum StatusItemMenu {
             Entry(title: floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel,
                   keyEquivalent: "", action: .toggleFloatingPet),
             Entry(title: "대결 (테스트)…", keyEquivalent: "b", action: .openBattle),   // SPIKE
+            nil,
+            Entry(title: updateInProgress ? "업데이트 중…" : "최근 버전으로 업데이트 (main)…", keyEquivalent: "u",
+                  action: updateInProgress ? nil : .updateToLatest),
             nil,
             Entry(title: l.quit, keyEquivalent: "q", action: .quit),
         ]
