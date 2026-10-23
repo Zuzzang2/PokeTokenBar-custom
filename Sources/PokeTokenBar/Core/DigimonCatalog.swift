@@ -20,11 +20,14 @@ enum DigimonCatalog {
     static let omegamonID = 9021
     static let omegamonRequirements: Set<String> = ["9001:9005", "9011:9015"]
     static let gabumonLine: [Int] = [9011, 9012, 9013, 9014, 9015]
-    static let baseIDs: [Int] = [agumonLine[0], gabumonLine[0]]
+    /// Five-stage lines generated from `lineSpecs`: Guilmon 9031, Veemon 9041, Piyomon 9051,
+    /// Patamon 9061, Tentomon 9071, Gomamon 9081.
+    static let extraLines: [[Int]] = lineSpecs.map { spec in (0..<5).map { spec.base + $0 } }
+    static let baseIDs: [Int] = [agumonLine[0], gabumonLine[0]] + extraLines.map { $0[0] }
     /// Same as `PokeAPIClient`'s capture-rate threshold for `.rare`.
     static let captureRate = 45
 
-    private static let entries: [Int: Entry] = Dictionary(uniqueKeysWithValues: [
+    private static let handWritten: [Entry] = [
         Entry(id: 9001, names: ["ko": "코로몬", "en": "Koromon", "ja": "コロモン"], types: ["normal"],
               stats: [50, 40, 35, 40, 35, 45], ability: "run-away",
               moves: [("tackle", 1), ("growl", 5), ("ember", 10)]),
@@ -69,9 +72,73 @@ enum DigimonCatalog {
         Entry(id: 9015, names: ["ko": "메탈가루몬", "en": "MetalGarurumon", "ja": "メタルガルルモン"], types: ["ice", "steel"],
               stats: [100, 120, 110, 105, 95, 105], ability: "snow-cloak",
               moves: [("ice-beam", 1), ("metal-claw", 1), ("flash-cannon", 34), ("blizzard", 46)]),
-    ].map { ($0.id, $0) })
+    ]
+
+    private static let entries: [Int: Entry] = Dictionary(
+        uniqueKeysWithValues: (handWritten + lineSpecs.flatMap(lineEntries)).map { ($0.id, $0) })
 
     static func contains(_ id: Int) -> Bool { entries[id] != nil }
+
+    private struct Stage {
+        let ko: String, en: String, ja: String
+        let types: [String]
+        let moves: [(name: String, level: Int)]
+    }
+    private struct LineSpec {
+        let base: Int
+        let ability: String
+        let stages: [Stage]
+    }
+    /// Shared stage curve: baby, child, adult, perfect, ultimate (hp, atk, def, spa, spd, spe).
+    private static let stageStats: [[Int]] = [
+        [50, 38, 38, 38, 38, 42], [65, 65, 55, 60, 52, 66], [90, 95, 82, 82, 72, 80],
+        [95, 115, 95, 92, 85, 88], [100, 130, 110, 100, 92, 95]]
+
+    private static func lineEntries(_ spec: LineSpec) -> [Entry] {
+        spec.stages.enumerated().map { i, st in
+            Entry(id: spec.base + i, names: ["ko": st.ko, "en": st.en, "ja": st.ja], types: st.types,
+                  stats: stageStats[i], ability: i == 0 ? "run-away" : spec.ability, moves: st.moves)
+        }
+    }
+
+    private static let lineSpecs: [LineSpec] = [
+        LineSpec(base: 9031, ability: "blaze", stages: [
+            Stage(ko: "지기몬", en: "Gigimon", ja: "ジジモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("ember", 10)]),
+            Stage(ko: "길몬", en: "Guilmon", ja: "ギルモン", types: ["fire"], moves: [("scratch", 1), ("ember", 1), ("fire-fang", 14), ("flame-burst", 22)]),
+            Stage(ko: "그라우몬", en: "Growlmon", ja: "グラウモン", types: ["fire"], moves: [("ember", 1), ("headbutt", 1), ("flamethrower", 24), ("dragon-claw", 32)]),
+            Stage(ko: "워그라우몬", en: "WarGrowlmon", ja: "メガログラウモン", types: ["fire", "dragon"], moves: [("flamethrower", 1), ("dragon-claw", 1), ("flash-cannon", 30), ("fire-blast", 40)]),
+            Stage(ko: "듀크몬", en: "Gallantmon", ja: "デュークモン", types: ["fire", "steel"], moves: [("flare-blitz", 1), ("dragon-claw", 1), ("flash-cannon", 34), ("fire-blast", 46)])]),
+        LineSpec(base: 9041, ability: "justified", stages: [
+            Stage(ko: "치보몬", en: "Chibomon", ja: "チビモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("headbutt", 10)]),
+            Stage(ko: "브이몬", en: "Veemon", ja: "ブイモン", types: ["dragon"], moves: [("tackle", 1), ("headbutt", 1), ("dragon-breath", 14), ("brick-break", 22)]),
+            Stage(ko: "엑스브이몬", en: "ExVeemon", ja: "エクスブイモン", types: ["dragon", "fighting"], moves: [("headbutt", 1), ("dragon-claw", 1), ("brick-break", 24), ("dragon-pulse", 32)]),
+            Stage(ko: "패일드라몬", en: "Paildramon", ja: "パイルドラモン", types: ["dragon", "steel"], moves: [("dragon-claw", 1), ("flash-cannon", 1), ("hyper-beam", 30), ("dragon-pulse", 40)]),
+            Stage(ko: "임페리얼드라몬", en: "Imperialdramon", ja: "インペリアルドラモン", types: ["dragon", "steel"], moves: [("dragon-pulse", 1), ("flash-cannon", 1), ("hyper-beam", 34), ("outrage", 46)])]),
+        LineSpec(base: 9051, ability: "keen-eye", stages: [
+            Stage(ko: "요코몬", en: "Yokomon", ja: "ピョコモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("peck", 10)]),
+            Stage(ko: "피요몬", en: "Biyomon", ja: "ピヨモン", types: ["flying"], moves: [("peck", 1), ("gust", 1), ("wing-attack", 14), ("air-slash", 22)]),
+            Stage(ko: "버드라몬", en: "Birdramon", ja: "バードラモン", types: ["fire", "flying"], moves: [("ember", 1), ("wing-attack", 1), ("flamethrower", 24), ("aerial-ace", 32)]),
+            Stage(ko: "가루다몬", en: "Garudamon", ja: "ガルダモン", types: ["fire", "flying"], moves: [("flamethrower", 1), ("air-slash", 1), ("fire-blast", 30), ("hurricane", 40)]),
+            Stage(ko: "피닉스몬", en: "Phoenixmon", ja: "ホウオウモン", types: ["fire", "flying"], moves: [("fire-blast", 1), ("brave-bird", 1), ("hurricane", 34), ("sky-attack", 46)])]),
+        LineSpec(base: 9061, ability: "serene-grace", stages: [
+            Stage(ko: "토코몬", en: "Tokomon", ja: "トコモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("gust", 10)]),
+            Stage(ko: "파닥몬", en: "Patamon", ja: "パタモン", types: ["normal", "flying"], moves: [("tackle", 1), ("gust", 1), ("headbutt", 14), ("air-slash", 22)]),
+            Stage(ko: "엔젤몬", en: "Angemon", ja: "エンジェモン", types: ["flying", "psychic"], moves: [("confusion", 1), ("wing-attack", 1), ("psychic", 24), ("aerial-ace", 32)]),
+            Stage(ko: "매그나엔젤몬", en: "MagnaAngemon", ja: "ホーリーエンジェモン", types: ["flying", "psychic"], moves: [("psychic", 1), ("sacred-sword", 1), ("air-slash", 30), ("hyper-beam", 40)]),
+            Stage(ko: "세라피몬", en: "Seraphimon", ja: "セラフィモン", types: ["flying", "psychic"], moves: [("psychic", 1), ("hyper-beam", 1), ("air-slash", 34), ("sacred-sword", 46)])]),
+        LineSpec(base: 9071, ability: "static", stages: [
+            Stage(ko: "모티몬", en: "Motimon", ja: "モチモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("bug-bite", 10)]),
+            Stage(ko: "텐타몬", en: "Tentomon", ja: "テントモン", types: ["bug", "electric"], moves: [("thunder-shock", 1), ("bug-bite", 1), ("spark", 14), ("bug-buzz", 22)]),
+            Stage(ko: "카부테리몬", en: "Kabuterimon", ja: "カブテリモン", types: ["bug", "electric"], moves: [("thunder-shock", 1), ("bug-bite", 1), ("thunderbolt", 24), ("x-scissor", 32)]),
+            Stage(ko: "메가카부테리몬", en: "MegaKabuterimon", ja: "アトラーカブテリモン", types: ["bug", "electric"], moves: [("thunderbolt", 1), ("x-scissor", 1), ("megahorn", 30), ("thunder", 40)]),
+            Stage(ko: "헤라클카부테리몬", en: "HerculesKabuterimon", ja: "ヘラクルカブテリモン", types: ["bug", "electric"], moves: [("thunder", 1), ("megahorn", 1), ("bug-buzz", 34), ("hyper-beam", 46)])]),
+        LineSpec(base: 9081, ability: "torrent", stages: [
+            Stage(ko: "푸카몬", en: "Pukamon", ja: "プカモン", types: ["water"], moves: [("tackle", 1), ("growl", 5), ("water-gun", 10)]),
+            Stage(ko: "고마몬", en: "Gomamon", ja: "ゴマモン", types: ["water"], moves: [("tackle", 1), ("water-gun", 1), ("aqua-jet", 14), ("bubble-beam", 22)]),
+            Stage(ko: "이가몬", en: "Ikkakumon", ja: "イッカクモン", types: ["water", "ice"], moves: [("water-gun", 1), ("horn-attack", 1), ("ice-beam", 24), ("horn-drill", 32)]),
+            Stage(ko: "주드몬", en: "Zudomon", ja: "ズドモン", types: ["water", "fighting"], moves: [("hammer-arm", 1), ("waterfall", 1), ("surf", 30), ("close-combat", 40)]),
+            Stage(ko: "플레시오몬", en: "Plesiomon", ja: "プレシオモン", types: ["water", "dragon"], moves: [("hydro-pump", 1), ("dragon-pulse", 1), ("surf", 34), ("hyper-beam", 46)])]),
+    ]
 
     private static func chain(_ ids: [Int]) -> EvoNode {
         let tail = ids.dropFirst()
@@ -93,7 +160,7 @@ enum DigimonCatalog {
             return EvoLine(baseID: baseSpeciesID, tree: tree, rarity: .rare,
                            names: names(agumonLine + blackAgumonLine))
         }
-        guard let ids = [gabumonLine].first(where: { $0.first == baseSpeciesID }) else { return nil }
+        guard let ids = ([gabumonLine] + extraLines).first(where: { $0.first == baseSpeciesID }) else { return nil }
         return EvoLine(baseID: baseSpeciesID, tree: chain(ids), rarity: .rare, names: names(ids))
     }
 

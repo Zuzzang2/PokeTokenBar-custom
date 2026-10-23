@@ -32,7 +32,7 @@ final class DigimonTests: XCTestCase {
 
     func testIndexAddsDigimonBasesAndDelegatesPokemon() async throws {
         let ids = try await provider.baseSpeciesIndex().map(\.id)
-        XCTAssertEqual(Set(ids), [1, 9001, 9011])
+        XCTAssertEqual(Set(ids), [1, 9001, 9011, 9031, 9041, 9051, 9061, 9071, 9081])
         let digimon = try await provider.baseSpecies(id: 9001)
         XCTAssertEqual(digimon?.captureRate, DigimonCatalog.captureRate)
         let poke = try await provider.baseSpecies(id: 1)
@@ -40,7 +40,7 @@ final class DigimonTests: XCTestCase {
     }
 
     func testDetailsCoverEveryStageWithAllSixStats() throws {
-        for id in DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine + [DigimonCatalog.omegamonID] {
+        for id in DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.omegamonID] {
             let d = try XCTUnwrap(DigimonCatalog.details(speciesID: id))
             XCTAssertEqual(Set(d.baseStats.keys), Set(PokemonStatCalculator.order))
             XCTAssertFalse(d.moves.isEmpty)
