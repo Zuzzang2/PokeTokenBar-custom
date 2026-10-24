@@ -23,6 +23,9 @@ struct PlazaProfile: Codable, Sendable, Equatable {
     var popularity: Int?
     /// Git commit the sender's app was built from (nil on builds before this field).
     var appBuild: String?
+    /// Stable id of this install (stats are kept per trainer, not per plaza session) and the ladder rating.
+    var pid: String?
+    var rating: Int?
 }
 
 /// Who is in a 2:2 team battle: `ids` = [host, host's partner, foe 1, foe 2].
@@ -81,6 +84,7 @@ enum PlazaMessage: Codable, Sendable {
     case team(TeamBattleMessage)
     case popularityVote
     case popularity(Int)
+    case rating(Int)
 }
 
 struct PlazaPlayer: Identifiable, Equatable {
@@ -140,6 +144,11 @@ final class PlazaSession: NSObject {
     private(set) var teamDraft: TeamDraft?
     private(set) var pendingTeam: PendingTeam?
     private(set) var teamMatch: TeamBattleMatch?
+    /// This trainer's ladder book: rating, record, rivals. Saved after every finished match.
+    private(set) var stats: BattleStats
+    /// What the last finished match changed; shown on the result screen until the next match starts.
+    private(set) var lastResult: MatchResult?
+    private var rematchTarget: String?
     /// When this player last gave popularity; one vote per calendar day, to anyone.
     private(set) var lastVoteDate = UserDefaults.standard.object(forKey: PlazaSession.lastVoteKey) as? Date
     private var votersThisSession: Set<String> = []
@@ -160,13 +169,16 @@ final class PlazaSession: NSObject {
     private var ticker: Task<Void, Never>?
 
     init(team: [BattleMon], collection: [CollectionEntry] = [], trainerDesign: String) {
+        let stats = BattleStatsStore.load()
+        self.stats = stats
         self.team = team
         self.collection = Array(collection.prefix(CollectionEntry.maxShared))
         let lead = team[0]
         let profile = PlazaProfile(id: UUID().uuidString, trainer: lead.trainer, speciesID: lead.speciesID,
                                    shiny: lead.isShiny, leadName: lead.name, trainerDesign: trainerDesign,
                                    sharesCollection: true, teamBattle: true,
-                                   popularity: Self.storedPopularity, appBuild: Self.myBuild)
+                                   popularity: Self.storedPopularity, appBuild: Self.myBuild,
+                                   pid: stats.playerID, rating: stats.rating)
         let spawn = PlazaMap.randomSpawn()
         me = PlazaPlayer(profile: profile, x: spawn.x, y: spawn.y)
         peerID = MCPeerID(displayName: lead.trainer)
@@ -388,6 +400,7 @@ final class PlazaSession: NSObject {
 
     func leaveTeamMatch() {
         teamMatch = nil
+        lastResult = nil
         setBusy(false)
     }
 
@@ -404,9 +417,12 @@ final class PlazaSession: NSObject {
         guard let myIndex = roster.ids.firstIndex(of: me.id) else { return }
         pendingTeam = nil
         notice = ""
+        let foes = TeamBattleState.foes(of: myIndex).compactMap { players[roster.ids[$0]]?.profile }
+        lastResult = nil
         teamMatch = TeamBattleMatch(me: team, roster: roster.ids, myIndex: myIndex) { [weak self] message, to in
             self?.send(.team(message), to: roster.ids[to])
         }
+        teamMatch?.onFinished = { [weak self] won in self?.finishTeam(won: won, foes: foes) }
         setBusy(true)
     }
 
@@ -469,6 +485,7 @@ final class PlazaSession: NSObject {
 
     func leaveMatch() {
         match = nil
+        lastResult = nil
         setBusy(false)
     }
 
@@ -477,10 +494,52 @@ final class PlazaSession: NSObject {
     private func startMatch(with id: String, isHost: Bool) {
         outgoingChallenge = nil
         notice = ""
+        let opponent = players[id]?.profile
+        lastResult = nil
         match = BattleMatch(me: team, isHost: isHost, opponentID: id) { [weak self] message in
             self?.send(.battle(message), to: id)
         }
+        match?.onFinished = { [weak self] won in self?.finishSolo(won: won, opponent: opponent) }
         setBusy(true)
+    }
+
+    // MARK: - Ladder
+
+    private func apply(_ result: (BattleStats, MatchResult)) {
+        stats = result.0
+        lastResult = result.1
+        BattleStatsStore.save(stats)
+        update(me.id) { $0.profile.rating = result.0.rating }
+        broadcast(.rating(result.0.rating), reliable: true)
+    }
+
+    private func finishSolo(won: Bool, opponent: PlazaProfile?) {
+        guard let opponent else { return }
+        // A build without ids still gets a record, keyed by name.
+        let key = opponent.pid ?? "name:\(opponent.trainer)"
+        apply(stats.recordingSolo(won: won, opponentID: key, opponentName: opponent.trainer,
+                                  opponentRating: opponent.rating ?? Elo.start))
+    }
+
+    private func finishTeam(won: Bool, foes: [PlazaProfile]) {
+        apply(stats.recordingTeam(won: won, foeRatings: foes.map { $0.rating ?? Elo.start },
+                                  foeNames: foes.map(\.trainer)))
+    }
+
+    /// Back to the plaza and straight into another challenge to the same trainer.
+    func rematch(_ id: String) {
+        leaveMatch()
+        if players[id]?.busy == false {
+            challenge(id)
+        } else {
+            // The other side is still on its result screen: challenge the moment they are back.
+            rematchTarget = id
+            notice = "상대가 광장으로 돌아오면 바로 재대결을 신청할게요…"
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(30))
+                if self?.rematchTarget == id { self?.rematchTarget = nil; self?.notice = "" }
+            }
+        }
     }
 
     private func setBusy(_ busy: Bool) {
@@ -571,6 +630,11 @@ final class PlazaSession: NSObject {
             showBubble(text, for: id)
         case .busy(let busy):
             update(id) { $0.busy = busy }
+            if !busy, rematchTarget == id {
+                rematchTarget = nil
+                notice = ""
+                challenge(id)
+            }
         case .challenge:
             if match != nil || incomingChallenge != nil || outgoingChallenge != nil || isInTeamFlow {
                 send(.challengeReply(accept: false), to: id)
@@ -596,6 +660,8 @@ final class PlazaSession: NSObject {
             receiveTeam(message, from: id)
         case .popularityVote, .popularity:
             receivePopularity(message, from: id)
+        case .rating(let value):
+            update(id) { $0.profile.rating = value }
         }
     }
 

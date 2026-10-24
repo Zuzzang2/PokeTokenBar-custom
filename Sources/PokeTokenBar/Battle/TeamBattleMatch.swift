@@ -27,6 +27,8 @@ final class TeamBattleMatch {
     private(set) var status = "참가자 정보 받는 중…"
 
     private let send: (TeamBattleMessage, Int) -> Void   // message, destination trainer index
+    /// Called once, with whether this side's team won, when the battle ends normally.
+    var onFinished: ((Bool) -> Void)?
     private var seed: UInt64?
     /// Inputs by turn: a faster peer's next-turn action can arrive before this turn is resolved here.
     private var actionsByTurn: [Int: [TeamAction?]] = [:]
@@ -152,7 +154,9 @@ final class TeamBattleMatch {
         actionsByTurn[state.turn + 1] = nil
         if let winner = next.winner {
             phase = .finished
-            status = TeamBattleState.team(of: myIndex) == winner ? "승리!" : "패배…"
+            let won = TeamBattleState.team(of: myIndex) == winner
+            status = won ? "승리!" : "패배…"
+            onFinished?(won)
         }
     }
 }

@@ -19,11 +19,9 @@ final class SelfUpdater {
     static let defaultRepoURL = "https://github.com/Zuzzang2/PokeTokenBar-custom.git"
     static let installedApp = "/Applications/PokeTokenBar.app"
 
-    /// Remote and build id baked into Info.plist by `build-app.sh`.
-    static var repoURL: String {
-        let embedded = Bundle.main.object(forInfoDictionaryKey: "PTBRepoURL") as? String
-        return embedded.flatMap { $0.isEmpty ? nil : $0 } ?? defaultRepoURL
-    }
+    /// Always this team's repository. A teammate's own `origin` (an upstream clone, another fork) must
+    /// not decide where "latest main" comes from, or their update would quietly pull the wrong code.
+    static var repoURL: String { defaultRepoURL }
     static var currentBuild: String { (Bundle.main.object(forInfoDictionaryKey: "PTBBuild") as? String) ?? "unknown" }
 
     private var cloneDir: URL { AppStatePaths.directory().appendingPathComponent("update-src") }
@@ -40,12 +38,19 @@ final class SelfUpdater {
     func updateToLatestMain(confirm: () -> Bool, show: (String, String) -> Void) async {
         guard !isBusy else { return }
         let url = Self.repoURL
+        // The build needs git and the Swift toolchain; say so up front instead of failing minutes later.
+        let toolchain = await Self.run("/usr/bin/xcrun", ["--find", "swift"])
+        guard toolchain.status == 0 else {
+            show("개발 도구가 필요해요", "업데이트는 앱을 직접 빌드해서 설치해요. 터미널에서 'xcode-select --install'을 실행해 "
+                + "Command Line Tools를 설치한 뒤 다시 시도해 주세요.")
+            return
+        }
         state = .working("최신 커밋 확인 중…")
         defer { state = .idle }
         let remote = await Self.run("/usr/bin/git", ["ls-remote", url, "refs/heads/main"])
         guard remote.status == 0, let hash = remote.output.split(whereSeparator: \.isWhitespace).first.map(String.init),
               hash.count >= 7 else {
-            show("업데이트 확인 실패", "main 최신 커밋을 가져오지 못했어요. 네트워크와 저장소 접근 권한을 확인해 주세요.\n\(Self.tail(remote.output))")
+            show("업데이트 확인 실패", "main 최신 커밋을 가져오지 못했어요. 네트워크를 확인해 주세요.\n저장소: \(url)\n\(Self.tail(remote.output))")
             return
         }
         if Self.isUpToDate(build: Self.currentBuild, remote: hash) {
@@ -66,7 +71,7 @@ final class SelfUpdater {
             fetched = await Self.run("/usr/bin/git", ["clone", "--branch", "main", "--single-branch", url, cloneDir.path])
         }
         guard fetched.status == 0 else {
-            show("업데이트 실패", "내려받기에 실패했어요.\n\(Self.tail(fetched.output))")
+            show("업데이트 실패", "내려받기에 실패했어요.\n저장소: \(url)\n\(Self.tail(fetched.output))")
             return
         }
 
@@ -80,7 +85,7 @@ final class SelfUpdater {
         let built = await Self.run("/bin/bash", ["-c", script])
         if built.status != 0 {
             let log = (try? String(contentsOf: logURL, encoding: .utf8)) ?? built.output
-            show("업데이트 실패", "빌드에 실패했어요. 기존 앱은 그대로예요.\n\(Self.tail(log))")
+            show("업데이트 실패", "빌드에 실패했어요. 기존 앱은 그대로예요. (로그: \(logURL.path))\n\(Self.tail(log, lines: 12))")
         }
     }
 

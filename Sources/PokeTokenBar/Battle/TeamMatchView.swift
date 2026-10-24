@@ -5,6 +5,7 @@ import SwiftUI
 
 struct TeamMatchView: View {
     let match: TeamBattleMatch
+    var result: MatchResult?
     let onLeave: () -> Void
     @State private var shownHP: [[Int]] = []
     @State private var shownActive = [0, 0, 0, 0]
@@ -37,6 +38,7 @@ struct TeamMatchView: View {
             }
             if !match.status.isEmpty && !isPlaying { Text(match.status).font(.title2).bold() }
             if match.isOver && !isPlaying {
+                if let result { MatchResultCard(result: result) }
                 Button("광장으로 돌아가기", action: onLeave).buttonStyle(.borderedProminent)
             }
             Spacer(minLength: 0)

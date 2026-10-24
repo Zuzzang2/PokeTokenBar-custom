@@ -9,10 +9,11 @@ struct PlazaRootView: View {
 
     var body: some View {
         if let teamMatch = plaza.teamMatch {
-            TeamMatchView(match: teamMatch) { plaza.leaveTeamMatch() }
+            TeamMatchView(match: teamMatch, result: plaza.lastResult) { plaza.leaveTeamMatch() }
                 .padding(16)
         } else if let match = plaza.match {
-            MatchView(match: match, opponentName: plaza.players[match.opponentID]?.profile.trainer) {
+            MatchView(match: match, opponentName: plaza.players[match.opponentID]?.profile.trainer,
+                      result: plaza.lastResult, onRematch: { plaza.rematch(match.opponentID) }) {
                 plaza.leaveMatch()
             }
             .padding(16)
@@ -40,6 +41,7 @@ private struct PlazaView: View {
     let plaza: PlazaSession
     @State private var selected: String?
     @State private var draft = ""
+    @State private var showStats = false
     @FocusState private var fieldAreaFocused: Bool
 
     var body: some View {
@@ -75,6 +77,7 @@ private struct PlazaView: View {
             chatPanel.frame(height: 150)
         }
         .padding(16)
+        .sheet(isPresented: $showStats) { StatsSheet(stats: plaza.stats) { showStats = false } }
         .sheet(isPresented: Binding(get: { plaza.viewedCollection != nil },
                                     set: { if !$0 { plaza.closeCollection() } })) {
             if let viewed = plaza.viewedCollection {
@@ -191,8 +194,14 @@ private struct PlazaView: View {
 
     private var roster: some View {
         let others = plaza.everyone.filter { $0.id != plaza.me.id }
+            .sorted { ($0.profile.rating ?? Elo.start) > ($1.profile.rating ?? Elo.start) }
         return VStack(alignment: .leading, spacing: 8) {
             Text("광장 사람들").font(.headline)
+            HStack {
+                Text("\(plaza.stats.tier.label) \(plaza.stats.rating)").font(.callout.bold())
+                Spacer(minLength: 0)
+                Button("내 전적") { showStats = true }.controlSize(.small)
+            }
             Text("내 인기도 ♥ \(plaza.me.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
             Text("내 빌드 \(PlazaSession.myBuild ?? "알 수 없음")").font(.caption2).foregroundStyle(.secondary)
             if others.isEmpty {
@@ -217,7 +226,11 @@ private struct PlazaView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(player.profile.trainer).font(.callout.bold()).lineLimit(1)
+                Text(player.profile.rating.map { "\(RankTier.tier(for: $0).emoji)\($0)" } ?? "").font(.caption)
                 Text("♥ \(player.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
+                if let record = plaza.stats.opponents[player.profile.pid ?? "name:\(player.profile.trainer)"] {
+                    Text("\(record.wins)승 \(record.losses)패").font(.caption2).foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 0)
                 if player.busy { Text("대결 중").font(.caption2.bold()).foregroundStyle(.orange) }
             }
@@ -336,6 +349,12 @@ private struct PlazaView: View {
             }
             .padding(8)
             .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
+            HStack(spacing: 6) {
+                ForEach(["👍", "👏", "😂", "🔥", "GG"], id: \.self) { emote in
+                    Button(emote) { plaza.say(emote); fieldAreaFocused = true }.controlSize(.small)
+                }
+                Spacer(minLength: 0)
+            }
             HStack {
                 TextField("메시지 입력 후 Enter", text: $draft)
                     .textFieldStyle(.roundedBorder)
@@ -381,6 +400,89 @@ private struct RightClickCatcher: NSViewRepresentable {
     }
 
     func updateNSView(_ view: CatcherView, context: Context) { view.onRightClick = onRightClick }
+}
+
+/// What the match just changed: rating, tier, streak and the record against this opponent.
+struct MatchResultCard: View {
+    let result: MatchResult
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(result.rated ? "랭크 \(result.delta >= 0 ? "+" : "")\(result.delta)  →  \(result.ratingAfter)"
+                              : "랭크 점수는 그대로예요 (오늘 같은 상대와 \(BattleStats.ratedPerOpponentPerDay)판을 넘었어요)")
+                .font(.headline)
+                .foregroundStyle(result.rated ? (result.delta >= 0 ? Color.green : Color.red) : Color.secondary)
+            Text(result.tier.label).font(.callout)
+            if result.tierChanged {
+                Text(result.delta >= 0 ? "🎉 \(result.tier.name)(으)로 승급했어요!" : "\(result.tier.name)(으)로 내려갔어요")
+                    .font(.callout.bold()).foregroundStyle(.orange)
+            }
+            if let record = result.record {
+                Text("\(record.name) 상대 전적 \(record.wins)승 \(record.losses)패").font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if !result.versus.isEmpty {
+                Text("vs \(result.versus.joined(separator: "·")) (2:2)").font(.caption).foregroundStyle(.secondary)
+            }
+            if result.won && result.streak >= 2 {
+                Text("🔥 \(result.streak)연승 중!").font(.callout.bold()).foregroundStyle(.orange)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.quaternary))
+    }
+}
+
+/// This trainer's ladder book: tier progress, record, streaks and the rivals met most often.
+private struct StatsSheet: View {
+    let stats: BattleStats
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("내 전적").font(.headline)
+                Spacer()
+                Button("닫기", action: onClose).keyboardShortcut(.cancelAction)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(stats.tier.label)  \(stats.rating)").font(.title2.bold())
+                if let next = RankTier.pointsToNext(from: stats.rating) {
+                    Text("다음 티어까지 \(next)점").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("최고 티어예요!").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                GridRow { Text("1:1"); Text("\(stats.wins)승 \(stats.losses)패") }
+                GridRow { Text("2:2 팀"); Text("\(stats.teamWins)승 \(stats.teamLosses)패") }
+                GridRow { Text("연승"); Text("현재 \(stats.streak) · 최고 \(stats.bestStreak)") }
+                GridRow { Text("최고 점수"); Text("\(stats.peak)") }
+            }
+            .font(.callout)
+            Divider()
+            Text("자주 만난 상대").font(.subheadline.bold())
+            if stats.rivals.isEmpty {
+                Text("아직 대결한 상대가 없어요.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(Array(stats.rivals.prefix(20).enumerated()), id: \.offset) { _, rival in
+                            HStack {
+                                Text(rival.record.name).lineLimit(1)
+                                Spacer()
+                                Text("\(rival.record.wins)승 \(rival.record.losses)패").monospacedDigit()
+                                    .foregroundStyle(rival.record.wins >= rival.record.losses ? Color.green : Color.red)
+                            }
+                            .font(.callout)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 380, height: 420)
+    }
 }
 
 /// Another trainer's shared collection: sprite, name and a shiny mark per owned Pokémon.
@@ -461,9 +563,15 @@ private struct Avatar: View {
         }
     }
 
+    private var tagText: String {
+        var text = player.profile.trainer
+        if let rating = player.profile.rating { text = "\(RankTier.tier(for: rating).emoji) " + text }
+        if let likes = player.profile.popularity, likes > 0 { text += " ♥\(likes)" }
+        return text
+    }
+
     private var nameTag: some View {
-        Text(player.profile.popularity.map { $0 > 0 ? "\(player.profile.trainer) ♥\($0)" : player.profile.trainer }
-             ?? player.profile.trainer)
+        Text(tagText)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 1)
@@ -559,6 +667,8 @@ private struct PlazaGround: View {
 struct MatchView: View {
     let match: BattleMatch
     let opponentName: String?
+    var result: MatchResult?
+    var onRematch: (() -> Void)?
     let onLeave: () -> Void
     @State private var isPlaying = false
 
@@ -599,7 +709,13 @@ struct MatchView: View {
             }
             if !match.status.isEmpty && !isPlaying { Text(match.status).font(.title2).bold() }
             if match.isOver && !isPlaying {
-                Button("광장으로 돌아가기", action: onLeave).buttonStyle(.borderedProminent)
+                if let result { MatchResultCard(result: result) }
+                HStack {
+                    if match.phase == .finished, let onRematch {
+                        Button("재대결 신청", action: onRematch).buttonStyle(.borderedProminent)
+                    }
+                    Button("광장으로 돌아가기", action: onLeave)
+                }
             }
             Spacer(minLength: 0)
         }

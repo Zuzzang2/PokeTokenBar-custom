@@ -28,6 +28,8 @@ final class BattleMatch {
     private(set) var status = "상대 정보 받는 중…"
 
     private let send: (BattleMessage) -> Void
+    /// Called once, with whether this side won, when the battle ends normally (not on a disconnect).
+    var onFinished: ((Bool) -> Void)?
     private var seed: UInt64?
     private var myAction: BattleAction?
     private var theirAction: BattleAction?
@@ -123,6 +125,7 @@ final class BattleMatch {
         if let winner = next.winner {
             phase = .finished
             status = winner == myIndex ? "승리!" : "패배…"
+            onFinished?(winner == myIndex)
         }
     }
 }
