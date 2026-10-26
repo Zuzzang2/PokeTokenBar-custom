@@ -678,6 +678,7 @@ rogueChecks()
 statChecks()
 tierChecks()
 regionChecks()
+endgameChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")
