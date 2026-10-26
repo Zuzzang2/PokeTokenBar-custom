@@ -610,11 +610,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateToLatestMain() {
         Task { @MainActor in
             await selfUpdater.updateToLatestMain(
-                confirm: {
+                confirm: { latest in
                     let alert = NSAlert()
                     alert.messageText = "최신 버전(main)으로 업데이트할까요?"
                     alert.informativeText = "main의 최신 커밋을 내려받아 빌드해요. 몇 분 걸리고, 끝나면 앱이 자동으로 다시 켜져요. "
-                        + "현재 빌드: \(SelfUpdater.currentBuild)"
+                        + "현재 빌드: \(SelfUpdater.currentBuild)  →  최신 main: \(latest)"
                     alert.addButton(withTitle: "업데이트")
                     alert.addButton(withTitle: "취소")
                     NSApp.activate(ignoringOtherApps: true)
