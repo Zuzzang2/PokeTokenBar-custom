@@ -1801,6 +1801,14 @@ final class RpgWorld {
 
     // MARK: projectiles & pickups
 
+    /// Share of max MP a mage's basic orb gives back on a hit, so spells are fed by fighting, not only by potions.
+    static let orbManaGain = 0.03
+
+    private func orbManaGain(_ ownerID: Int) {
+        guard let i = players.firstIndex(where: { $0.id == ownerID }) else { return }
+        players[i].mp = min(players[i].maxMP, players[i].mp + players[i].maxMP * Self.orbManaGain)
+    }
+
     private func stepShots(_ dt: Double) {
         var keep: [RpgShot] = []
         for var s in shots {
@@ -1818,6 +1826,7 @@ final class RpgWorld {
                 var done = false
                 for v in mobIDs(near: foot, radius: s.kind == .bigArrow ? 8 : 5, map: s.map) where !s.hit.contains(v) {
                     s.hit.insert(v)
+                    if s.kind == .orb { orbManaGain(s.ownerID) }
                     if s.kind == .orb, s.element == .fire {
                         explode(s)
                     } else {
