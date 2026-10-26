@@ -26,6 +26,7 @@ enum RpgMaterials {
     static let bands: [(item: String, levels: ClosedRange<Int>)] = [
         ("mat_jelly", 1...8), ("mat_hide", 5...14), ("mat_bone", 9...20), ("mat_sting", 15...28),
         ("mat_ice", 22...34), ("mat_magma", 30...42), ("mat_dark", 38...52), ("mat_wraith", 44...60),
+        ("mat_sky", 58...74), ("mat_pearl", 64...82), ("mat_time", 72...92), ("mat_void", 82...100),
     ]
     /// Chance that a kill drops one material.
     static let chance = 0.16
@@ -47,23 +48,29 @@ struct RpgRecipe: Sendable {
 }
 
 enum RpgRecipes {
-    private static let ladder = ["mat_jelly", "mat_hide", "mat_bone", "mat_sting", "mat_ice", "mat_magma", "mat_dark", "mat_wraith"]
+    private static let ladder = ["mat_jelly", "mat_hide", "mat_bone", "mat_sting", "mat_ice", "mat_magma", "mat_dark", "mat_wraith",
+                                "mat_sky", "mat_pearl", "mat_time", "mat_void"]
 
     static let all: [RpgRecipe] = {
         var list: [RpgRecipe] = []
         // Rings and amulets: tier n needs the n-th and (n+1)-th material, the last one needs enhancement stones too.
-        let ringGold = [200, 800, 3000, 7000, 20000, 40000, 90000, 200_000]
-        let amuletGold = [200, 700, 2800, 6500, 18000, 38000, 85000, 190_000]
+        let ringGold = [200, 800, 3000, 7000, 20000, 40000, 90000, 200_000, 400_000, 700_000, 1_200_000, 2_000_000]
+        let amuletGold = [200, 700, 2800, 6500, 18000, 38000, 85000, 190_000, 380_000, 660_000, 1_100_000, 1_900_000]
         let ringMats: [[String: Int]] = [
             ["mat_jelly": 5, "mat_hide": 3], ["mat_hide": 6, "mat_bone": 4], ["mat_bone": 8, "mat_sting": 5], ["mat_sting": 8, "mat_ice": 5],
             ["mat_ice": 8, "mat_magma": 6], ["mat_magma": 10, "mat_dark": 6], ["mat_dark": 12, "mat_wraith": 8], ["mat_wraith": 15, "stone": 20],
+            // Lv58-100 tiers: the two newest materials, plus stones from tier 9 up (the last one only needs its own material).
+            ["mat_sky": 15, "mat_pearl": 10], ["mat_pearl": 16, "mat_time": 10, "stone": 20], ["mat_time": 18, "mat_void": 12, "stone": 35],
+            ["mat_void": 24, "stone": 60],
         ]
         let amuletMats: [[String: Int]] = [
             ["mat_jelly": 6, "mat_hide": 2], ["mat_hide": 6, "mat_bone": 3], ["mat_bone": 8, "mat_sting": 4], ["mat_sting": 8, "mat_ice": 4],
             ["mat_ice": 8, "mat_magma": 5], ["mat_magma": 10, "mat_dark": 5], ["mat_dark": 12, "mat_wraith": 6], ["mat_wraith": 15, "stone": 20],
+            ["mat_sky": 15, "mat_pearl": 8], ["mat_pearl": 16, "mat_time": 8, "stone": 20], ["mat_time": 18, "mat_void": 10, "stone": 35],
+            ["mat_void": 24, "stone": 60],
         ]
-        for t in 0..<8 { list.append(RpgRecipe(id: "ring\(t)", output: "ring\(t)", count: 1, materials: ringMats[t], gold: ringGold[t])) }
-        for t in 0..<8 { list.append(RpgRecipe(id: "amulet\(t)", output: "amulet\(t)", count: 1, materials: amuletMats[t], gold: amuletGold[t])) }
+        for t in 0..<12 { list.append(RpgRecipe(id: "ring\(t)", output: "ring\(t)", count: 1, materials: ringMats[t], gold: ringGold[t])) }
+        for t in 0..<12 { list.append(RpgRecipe(id: "amulet\(t)", output: "amulet\(t)", count: 1, materials: amuletMats[t], gold: amuletGold[t])) }
         list += [
             RpgRecipe(id: "buff_atk", output: "buff_atk", count: 3, materials: ["mat_jelly": 3, "mat_sting": 2], gold: 100),
             RpgRecipe(id: "buff_xp", output: "buff_xp", count: 2, materials: ["mat_bone": 4, "mat_ice": 2], gold: 300),
@@ -76,14 +83,18 @@ enum RpgRecipes {
         let helmetMats: [[String: Int]] = [
             ["mat_jelly": 4, "mat_hide": 4], ["mat_hide": 5, "mat_bone": 5], ["mat_bone": 7, "mat_sting": 5], ["mat_sting": 7, "mat_ice": 5],
             ["mat_ice": 7, "mat_magma": 6], ["mat_magma": 9, "mat_dark": 6], ["mat_dark": 11, "mat_wraith": 7], ["mat_wraith": 14, "stone": 18],
+            ["mat_sky": 14, "mat_pearl": 9], ["mat_pearl": 15, "mat_time": 9, "stone": 18], ["mat_time": 17, "mat_void": 11, "stone": 32],
+            ["mat_void": 22, "stone": 55],
         ]
         let bootsMats: [[String: Int]] = [
             ["mat_jelly": 3, "mat_hide": 5], ["mat_hide": 6, "mat_bone": 3], ["mat_bone": 6, "mat_sting": 6], ["mat_sting": 6, "mat_ice": 6],
             ["mat_ice": 6, "mat_magma": 7], ["mat_magma": 8, "mat_dark": 7], ["mat_dark": 10, "mat_wraith": 8], ["mat_wraith": 13, "stone": 18],
+            ["mat_sky": 13, "mat_pearl": 9], ["mat_pearl": 14, "mat_time": 9, "stone": 18], ["mat_time": 16, "mat_void": 11, "stone": 32],
+            ["mat_void": 21, "stone": 55],
         ]
-        let gearGold = [150, 700, 2600, 6000, 17000, 36000, 80000, 180_000]
-        for t in 0..<8 { list.append(RpgRecipe(id: "helmet\(t)", output: "helmet\(t)", count: 1, materials: helmetMats[t], gold: gearGold[t])) }
-        for t in 0..<8 { list.append(RpgRecipe(id: "boots\(t)", output: "boots\(t)", count: 1, materials: bootsMats[t], gold: gearGold[t])) }
+        let gearGold = [150, 700, 2600, 6000, 17000, 36000, 80000, 180_000, 360_000, 620_000, 1_000_000, 1_700_000]
+        for t in 0..<12 { list.append(RpgRecipe(id: "helmet\(t)", output: "helmet\(t)", count: 1, materials: helmetMats[t], gold: gearGold[t])) }
+        for t in 0..<12 { list.append(RpgRecipe(id: "boots\(t)", output: "boots\(t)", count: 1, materials: bootsMats[t], gold: gearGold[t])) }
         return list
     }()
 

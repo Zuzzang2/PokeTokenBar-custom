@@ -195,6 +195,58 @@ enum RpgArt {
         "yetiking": SpriteSpec(grid: golem, swap: ["N": rgb(244, 248, 255), "n": rgb(170, 196, 226), "Q": rgb(60, 140, 255)], boss: true),
         "skelking": SpriteSpec(grid: skeleton, swap: ["X": rgb(255, 170, 90), "x": rgb(210, 80, 40)], boss: true),
         "demonking": SpriteSpec(grid: mage, swap: ["P": rgb(60, 20, 50), "p": rgb(36, 10, 30), "S": rgb(210, 160, 190), "Y": rgb(255, 40, 60)], boss: true),
+        // Lv58-100 late game.
+        "skyslime": SpriteSpec(grid: slime, swap: ["E": rgb(200, 230, 255), "e": rgb(130, 170, 230), "W": rgb(255, 255, 255)]),
+        "skyhawk": SpriteSpec(grid: bat, swap: ["A": rgb(250, 250, 255), "a": rgb(170, 190, 225), "W": rgb(255, 210, 80)]),
+        "windsprite": SpriteSpec(grid: mage, swap: ["P": rgb(120, 220, 200), "p": rgb(60, 150, 150), "S": rgb(225, 250, 245), "Y": rgb(255, 255, 160)]),
+        "skyram": SpriteSpec(grid: wolf, swap: ["Z": rgb(240, 240, 250), "z": rgb(170, 180, 210), "R": rgb(255, 200, 60)]),
+        "deepjelly": SpriteSpec(grid: slime, swap: ["E": rgb(220, 120, 200), "e": rgb(140, 60, 150), "W": rgb(255, 220, 255)]),
+        "coralcrab": SpriteSpec(grid: scorpion, swap: ["T": rgb(240, 100, 90), "t": rgb(170, 50, 60), "R": rgb(255, 240, 120)]),
+        "abysspiranha": SpriteSpec(grid: bat, swap: ["A": rgb(40, 150, 150), "a": rgb(20, 90, 100), "W": rgb(255, 255, 255)]),
+        "siren": SpriteSpec(grid: mage, swap: ["P": rgb(60, 130, 200), "p": rgb(30, 70, 140), "S": rgb(190, 240, 230), "Y": rgb(120, 255, 200)]),
+        "chronowraith": SpriteSpec(grid: mage, swap: ["P": rgb(210, 180, 90), "p": rgb(140, 110, 50), "S": rgb(240, 230, 190), "Y": rgb(255, 255, 255)]),
+        "templeguard": SpriteSpec(grid: warrior, swap: ["M": rgb(210, 170, 70), "m": rgb(140, 110, 40), "R": rgb(60, 150, 200), "r": rgb(30, 90, 140), "B": rgb(255, 245, 200), "S": rgb(190, 150, 110)]),
+        "timescarab": SpriteSpec(grid: scorpion, swap: ["T": rgb(60, 170, 160), "t": rgb(30, 100, 100), "R": rgb(255, 220, 80)]),
+        "chronogolem": SpriteSpec(grid: golem, swap: ["N": rgb(190, 150, 90), "n": rgb(120, 90, 50), "Q": rgb(120, 255, 255)]),
+        "imp": SpriteSpec(grid: bat, swap: ["A": rgb(200, 40, 60), "a": rgb(120, 20, 40), "W": rgb(255, 200, 60)]),
+        "hellhound": SpriteSpec(grid: wolf, swap: ["Z": rgb(60, 36, 40), "z": rgb(30, 16, 20), "R": rgb(255, 90, 30)]),
+        "cursebomb": SpriteSpec(grid: mushroom, swap: ["R": rgb(230, 60, 120), "r": rgb(150, 30, 80)]),
+        "doomknight": SpriteSpec(grid: warrior, swap: ["M": rgb(60, 40, 70), "m": rgb(34, 20, 44), "R": rgb(200, 30, 60), "r": rgb(120, 10, 30), "B": rgb(255, 120, 160), "S": rgb(160, 140, 150)]),
+        "dragonswarm": SpriteSpec(grid: scorpion, swap: ["T": rgb(110, 200, 90), "t": rgb(50, 120, 50), "R": rgb(255, 150, 40)]),
+        "drakearcher": SpriteSpec(grid: overlay(skeleton, [(1, 6, "L"), (0, 7, "L"), (0, 8, "L"), (0, 9, "L"), (1, 10, "L"), (2, 7, "W"), (2, 8, "W"), (2, 9, "W")]), swap: ["X": rgb(230, 150, 70), "x": rgb(160, 90, 40)]),
+        "wyvern": SpriteSpec(grid: bat, swap: ["A": rgb(90, 130, 70), "a": rgb(50, 80, 40), "W": rgb(255, 200, 60)]),
+        "drakeguard": SpriteSpec(grid: golem, swap: ["N": rgb(170, 60, 50), "n": rgb(110, 30, 30), "Q": rgb(255, 210, 60)]),
+        "icewitch": SpriteSpec(grid: mage, swap: ["P": rgb(150, 200, 255), "p": rgb(80, 130, 200), "S": rgb(240, 250, 255), "Y": rgb(255, 255, 255)]),
+        "frostguard": SpriteSpec(grid: warrior, swap: ["M": rgb(170, 215, 245), "m": rgb(100, 150, 200), "R": rgb(70, 120, 220), "r": rgb(40, 70, 160), "B": rgb(255, 255, 255), "S": rgb(210, 225, 240)]),
+        "snowbomb": SpriteSpec(grid: mushroom, swap: ["R": rgb(200, 235, 255), "r": rgb(120, 170, 220)]),
+        "icegiant": SpriteSpec(grid: golem, swap: ["N": rgb(130, 200, 240), "n": rgb(70, 130, 190), "Q": rgb(255, 255, 255)]),
+        "emberswarm": SpriteSpec(grid: scorpion, swap: ["T": rgb(255, 170, 50), "t": rgb(200, 90, 20), "R": rgb(255, 255, 150)]),
+        "flamepriest": SpriteSpec(grid: mage, swap: ["P": rgb(190, 50, 30), "p": rgb(120, 20, 20), "S": rgb(255, 200, 160), "Y": rgb(255, 230, 60)]),
+        "phoenix": SpriteSpec(grid: bat, swap: ["A": rgb(255, 130, 40), "a": rgb(220, 60, 30), "W": rgb(255, 255, 150)]),
+        "obsidiangolem": SpriteSpec(grid: golem, swap: ["N": rgb(50, 40, 60), "n": rgb(24, 18, 34), "Q": rgb(255, 90, 30)]),
+        "stormeagle": SpriteSpec(grid: bat, swap: ["A": rgb(90, 100, 170), "a": rgb(50, 60, 120), "W": rgb(255, 255, 100)]),
+        "thunderrhino": SpriteSpec(grid: wolf, swap: ["Z": rgb(110, 110, 140), "z": rgb(60, 60, 90), "R": rgb(255, 240, 80)]),
+        "stormshaman": SpriteSpec(grid: mage, swap: ["P": rgb(60, 80, 150), "p": rgb(30, 40, 100), "S": rgb(210, 220, 240), "Y": rgb(255, 255, 100)]),
+        "shadowwolf": SpriteSpec(grid: wolf, swap: ["Z": rgb(50, 60, 90), "z": rgb(24, 28, 50), "R": rgb(150, 255, 200)]),
+        "spooktree": SpriteSpec(grid: golem, swap: ["N": rgb(60, 90, 60), "n": rgb(34, 56, 40), "Q": rgb(255, 150, 60)]),
+        "sporebomb": SpriteSpec(grid: mushroom, swap: ["R": rgb(40, 110, 120), "r": rgb(20, 70, 80)]),
+        "hexwitch": SpriteSpec(grid: mage, swap: ["P": rgb(80, 30, 90), "p": rgb(44, 14, 56), "S": rgb(190, 210, 160), "Y": rgb(200, 255, 80)]),
+        "tomeswarm": SpriteSpec(grid: bat, swap: ["A": rgb(120, 80, 60), "a": rgb(80, 50, 36), "W": rgb(255, 230, 150)]),
+        "scribeghost": SpriteSpec(grid: mage, swap: ["P": rgb(220, 220, 200), "p": rgb(150, 150, 130), "S": rgb(230, 240, 255), "Y": rgb(100, 180, 255)]),
+        "statuelibrarian": SpriteSpec(grid: golem, swap: ["N": rgb(210, 205, 190), "n": rgb(150, 145, 130), "Q": rgb(255, 200, 80)]),
+        "inkbomb": SpriteSpec(grid: slime, swap: ["E": rgb(40, 40, 60), "e": rgb(20, 20, 34), "W": rgb(120, 120, 200)]),
+        "starfairy": SpriteSpec(grid: bat, swap: ["A": rgb(255, 230, 120), "a": rgb(230, 170, 60), "W": rgb(255, 255, 255)]),
+        "cometboar": SpriteSpec(grid: wolf, swap: ["Z": rgb(120, 170, 255), "z": rgb(60, 100, 200), "R": rgb(255, 255, 200)]),
+        "starknight": SpriteSpec(grid: warrior, swap: ["M": rgb(250, 235, 160), "m": rgb(200, 170, 70), "R": rgb(90, 70, 200), "r": rgb(50, 40, 140), "B": rgb(255, 255, 255), "S": rgb(240, 215, 190)]),
+        "voidhound": SpriteSpec(grid: wolf, swap: ["Z": rgb(70, 30, 110), "z": rgb(36, 10, 64), "R": rgb(255, 60, 200)]),
+        "riftmage": SpriteSpec(grid: mage, swap: ["P": rgb(20, 20, 50), "p": rgb(8, 8, 24), "S": rgb(170, 170, 220), "Y": rgb(255, 60, 255)]),
+        "voidknight": SpriteSpec(grid: warrior, swap: ["M": rgb(30, 24, 50), "m": rgb(14, 10, 26), "R": rgb(255, 60, 200), "r": rgb(140, 20, 110), "B": rgb(200, 120, 255), "S": rgb(120, 110, 140)]),
+        "kraken": SpriteSpec(grid: slime, swap: ["E": rgb(60, 130, 200), "e": rgb(30, 70, 140), "W": rgb(200, 240, 255)], boss: true),
+        "dragonlord": SpriteSpec(grid: golem, swap: ["N": rgb(200, 60, 40), "n": rgb(120, 30, 20), "Q": rgb(255, 220, 80)], boss: true),
+        "icequeen": SpriteSpec(grid: mage, swap: ["P": rgb(170, 220, 255), "p": rgb(90, 150, 220), "S": rgb(240, 250, 255), "Y": rgb(255, 255, 255)], boss: true),
+        "stormgiant": SpriteSpec(grid: golem, swap: ["N": rgb(90, 110, 170), "n": rgb(50, 60, 110), "Q": rgb(255, 255, 90)], boss: true),
+        "archivist": SpriteSpec(grid: skeleton, swap: ["X": rgb(190, 160, 230), "x": rgb(110, 80, 170)], boss: true),
+        "voidlord": SpriteSpec(grid: mage, swap: ["P": rgb(30, 10, 60), "p": rgb(14, 4, 34), "S": rgb(200, 150, 255), "Y": rgb(255, 40, 220)], boss: true),
     ]
 
     private static var spriteCache: [String: CGImage] = [:]
@@ -336,6 +388,10 @@ enum RpgArt {
                 ["B": rgb(240, 226, 180), "E": rgb(190, 160, 90), "G": rgb(60, 150, 120), "H": rgb(90, 60, 40), "J": rgb(90, 230, 180)],
                 ["B": rgb(255, 160, 70), "E": rgb(170, 40, 20), "G": rgb(60, 30, 30), "H": rgb(40, 20, 20), "J": rgb(255, 230, 90)],
                 ["B": rgb(250, 240, 255), "E": rgb(170, 90, 240), "G": rgb(60, 20, 70), "H": rgb(30, 10, 40), "J": rgb(255, 60, 120)],
+                ["B": rgb(235, 250, 255), "E": rgb(150, 200, 240), "G": rgb(240, 240, 255), "H": rgb(110, 150, 220), "J": rgb(255, 255, 160)],
+                ["B": rgb(120, 220, 240), "E": rgb(30, 110, 170), "G": rgb(200, 240, 230), "H": rgb(20, 60, 110), "J": rgb(255, 150, 220)],
+                ["B": rgb(255, 120, 40), "E": rgb(150, 30, 20), "G": rgb(255, 200, 70), "H": rgb(70, 16, 16), "J": rgb(255, 255, 120)],
+                ["B": rgb(30, 20, 60), "E": rgb(190, 90, 255), "G": rgb(255, 60, 220), "H": rgb(14, 8, 34), "J": rgb(120, 255, 255)],
             ]
             let bows: [[Character: CGColor]] = [
                 ["B": rgb(170, 116, 64), "G": rgb(110, 70, 40), "W": rgb(240, 240, 230)],
@@ -347,6 +403,10 @@ enum RpgArt {
                 ["B": rgb(214, 180, 110), "G": rgb(120, 90, 50), "W": rgb(150, 240, 200)],
                 ["B": rgb(170, 230, 255), "G": rgb(60, 120, 190), "W": rgb(255, 255, 255)],
                 ["B": rgb(60, 40, 110), "G": rgb(240, 200, 80), "W": rgb(200, 150, 255)],
+                ["B": rgb(235, 245, 255), "G": rgb(120, 170, 230), "W": rgb(255, 255, 190)],
+                ["B": rgb(90, 200, 210), "G": rgb(30, 90, 140), "W": rgb(255, 200, 240)],
+                ["B": rgb(240, 230, 200), "G": rgb(190, 50, 30), "W": rgb(255, 170, 60)],
+                ["B": rgb(30, 16, 70), "G": rgb(255, 80, 230), "W": rgb(130, 255, 255)],
             ]
             let staffs: [[Character: CGColor]] = [
                 ["B": rgb(170, 116, 64), "G": rgb(110, 70, 40), "H": rgb(90, 60, 36), "O": rgb(150, 220, 120), "J": rgb(230, 255, 220)],
@@ -358,8 +418,12 @@ enum RpgArt {
                 ["B": rgb(200, 230, 250), "G": rgb(120, 180, 230), "H": rgb(80, 120, 170), "O": rgb(200, 245, 255), "J": rgb(255, 255, 255)],
                 ["B": rgb(60, 30, 30), "G": rgb(255, 130, 40), "H": rgb(30, 14, 14), "O": rgb(255, 80, 30), "J": rgb(255, 230, 120)],
                 ["B": rgb(40, 10, 40), "G": rgb(255, 60, 120), "H": rgb(20, 6, 20), "O": rgb(120, 30, 160), "J": rgb(255, 140, 240)],
+                ["B": rgb(220, 240, 255), "G": rgb(160, 200, 255), "H": rgb(110, 140, 200), "O": rgb(255, 255, 255), "J": rgb(255, 255, 170)],
+                ["B": rgb(30, 80, 120), "G": rgb(120, 230, 220), "H": rgb(14, 40, 70), "O": rgb(60, 200, 230), "J": rgb(255, 180, 240)],
+                ["B": rgb(110, 30, 20), "G": rgb(255, 190, 60), "H": rgb(50, 14, 10), "O": rgb(255, 110, 20), "J": rgb(255, 255, 140)],
+                ["B": rgb(20, 10, 50), "G": rgb(190, 90, 255), "H": rgb(8, 4, 28), "O": rgb(255, 60, 220), "J": rgb(140, 255, 255)],
             ]
-            // The four newer classes share one nine-tier palette (wood/rust, steel, fire, ice, thunder, holy, desert, lava, cosmic).
+            // The four newer classes share one thirteen-tier palette (wood/rust, steel, fire, ice, thunder, holy, desert, lava, cosmic, sky, deep sea, dragon fire, void).
             func tones(_ main: CGColor, _ shade: CGColor, _ accent: CGColor, _ handle: CGColor) -> [Character: CGColor] {
                 ["B": main, "E": shade, "G": accent, "H": handle, "O": accent, "W": rgb(255, 255, 255)]
             }
@@ -373,6 +437,10 @@ enum RpgArt {
                 tones(rgb(240, 226, 180), rgb(190, 160, 90), rgb(60, 150, 120), rgb(90, 60, 40)),
                 tones(rgb(255, 150, 70), rgb(170, 40, 20), rgb(60, 30, 30), rgb(40, 20, 20)),
                 tones(rgb(240, 230, 255), rgb(170, 90, 240), rgb(60, 20, 70), rgb(30, 10, 40)),
+                tones(rgb(235, 248, 255), rgb(150, 195, 240), rgb(255, 255, 255), rgb(110, 140, 210)),
+                tones(rgb(110, 215, 235), rgb(30, 100, 160), rgb(200, 250, 235), rgb(20, 56, 100)),
+                tones(rgb(255, 130, 50), rgb(150, 30, 20), rgb(255, 210, 80), rgb(70, 16, 16)),
+                tones(rgb(36, 24, 70), rgb(190, 90, 255), rgb(255, 60, 220), rgb(14, 8, 34)),
             ]
             let table: [[Character: CGColor]]
             switch cls {
@@ -387,6 +455,8 @@ enum RpgArt {
                 (rgb(220, 210, 180), rgb(170, 160, 130)), (rgb(170, 116, 64), rgb(120, 80, 44)), (rgb(180, 190, 206), rgb(120, 130, 150)),
                 (rgb(170, 230, 255), rgb(90, 160, 220)), (rgb(220, 70, 60), rgb(240, 190, 60)), (rgb(220, 190, 120), rgb(60, 150, 120)),
                 (rgb(220, 245, 255), rgb(80, 150, 230)), (rgb(70, 30, 70), rgb(255, 60, 120)),
+                (rgb(235, 248, 255), rgb(150, 195, 245)), (rgb(60, 170, 190), rgb(20, 80, 130)), (rgb(190, 50, 30), rgb(255, 200, 70)),
+                (rgb(36, 22, 74), rgb(220, 90, 255)),
             ]
             let t = tones[min(item.tier, tones.count - 1)]
             return ["B": t.0, "E": t.1]
@@ -395,10 +465,17 @@ enum RpgArt {
             case "hp1": return ["B": rgb(255, 150, 50), "E": rgb(200, 90, 30)]
             case "hp2": return ["B": rgb(250, 250, 250), "E": rgb(190, 200, 214)]
             case "hp3": return ["B": rgb(255, 210, 60), "E": rgb(220, 120, 30)]
+            case "hp4": return ["B": rgb(255, 240, 160), "E": rgb(240, 190, 60)]
+            case "hp5": return ["B": rgb(150, 255, 200), "E": rgb(40, 170, 120)]
             default: return ["B": rgb(230, 60, 60), "E": rgb(160, 30, 40)]
             }
         case .potionMP:
-            return item.id == "mp1" ? ["B": rgb(170, 110, 255), "E": rgb(110, 60, 200)] : ["B": rgb(80, 140, 255), "E": rgb(40, 80, 190)]
+            switch item.id {
+            case "mp1": return ["B": rgb(170, 110, 255), "E": rgb(110, 60, 200)]
+            case "mp2": return ["B": rgb(120, 230, 255), "E": rgb(40, 150, 210)]
+            case "mp3": return ["B": rgb(255, 170, 240), "E": rgb(170, 70, 200)]
+            default: return ["B": rgb(80, 140, 255), "E": rgb(40, 80, 190)]
+            }
         case .scroll:
             return [:]
         case .book(let skill):
@@ -417,9 +494,11 @@ enum RpgArt {
             return ["B": rgb(120, 220, 255), "E": rgb(50, 120, 200)]
         case .ring, .amulet, .helmet, .boots:
             // Metal by tier, with a gem.
-            let metals = [rgb(190, 120, 70), rgb(205, 210, 222), rgb(240, 200, 80), rgb(220, 230, 255), rgb(255, 150, 60), rgb(170, 225, 255), rgb(70, 40, 80), rgb(255, 240, 150)]
-            let gems = [rgb(120, 200, 110), rgb(120, 170, 255), rgb(235, 60, 70), rgb(60, 110, 235), rgb(255, 110, 40), rgb(120, 230, 255), rgb(255, 60, 150), rgb(255, 255, 255)]
-            let t = min(item.tier, 7)
+            let metals = [rgb(190, 120, 70), rgb(205, 210, 222), rgb(240, 200, 80), rgb(220, 230, 255), rgb(255, 150, 60), rgb(170, 225, 255), rgb(70, 40, 80), rgb(255, 240, 150),
+                          rgb(235, 248, 255), rgb(70, 190, 200), rgb(200, 60, 40), rgb(46, 30, 90)]
+            let gems = [rgb(120, 200, 110), rgb(120, 170, 255), rgb(235, 60, 70), rgb(60, 110, 235), rgb(255, 110, 40), rgb(120, 230, 255), rgb(255, 60, 150), rgb(255, 255, 255),
+                        rgb(255, 255, 150), rgb(255, 150, 230), rgb(255, 220, 60), rgb(120, 255, 255)]
+            let t = min(item.tier, metals.count - 1)
             return ["B": metals[t], "J": gems[t], "W": rgb(255, 255, 255)]
         case .material:
             let tones: [String: (CGColor, CGColor)] = [
@@ -427,6 +506,8 @@ enum RpgArt {
                 "mat_bone": (rgb(236, 230, 210), rgb(170, 160, 140)), "mat_sting": (rgb(230, 190, 90), rgb(160, 110, 40)),
                 "mat_ice": (rgb(200, 240, 255), rgb(100, 170, 230)), "mat_magma": (rgb(255, 130, 50), rgb(170, 50, 20)),
                 "mat_dark": (rgb(150, 90, 200), rgb(70, 30, 110)), "mat_wraith": (rgb(150, 240, 240), rgb(60, 150, 170)),
+                "mat_sky": (rgb(240, 250, 255), rgb(150, 190, 240)), "mat_pearl": (rgb(255, 210, 240), rgb(60, 170, 190)),
+                "mat_time": (rgb(240, 210, 120), rgb(170, 120, 50)), "mat_void": (rgb(220, 120, 255), rgb(50, 20, 110)),
             ]
             let tone = tones[item.id] ?? (rgb(200, 200, 200), rgb(120, 120, 120))
             return ["B": tone.0, "E": tone.1]

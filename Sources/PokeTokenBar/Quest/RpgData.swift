@@ -201,17 +201,19 @@ struct RpgItem: Sendable {
         default: return false
         }
     }
-    var tier: Int { Int(id.last.flatMap { Int(String($0)) } ?? 0) }
+    /// Gear tier = the trailing digits of the id ("sword10" -> 10), 0 when there are none.
+    var tier: Int { Int(String(id.reversed().prefix { ("0"..."9").contains($0) }.reversed())) ?? 0 }
 }
 
 enum RpgItems {
     static let rarityName = ["일반", "희귀", "영웅", "전설", "신화"]
 
     private static func weapons(_ cls: RpgClass, _ prefix: String, _ names: [String], _ elements: [RpgElement]) -> [RpgItem] {
-        let rarity = [0, 1, 2, 2, 2, 3, 2, 3, 4]
-        let attack = [3, 9, 18, 17, 17, 32, 52, 84, 130]
-        let price = [40, 320, 1400, 1400, 1400, 9000, 14000, 40000, 120000]
-        let shop = [true, true, true, true, true, false, true, false, false]
+        // Tiers 0-8 are the original ladder; 9-12 are the Lv58-100 late game (drops only).
+        let rarity = [0, 1, 2, 2, 2, 3, 2, 3, 4, 3, 4, 4, 4]
+        let attack = [3, 9, 18, 17, 17, 32, 52, 84, 130, 170, 220, 290, 380]
+        let price = [40, 320, 1400, 1400, 1400, 9000, 14000, 40000, 120000, 190_000, 300_000, 480_000, 800_000]
+        let shop = [true, true, true, true, true, false, true, false, false, false, false, false, false]
         return names.indices.map { i in
             RpgItem(id: "\(prefix)\(i)", name: names[i], kind: .weapon(cls), rarity: rarity[i], attack: attack[i], defense: 0,
                     heal: 0, price: price[i], element: elements[i], inShop: shop[i])
@@ -219,24 +221,26 @@ enum RpgItems {
     }
 
     static let all: [RpgItem] = {
-        var items = weapons(.warrior, "sword", ["나무 검", "강철 검", "화염검", "서리검", "뇌전검", "별빛 성검", "사막의 시미터", "용암 대검", "마왕 토벌검"],
-                            [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .holy])
-        items += weapons(.archer, "bow", ["나무 활", "강철 활", "불꽃 활", "서리 활", "질풍 활", "천공의 활", "모래폭풍 활", "빙하 장궁", "별을 쏘는 활"],
-                         [.base, .base, .fire, .ice, .wind, .holy, .wind, .ice, .cosmic])
-        items += weapons(.mage, "staff", ["나무 지팡이", "수정 지팡이", "화염 지팡이", "빙결 지팡이", "뇌운 지팡이", "우주의 지팡이", "빙하의 지팡이", "화산 지팡이", "마왕의 홀"],
-                         [.base, .base, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic])
-        items += weapons(.rogue, "dagger", ["녹슨 단검", "강철 단검", "독니 단검", "서리 단검", "번개 단검", "그림자 단검", "사막의 쿠크리", "용암 단검", "별을 베는 단검"],
-                         [.base, .base, .poison, .ice, .thunder, .cosmic, .wind, .fire, .cosmic])
-        items += weapons(.cleric, "mace", ["나무 철퇴", "강철 철퇴", "화염 철퇴", "서리 철퇴", "뇌전 철퇴", "성스러운 철퇴", "사막의 홀", "빙하의 철퇴", "천상의 철퇴"],
-                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .ice, .holy])
-        items += weapons(.monk, "claw", ["가죽 권갑", "강철 권갑", "화염 권갑", "서리 권갑", "뇌전 권갑", "기공 권갑", "모래폭풍 권갑", "용암 권갑", "용왕의 권갑"],
-                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .cosmic])
-        items += weapons(.summoner, "rod", ["나무 소환봉", "뼈 소환봉", "화염 소환봉", "서리 소환봉", "뇌운 소환봉", "영혼의 소환봉", "빙하의 소환봉", "화산 소환봉", "대악마의 소환봉"],
-                         [.base, .poison, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic])
+        var items = weapons(.warrior, "sword", ["나무 검", "강철 검", "화염검", "서리검", "뇌전검", "별빛 성검", "사막의 시미터", "용암 대검", "마왕 토벌검", "천공의 성검", "심해의 대검", "용왕의 파멸검", "차원 절단검"],
+                            [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .holy, .holy, .ice, .fire, .cosmic])
+        items += weapons(.archer, "bow", ["나무 활", "강철 활", "불꽃 활", "서리 활", "질풍 활", "천공의 활", "모래폭풍 활", "빙하 장궁", "별을 쏘는 활", "구름 사냥 활", "심해 진주 활", "용뼈 장궁", "차원의 활"],
+                         [.base, .base, .fire, .ice, .wind, .holy, .wind, .ice, .cosmic, .wind, .ice, .fire, .cosmic])
+        items += weapons(.mage, "staff", ["나무 지팡이", "수정 지팡이", "화염 지팡이", "빙결 지팡이", "뇌운 지팡이", "우주의 지팡이", "빙하의 지팡이", "화산 지팡이", "마왕의 홀", "천공의 지팡이", "심연의 지팡이", "용염의 지팡이", "차원의 홀"],
+                         [.base, .base, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic, .wind, .ice, .fire, .cosmic])
+        items += weapons(.rogue, "dagger", ["녹슨 단검", "강철 단검", "독니 단검", "서리 단검", "번개 단검", "그림자 단검", "사막의 쿠크리", "용암 단검", "별을 베는 단검", "구름 베는 단검", "심해 단검", "용아 단검", "차원의 단검"],
+                         [.base, .base, .poison, .ice, .thunder, .cosmic, .wind, .fire, .cosmic, .wind, .ice, .poison, .cosmic])
+        items += weapons(.cleric, "mace", ["나무 철퇴", "강철 철퇴", "화염 철퇴", "서리 철퇴", "뇌전 철퇴", "성스러운 철퇴", "사막의 홀", "빙하의 철퇴", "천상의 철퇴", "구름 위의 철퇴", "심해의 철퇴", "용의 철퇴", "차원의 철퇴"],
+                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .ice, .holy, .holy, .ice, .fire, .cosmic])
+        items += weapons(.monk, "claw", ["가죽 권갑", "강철 권갑", "화염 권갑", "서리 권갑", "뇌전 권갑", "기공 권갑", "모래폭풍 권갑", "용암 권갑", "용왕의 권갑", "구름 권갑", "심해 권갑", "용린 권갑", "차원의 권갑"],
+                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .cosmic, .wind, .ice, .fire, .cosmic])
+        items += weapons(.summoner, "rod", ["나무 소환봉", "뼈 소환봉", "화염 소환봉", "서리 소환봉", "뇌운 소환봉", "영혼의 소환봉", "빙하의 소환봉", "화산 소환봉", "대악마의 소환봉", "천공 소환봉", "심해 소환봉", "용혼 소환봉", "차원 소환봉"],
+                         [.base, .poison, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic, .wind, .ice, .poison, .cosmic])
         let armors: [(String, Int, Int, Int, Bool)] = [
             ("천 옷", 0, 2, 40, true), ("가죽 갑옷", 0, 6, 260, true), ("사슬 갑옷", 1, 12, 900, true), ("미스릴 갑옷", 2, 20, 3200, true),
             ("용비늘 갑옷", 3, 34, 12000, false), ("사막 전사의 갑옷", 2, 50, 16000, true), ("빙하 갑옷", 3, 75, 45000, false),
             ("마왕의 갑주", 4, 112, 130000, false),
+            ("천공의 갑옷", 3, 145, 200_000, false), ("심해 비늘 갑옷", 4, 190, 320_000, false), ("용왕의 갑주", 4, 250, 520_000, false),
+            ("차원의 갑주", 4, 330, 850_000, false),
         ]
         items += armors.enumerated().map { i, a in
             RpgItem(id: "armor\(i)", name: a.0, kind: .armor, rarity: a.1, attack: 0, defense: a.2, heal: 0, price: a.3, element: .base, inShop: a.4)
@@ -256,6 +260,8 @@ enum RpgItems {
             ("구리 반지", 0, 20, 0.01, 0.02, 200, true), ("은 반지", 1, 50, 0.02, 0.04, 900, true), ("루비 반지", 2, 110, 0.03, 0.07, 3500, true),
             ("사파이어 반지", 2, 200, 0.04, 0.09, 8000, true), ("용의 반지", 3, 360, 0.06, 0.13, 24000, false), ("서리의 반지", 3, 600, 0.07, 0.16, 50000, false),
             ("마왕의 반지", 4, 950, 0.10, 0.22, 120000, false), ("별빛 반지", 4, 1400, 0.12, 0.28, 250000, false),
+            ("천공의 반지", 4, 1900, 0.13, 0.32, 400_000, false), ("심해의 반지", 4, 2500, 0.145, 0.37, 650_000, false),
+            ("용의 심장 반지", 4, 3300, 0.16, 0.43, 1_000_000, false), ("차원의 반지", 4, 4300, 0.18, 0.50, 1_600_000, false),
         ]
         items += rings.enumerated().map { i, r in
             RpgItem(id: "ring\(i)", name: r.0, kind: .ring, rarity: r.1, attack: 0, defense: 0, heal: 0, price: r.5, element: .base, inShop: r.6,
@@ -265,6 +271,8 @@ enum RpgItems {
             ("나무 목걸이", 0, 40, 10, 1, 200, true), ("은 목걸이", 1, 90, 20, 3, 900, true), ("호박 목걸이", 2, 200, 45, 7, 3500, true),
             ("청옥 목걸이", 2, 380, 80, 12, 8000, true), ("용의 목걸이", 3, 650, 130, 20, 24000, false), ("서리의 목걸이", 3, 1000, 200, 32, 50000, false),
             ("마왕의 목걸이", 4, 1600, 320, 50, 120000, false), ("별빛 목걸이", 4, 2400, 480, 75, 250000, false),
+            ("천공의 목걸이", 4, 3100, 600, 95, 400_000, false), ("심해 진주 목걸이", 4, 4000, 760, 120, 650_000, false),
+            ("용의 심장 목걸이", 4, 5100, 950, 150, 1_000_000, false), ("차원의 목걸이", 4, 6500, 1200, 190, 1_600_000, false),
         ]
         items += amulets.enumerated().map { i, a in
             RpgItem(id: "amulet\(i)", name: a.0, kind: .amulet, rarity: a.1, attack: 0, defense: a.4, heal: 0, price: a.5, element: .base, inShop: a.6,
@@ -273,6 +281,8 @@ enum RpgItems {
         let helmets: [(String, Int, Int, Int, Int, Bool)] = [
             ("가죽 모자", 0, 30, 1, 150, true), ("철 투구", 1, 70, 2, 800, true), ("은빛 투구", 2, 150, 5, 3200, true), ("미스릴 투구", 2, 280, 9, 7500, true),
             ("용의 투구", 3, 480, 15, 22000, false), ("서리 투구", 3, 780, 24, 48000, false), ("마왕의 투구", 4, 1200, 38, 115000, false), ("별빛 투구", 4, 1800, 56, 240000, false),
+            ("천공의 투구", 4, 2300, 72, 380_000, false), ("심해의 투구", 4, 2900, 92, 620_000, false),
+            ("용왕의 투구", 4, 3700, 118, 950_000, false), ("차원의 투구", 4, 4600, 150, 1_500_000, false),
         ]
         items += helmets.enumerated().map { i, h in
             RpgItem(id: "helmet\(i)", name: h.0, kind: .helmet, rarity: h.1, attack: 0, defense: h.3, heal: 0, price: h.4, element: .base, inShop: h.5, bonusHP: h.2)
@@ -280,6 +290,8 @@ enum RpgItems {
         let boots: [(String, Int, Double, Int, Int, Bool)] = [
             ("천 신발", 0, 0.02, 1, 150, true), ("가죽 장화", 1, 0.03, 2, 800, true), ("사슬 장화", 2, 0.04, 4, 3200, true), ("미스릴 장화", 2, 0.05, 7, 7500, true),
             ("용의 장화", 3, 0.06, 11, 22000, false), ("서리 장화", 3, 0.07, 17, 48000, false), ("마왕의 장화", 4, 0.08, 26, 115000, false), ("별빛 장화", 4, 0.10, 40, 240000, false),
+            ("천공의 장화", 4, 0.11, 52, 380_000, false), ("심해의 장화", 4, 0.12, 66, 620_000, false),
+            ("용왕의 장화", 4, 0.13, 84, 950_000, false), ("차원의 장화", 4, 0.14, 105, 1_500_000, false),
         ]
         items += boots.enumerated().map { i, b in
             RpgItem(id: "boots\(i)", name: b.0, kind: .boots, rarity: b.1, attack: 0, defense: b.3, heal: 0, price: b.4, element: .base, inShop: b.5, bonusSpeed: b.2)
@@ -287,11 +299,14 @@ enum RpgItems {
         items += [
             RpgItem(id: "hp4", name: "신의 물약", kind: .potionHP, rarity: 3, attack: 0, defense: 0, heal: 4000, price: 2800, element: .base, inShop: true),
             RpgItem(id: "mp2", name: "마나 에센스", kind: .potionMP, rarity: 3, attack: 0, defense: 0, heal: 600, price: 800, element: .base, inShop: true),
+            RpgItem(id: "hp5", name: "세계수의 이슬", kind: .potionHP, rarity: 4, attack: 0, defense: 0, heal: 10000, price: 7500, element: .base, inShop: true),
+            RpgItem(id: "mp3", name: "별의 정수", kind: .potionMP, rarity: 4, attack: 0, defense: 0, heal: 1500, price: 2200, element: .base, inShop: true),
             RpgItem(id: "scroll_protect", name: "강화 보호 주문서", kind: .material, rarity: 3, attack: 0, defense: 0, heal: 0, price: 2500, element: .base, inShop: false),
         ]
         let materials: [(String, String, Int, Int)] = [
             ("mat_jelly", "슬라임 젤리", 0, 8), ("mat_hide", "늑대 가죽", 0, 20), ("mat_bone", "해골 뼛조각", 1, 60), ("mat_sting", "전갈 독침", 1, 120),
             ("mat_ice", "얼음 조각", 2, 250), ("mat_magma", "용암 핵", 2, 500), ("mat_dark", "암흑 파편", 3, 900), ("mat_wraith", "망령의 잔재", 3, 1600),
+            ("mat_sky", "천공의 깃털", 3, 2600), ("mat_pearl", "심해의 진주", 3, 4000), ("mat_time", "시간의 모래", 4, 6000), ("mat_void", "차원의 파편", 4, 9000),
         ]
         items += materials.map { m in
             RpgItem(id: m.0, name: m.1, kind: .material, rarity: m.2, attack: 0, defense: 0, heal: 0, price: m.3 * 3, element: .base, inShop: false)
@@ -522,6 +537,77 @@ enum RpgMonsters {
         m("cryptswarm", "원혼떼", "cryptswarm", 47, 2275, 183, 44, 58.0, 1100, 180...260, .swarm, [("hp3", 0.1), ("stone", 0.083)]),
         m("cryptcharger", "뼈 투우", "cryptcharger", 49, 9750, 301, 96, 36.0, 3300, 468...676, .charger, [("hp3", 0.1), ("stone", 0.083)]),
         m("cryptexploder", "죽음의 폭탄", "cryptexploder", 49, 4550, 366, 52, 42.0, 2860, 396...572, .exploder, [("hp3", 0.1), ("stone", 0.083)]),
+
+        // MARK: Lv58-100 late game (천공의 섬 ... 차원의 끝). Normals scale from the Lv52 crypt guard (HP ~ L^2.3, XP ~ xpNeeded(L)/30...110), bosses from the Lv58 마왕.
+        // 천공의 섬 (Lv58~64)
+        m("skyslime", "구름 슬라임", "skyslime", 58, 10300, 285, 115, 30, 3800, 590...850, .passive, [("hp3", 0.08), ("sword9", 0.004), ("bow9", 0.004), ("armor8", 0.004), ("ring8", 0.004), ("stone", 0.22)]),
+        m("skyhawk", "천공 매", "skyhawk", 60, 11800, 335, 93, 58, 4350, 680...980, .flyer, [("hp3", 0.08), ("mp1", 0.08), ("staff9", 0.004), ("dagger9", 0.004), ("armor8", 0.004), ("amulet8", 0.004), ("stone", 0.224)]),
+        m("windsprite", "바람 정령", "windsprite", 62, 12000, 390, 97, 36, 4750, 775...1100, .ranged, [("hp3", 0.08), ("mp1", 0.08), ("mace9", 0.004), ("claw9", 0.004), ("armor8", 0.004), ("helmet8", 0.004), ("stone", 0.228)]),
+        m("skyram", "뇌운 산양", "skyram", 64, 16950, 405, 145, 40, 6300, 1000...1450, .charger, [("hp3", 0.1), ("rod9", 0.004), ("sword9", 0.004), ("armor8", 0.004), ("boots8", 0.004), ("stone", 0.132)]),
+        // 심해 유적 (Lv62~68)
+        m("deepjelly", "심해 해파리", "deepjelly", 62, 12750, 350, 97, 58, 4500, 740...1050, .flyer, [("hp3", 0.08), ("mp1", 0.08), ("bow9", 0.004), ("staff9", 0.004), ("armor8", 0.004), ("ring8", 0.004), ("stone", 0.228)]),
+        m("coralcrab", "산호 게", "coralcrab", 64, 16100, 405, 145, 40, 5050, 840...1200, .aggressive, [("hp3", 0.08), ("dagger9", 0.004), ("mace9", 0.004), ("armor8", 0.004), ("amulet8", 0.004), ("stone", 0.232)]),
+        m("abysspiranha", "심연 피라냐떼", "abysspiranha", 65, 6700, 250, 59, 62, 2900, 435...630, .swarm, [("hp3", 0.1), ("claw9", 0.004), ("rod9", 0.004), ("armor8", 0.004), ("helmet8", 0.004), ("stone", 0.134)]),
+        m("siren", "사이렌", "siren", 67, 14350, 430, 105, 34, 5650, 945...1350, .ranged, [("hp3", 0.08), ("mp2", 0.08), ("sword9", 0.004), ("bow9", 0.004), ("armor9", 0.004), ("boots9", 0.004), ("stone", 0.238)]),
+        // 시간의 사원 (Lv66~72)
+        m("chronowraith", "시간의 망령", "chronowraith", 67, 14350, 430, 105, 36, 5650, 945...1350, .ranged, [("hp3", 0.08), ("mp2", 0.08), ("staff9", 0.004), ("dagger9", 0.004), ("armor9", 0.004), ("ring9", 0.004), ("stone", 0.238)]),
+        m("templeguard", "사원 수호병", "templeguard", 69, 19150, 450, 160, 36, 6200, 1000...1450, .aggressive, [("hp3", 0.08), ("mace9", 0.004), ("claw9", 0.004), ("armor9", 0.004), ("amulet9", 0.004), ("stone", 0.242)]),
+        m("timescarab", "시간 풍뎅이떼", "timescarab", 68, 7400, 265, 62, 62, 3250, 490...705, .swarm, [("hp3", 0.1), ("rod9", 0.004), ("sword9", 0.004), ("armor9", 0.004), ("helmet9", 0.004), ("stone", 0.14)]),
+        m("chronogolem", "시계 골렘", "chronogolem", 71, 21500, 465, 165, 44, 8500, 1300...1900, .charger, [("hp3", 0.1), ("bow10", 0.004), ("staff10", 0.004), ("armor9", 0.004), ("boots9", 0.004), ("stone", 0.146)]),
+        // 마계 입구 (Lv70~76)
+        m("imp", "임프", "imp", 70, 16850, 410, 115, 56, 6150, 1000...1450, .flyer, [("hp3", 0.08), ("mp2", 0.08), ("dagger10", 0.004), ("mace10", 0.004), ("armor9", 0.004), ("ring9", 0.004), ("stone", 0.244)]),
+        m("hellhound", "지옥견", "hellhound", 72, 22000, 475, 170, 42, 8950, 1350...1950, .charger, [("hp4", 0.1), ("claw10", 0.004), ("rod10", 0.004), ("armor9", 0.004), ("amulet9", 0.004), ("stone", 0.148)]),
+        m("cursebomb", "저주 폭탄", "cursebomb", 73, 10900, 600, 85, 50, 7900, 1150...1700, .exploder, [("hp4", 0.1), ("sword10", 0.004), ("bow10", 0.004), ("armor9", 0.004), ("helmet9", 0.004), ("stone", 0.15)]),
+        m("doomknight", "파멸 기사", "doomknight", 75, 23000, 500, 175, 36, 8300, 1250...1800, .aggressive, [("hp4", 0.08), ("staff10", 0.004), ("dagger10", 0.004), ("armor9", 0.004), ("boots9", 0.004), ("stone", 0.254)]),
+        // 용의 둥지 (Lv73~79)
+        m("dragonswarm", "아기 용떼", "dragonswarm", 74, 9000, 295, 70, 62, 4350, 605...870, .swarm, [("hp4", 0.1), ("mace10", 0.004), ("claw10", 0.004), ("armor9", 0.004), ("ring9", 0.004), ("stone", 0.152)]),
+        m("drakearcher", "용인 궁수", "drakearcher", 76, 19150, 510, 125, 36, 8700, 1300...1850, .ranged, [("hp4", 0.08), ("mp2", 0.08), ("rod10", 0.004), ("sword10", 0.004), ("armor9", 0.004), ("amulet9", 0.004), ("stone", 0.256)]),
+        m("wyvern", "와이번", "wyvern", 77, 21000, 465, 130, 56, 8700, 1250...1800, .flyer, [("hp4", 0.08), ("mp2", 0.08), ("bow10", 0.004), ("staff10", 0.004), ("armor10", 0.004), ("helmet10", 0.004), ("stone", 0.258)]),
+        m("drakeguard", "용인 수호병", "drakeguard", 79, 34000, 560, 245, 26, 12150, 1700...2450, .aggressive, [("hp4", 0.08), ("dagger10", 0.004), ("mace10", 0.004), ("armor10", 0.004), ("boots10", 0.004), ("stone", 0.262)]),
+        // 얼음 왕궁 (Lv76~82)
+        m("frostguard", "서리 근위병", "frostguard", 77, 24500, 515, 185, 40, 9150, 1350...1900, .aggressive, [("hp4", 0.08), ("claw10", 0.004), ("rod10", 0.004), ("armor10", 0.004), ("ring10", 0.004), ("stone", 0.258)]),
+        m("snowbomb", "눈꽃 폭탄", "snowbomb", 78, 12700, 655, 93, 46, 10100, 1400...2000, .exploder, [("hp4", 0.1), ("sword10", 0.004), ("bow10", 0.004), ("armor10", 0.004), ("amulet10", 0.004), ("stone", 0.16)]),
+        m("icewitch", "서리 마녀", "icewitch", 79, 21000, 535, 135, 34, 10100, 1400...2050, .ranged, [("hp4", 0.08), ("mp2", 0.08), ("staff10", 0.004), ("dagger10", 0.004), ("armor10", 0.004), ("helmet10", 0.004), ("stone", 0.262)]),
+        m("icegiant", "빙하 거인", "icegiant", 81, 29000, 550, 195, 44, 13950, 1800...2600, .charger, [("hp4", 0.1), ("mace10", 0.004), ("claw10", 0.004), ("armor10", 0.004), ("boots10", 0.004), ("stone", 0.166)]),
+        // 불의 신전 (Lv80~85)
+        m("emberswarm", "불티떼", "emberswarm", 80, 10750, 325, 77, 62, 5850, 735...1050, .swarm, [("hp4", 0.1), ("rod10", 0.004), ("sword10", 0.004), ("armor10", 0.004), ("ring10", 0.004), ("stone", 0.164)]),
+        m("flamepriest", "화염 사제", "flamepriest", 82, 23000, 560, 140, 34, 11700, 1550...2250, .ranged, [("hp4", 0.08), ("mp2", 0.08), ("bow11", 0.004), ("staff11", 0.004), ("armor10", 0.004), ("amulet10", 0.004), ("stone", 0.268)]),
+        m("phoenix", "불새", "phoenix", 83, 25000, 510, 140, 60, 11650, 1550...2200, .flyer, [("hp4", 0.08), ("mp2", 0.08), ("dagger11", 0.004), ("mace11", 0.004), ("armor10", 0.004), ("helmet10", 0.004), ("stone", 0.27)]),
+        m("obsidiangolem", "흑요석 골렘", "obsidiangolem", 85, 40500, 615, 270, 24, 16150, 2050...2950, .aggressive, [("hp4", 0.08), ("claw11", 0.004), ("rod11", 0.004), ("armor10", 0.004), ("boots10", 0.004), ("stone", 0.274)]),
+        // 폭풍의 협곡 (Lv83~88)
+        m("stormeagle", "폭풍 독수리", "stormeagle", 84, 25500, 520, 145, 58, 12200, 1600...2250, .flyer, [("hp4", 0.08), ("mp2", 0.08), ("sword11", 0.004), ("bow11", 0.004), ("armor10", 0.004), ("ring10", 0.004), ("stone", 0.272)]),
+        m("thunderrhino", "천둥 코뿔소", "thunderrhino", 86, 33500, 595, 210, 44, 17600, 2100...3050, .charger, [("hp4", 0.1), ("staff11", 0.004), ("dagger11", 0.004), ("armor10", 0.004), ("amulet10", 0.004), ("stone", 0.176)]),
+        m("stormshaman", "뇌운 주술사", "stormshaman", 88, 27000, 615, 155, 32, 15400, 1850...2700, .ranged, [("hp5", 0.08), ("mp3", 0.08), ("mace11", 0.004), ("claw11", 0.004), ("armor10", 0.004), ("helmet10", 0.004), ("stone", 0.28)]),
+        // 어둠의 숲 (Lv86~91)
+        m("shadowwolf", "그림자 늑대", "shadowwolf", 87, 34500, 605, 215, 42, 18450, 2150...3150, .charger, [("hp4", 0.1), ("rod11", 0.004), ("sword11", 0.004), ("armor10", 0.004), ("boots10", 0.004), ("stone", 0.178)]),
+        m("spooktree", "요괴 나무", "spooktree", 88, 43500, 645, 285, 28, 18500, 2250...3200, .aggressive, [("hp5", 0.08), ("bow11", 0.004), ("staff11", 0.004), ("armor10", 0.004), ("ring10", 0.004), ("stone", 0.28)]),
+        m("sporebomb", "독포자 폭탄", "sporebomb", 89, 17200, 780, 110, 46, 16900, 1900...2750, .exploder, [("hp5", 0.1), ("dagger11", 0.004), ("mace11", 0.004), ("armor11", 0.004), ("amulet11", 0.004), ("stone", 0.182)]),
+        m("hexwitch", "저주 마녀", "hexwitch", 91, 29000, 640, 160, 34, 17550, 2050...2900, .ranged, [("hp5", 0.08), ("mp3", 0.08), ("claw11", 0.004), ("rod11", 0.004), ("armor11", 0.004), ("helmet11", 0.004), ("stone", 0.286)]),
+        // 고대 도서관 (Lv89~94)
+        m("tomeswarm", "마도서떼", "tomeswarm", 89, 13750, 375, 88, 62, 8850, 960...1400, .swarm, [("hp5", 0.1), ("sword11", 0.004), ("bow11", 0.004), ("armor11", 0.004), ("boots11", 0.004), ("stone", 0.182)]),
+        m("scribeghost", "유령 서기", "scribeghost", 91, 29000, 640, 160, 32, 17550, 2050...2900, .ranged, [("hp5", 0.08), ("mp3", 0.08), ("staff11", 0.004), ("dagger11", 0.004), ("armor11", 0.004), ("ring11", 0.004), ("stone", 0.286)]),
+        m("statuelibrarian", "석상 사서", "statuelibrarian", 92, 48500, 685, 300, 26, 22000, 2500...3600, .aggressive, [("hp5", 0.08), ("mace12", 0.004), ("claw12", 0.004), ("armor11", 0.004), ("amulet11", 0.004), ("stone", 0.288)]),
+        m("inkbomb", "잉크 폭탄", "inkbomb", 94, 19500, 835, 120, 50, 21000, 2200...3150, .exploder, [("hp5", 0.1), ("rod12", 0.004), ("sword12", 0.004), ("armor11", 0.004), ("helmet11", 0.004), ("stone", 0.192)]),
+        // 별의 정원 (Lv92~97)
+        m("starfairy", "별 요정", "starfairy", 93, 32500, 595, 165, 56, 18150, 2050...2950, .flyer, [("hp5", 0.08), ("mp3", 0.08), ("bow12", 0.004), ("staff12", 0.004), ("armor11", 0.004), ("boots11", 0.004), ("stone", 0.29)]),
+        m("cometboar", "혜성 멧돼지", "cometboar", 95, 42000, 680, 240, 42, 26000, 2700...3900, .charger, [("hp5", 0.1), ("dagger12", 0.004), ("mace12", 0.004), ("armor11", 0.004), ("ring11", 0.004), ("stone", 0.194)]),
+        m("starknight", "별빛 기사", "starknight", 97, 42000, 695, 245, 40, 22500, 2400...3400, .aggressive, [("hp5", 0.08), ("claw12", 0.004), ("rod12", 0.004), ("armor11", 0.004), ("amulet11", 0.004), ("stone", 0.298)]),
+        // 차원의 끝 (Lv95~100)
+        m("voidhound", "공허 사냥개", "voidhound", 96, 43000, 690, 245, 40, 27000, 2800...4000, .charger, [("hp5", 0.1), ("sword12", 0.004), ("bow12", 0.004), ("armor11", 0.004), ("helmet11", 0.004), ("stone", 0.196)]),
+        m("riftmage", "균열 마법사", "riftmage", 98, 34500, 705, 175, 34, 23500, 2450...3500, .ranged, [("hp5", 0.08), ("mp3", 0.08), ("staff12", 0.004), ("dagger12", 0.004), ("armor11", 0.004), ("boots11", 0.004), ("stone", 0.3)]),
+        m("voidknight", "공허 기사", "voidknight", 100, 45000, 725, 255, 40, 25000, 2550...3700, .aggressive, [("hp5", 0.08), ("mace12", 0.004), ("claw12", 0.004), ("armor11", 0.004), ("ring11", 0.004), ("stone", 0.304)]),
+        boss("kraken", "심해의 크라켄", "kraken", 70, 1370000, 650, 160, 36, 220000, 47500...79000, .slime, minion: "deepjelly", element: .ice,
+             [("sword10", 0.12), ("bow10", 0.12), ("staff10", 0.12), ("dagger10", 0.12), ("mace10", 0.12), ("claw10", 0.12), ("rod10", 0.12), ("sword9", 0.1), ("bow9", 0.1), ("staff9", 0.1), ("dagger9", 0.1), ("mace9", 0.1), ("claw9", 0.1), ("rod9", 0.1), ("armor9", 0.2), ("armor8", 0.2), ("ring9", 0.08), ("amulet9", 0.08), ("helmet9", 0.08), ("boots9", 0.08), ("hp3", 1)]),
+        boss("dragonlord", "고룡 바르가노스", "dragonlord", 80, 1740000, 785, 190, 37, 495000, 71000...118000, .demon, minion: "dragonswarm", element: .fire,
+             [("sword10", 0.12), ("bow10", 0.12), ("staff10", 0.12), ("dagger10", 0.12), ("mace10", 0.12), ("claw10", 0.12), ("rod10", 0.12), ("sword9", 0.1), ("bow9", 0.1), ("staff9", 0.1), ("dagger9", 0.1), ("mace9", 0.1), ("claw9", 0.1), ("rod9", 0.1), ("armor10", 0.2), ("armor9", 0.2), ("ring10", 0.08), ("amulet10", 0.08), ("helmet10", 0.08), ("boots10", 0.08), ("hp4", 1)]),
+        boss("icequeen", "얼음 여왕", "icequeen", 85, 1940000, 855, 205, 37, 710000, 85000...141500, .yeti, minion: "frostguard", element: .ice,
+             [("sword11", 0.12), ("bow11", 0.12), ("staff11", 0.12), ("dagger11", 0.12), ("mace11", 0.12), ("claw11", 0.12), ("rod11", 0.12), ("sword10", 0.1), ("bow10", 0.1), ("staff10", 0.1), ("dagger10", 0.1), ("mace10", 0.1), ("claw10", 0.1), ("rod10", 0.1), ("armor10", 0.2), ("armor9", 0.2), ("ring10", 0.08), ("amulet10", 0.08), ("helmet10", 0.08), ("boots10", 0.08), ("hp4", 1)]),
+        boss("stormgiant", "폭풍의 거인", "stormgiant", 90, 2150000, 925, 220, 38, 990000, 101000...168000, .golem, minion: "stormeagle", element: .wind,
+             [("sword11", 0.12), ("bow11", 0.12), ("staff11", 0.12), ("dagger11", 0.12), ("mace11", 0.12), ("claw11", 0.12), ("rod11", 0.12), ("sword10", 0.1), ("bow10", 0.1), ("staff10", 0.1), ("dagger10", 0.1), ("mace10", 0.1), ("claw10", 0.1), ("rod10", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
+        boss("archivist", "대사서 리치", "archivist", 95, 2370000, 1000, 235, 38, 1345000, 118500...197500, .skeleton, minion: "scribeghost", element: .cosmic,
+             [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
+        boss("voidlord", "차원의 지배자", "voidlord", 100, 2600000, 1050, 255, 39, 1785000, 138500...230000, .demon, minion: "voidknight", element: .cosmic,
+             [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
     ]
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: String) -> RpgMonsterDef { byID[id]! }
@@ -544,6 +630,26 @@ struct RpgMapID: RawRepresentable, Codable, Hashable, Sendable {
     static let volcano = RpgMapID("volcano"), volcanoBoss = RpgMapID("volcanoBoss"), castle = RpgMapID("castle"), castleBoss = RpgMapID("castleBoss")
     static let swamp = RpgMapID("swamp"), ruins = RpgMapID("ruins"), crypt = RpgMapID("crypt")
     static let tower = RpgMapID("tower")
+
+    // Lv58-100 late game: twelve hunting grounds in a chain after the crypt, six boss rooms off to the side.
+    static let sky = RpgMapID("sky")
+    static let abyss = RpgMapID("abyss")
+    static let abyssBoss = RpgMapID("abyssBoss")
+    static let temple = RpgMapID("temple")
+    static let demongate = RpgMapID("demongate")
+    static let dragon = RpgMapID("dragon")
+    static let dragonBoss = RpgMapID("dragonBoss")
+    static let icepalace = RpgMapID("icepalace")
+    static let icepalaceBoss = RpgMapID("icepalaceBoss")
+    static let firetemple = RpgMapID("firetemple")
+    static let canyon = RpgMapID("canyon")
+    static let canyonBoss = RpgMapID("canyonBoss")
+    static let darkforest = RpgMapID("darkforest")
+    static let library = RpgMapID("library")
+    static let libraryBoss = RpgMapID("libraryBoss")
+    static let stargarden = RpgMapID("stargarden")
+    static let dimension = RpgMapID("dimension")
+    static let dimensionBoss = RpgMapID("dimensionBoss")
 
     /// Every declared map, in `RpgMaps.all` order.
     static var allCases: [RpgMapID] { RpgMaps.all.map(\.id) }
@@ -646,8 +752,58 @@ enum RpgMaps {
                       portals: [p(1, 15, .snow, 25, 25)],
                       monsters: sp([("ruinbat", 7), ("ruinskel", 6), ("ruinwarden", 4), ("ruinsswarm", 6), ("ruinscharger", 3), ("ruinsexploder", 2)])),
             RpgMapDef(id: .crypt, name: "왕가의 지하묘지", levelText: "Lv44~52", width: 46, height: 30, kind: .castle, seed: 113,
-                      portals: [p(1, 15, .castle, 25, 27)],
+                      portals: [p(1, 15, .castle, 25, 27), p(44, 15, .sky, 4, 15, minLevel: 58)],
                       monsters: sp([("wraith", 7), ("bonelord", 6), ("cryptguard", 4), ("cryptswarm", 6), ("cryptcharger", 3), ("cryptexploder", 2)])),
+            // Lv58-100: crypt -> 천공의 섬 -> ... -> 차원의 끝, each gate at the zone's first level; boss rooms hang off the zone's north door.
+            // Return doors carry the gate of the map they lead back to, so a party warp (cheapest portal into a map) still checks the real level.
+            RpgMapDef(id: .sky, name: "천공의 섬", levelText: "Lv58~64", width: 50, height: 30, kind: .field, seed: 137,
+                      portals: [p(1, 15, .crypt, 41, 15, minLevel: 44), p(48, 15, .abyss, 4, 15, minLevel: 62)],
+                      monsters: sp([("skyslime", 8), ("skyhawk", 6), ("windsprite", 5), ("skyram", 4)])),
+            RpgMapDef(id: .abyss, name: "심해 유적", levelText: "Lv62~68", width: 50, height: 30, kind: .cave, seed: 139,
+                      portals: [p(1, 15, .sky, 45, 15, minLevel: 58), p(48, 15, .temple, 4, 15, minLevel: 66), p(25, 1, .abyssBoss, 14, 17, minLevel: 65)],
+                      monsters: sp([("deepjelly", 6), ("coralcrab", 6), ("abysspiranha", 7), ("siren", 5)])),
+            RpgMapDef(id: .abyssBoss, name: "심해 신전", levelText: "보스 Lv70", width: 28, height: 22, kind: .boss, seed: 197,
+                      portals: [p(14, 20, .abyss, 25, 4, minLevel: 62)], monsters: sp([("kraken", 1)]), zone: .cave),
+            RpgMapDef(id: .temple, name: "시간의 사원", levelText: "Lv66~72", width: 50, height: 30, kind: .desert, seed: 149,
+                      portals: [p(1, 15, .abyss, 45, 15, minLevel: 62), p(48, 15, .demongate, 4, 16, minLevel: 70)],
+                      monsters: sp([("chronowraith", 5), ("templeguard", 6), ("timescarab", 7), ("chronogolem", 4)])),
+            RpgMapDef(id: .demongate, name: "마계 입구", levelText: "Lv70~76", width: 50, height: 32, kind: .castle, seed: 151,
+                      portals: [p(1, 16, .temple, 45, 15, minLevel: 66), p(48, 16, .dragon, 4, 15, minLevel: 73)],
+                      monsters: sp([("imp", 6), ("hellhound", 4), ("cursebomb", 3), ("doomknight", 6)])),
+            RpgMapDef(id: .dragon, name: "용의 둥지", levelText: "Lv73~79", width: 50, height: 30, kind: .cave, seed: 157,
+                      portals: [p(1, 15, .demongate, 45, 16, minLevel: 70), p(48, 15, .icepalace, 4, 15, minLevel: 76), p(25, 1, .dragonBoss, 14, 17, minLevel: 75)],
+                      monsters: sp([("dragonswarm", 7), ("drakearcher", 5), ("wyvern", 6), ("drakeguard", 4)])),
+            RpgMapDef(id: .dragonBoss, name: "용왕의 보물고", levelText: "보스 Lv80", width: 28, height: 22, kind: .boss, seed: 199,
+                      portals: [p(14, 20, .dragon, 25, 4, minLevel: 73)], monsters: sp([("dragonlord", 1)]), zone: .volcano),
+            RpgMapDef(id: .icepalace, name: "얼음 왕궁", levelText: "Lv76~82", width: 50, height: 30, kind: .snow, seed: 163,
+                      portals: [p(1, 15, .dragon, 45, 15, minLevel: 73), p(48, 15, .firetemple, 4, 15, minLevel: 80), p(25, 1, .icepalaceBoss, 14, 17, minLevel: 80)],
+                      monsters: sp([("frostguard", 6), ("snowbomb", 3), ("icewitch", 5), ("icegiant", 4)])),
+            RpgMapDef(id: .icepalaceBoss, name: "얼음 여왕의 옥좌", levelText: "보스 Lv85", width: 28, height: 22, kind: .boss, seed: 211,
+                      portals: [p(14, 20, .icepalace, 25, 4, minLevel: 76)], monsters: sp([("icequeen", 1)]), zone: .snow),
+            RpgMapDef(id: .firetemple, name: "불의 신전", levelText: "Lv80~85", width: 50, height: 30, kind: .volcano, seed: 167,
+                      portals: [p(1, 15, .icepalace, 45, 15, minLevel: 76), p(48, 15, .canyon, 4, 15, minLevel: 83)],
+                      monsters: sp([("emberswarm", 7), ("flamepriest", 5), ("phoenix", 6), ("obsidiangolem", 4)])),
+            RpgMapDef(id: .canyon, name: "폭풍의 협곡", levelText: "Lv83~88", width: 50, height: 30, kind: .desert, seed: 173,
+                      portals: [p(1, 15, .firetemple, 45, 15, minLevel: 80), p(48, 15, .darkforest, 4, 15, minLevel: 86), p(25, 1, .canyonBoss, 14, 17, minLevel: 85)],
+                      monsters: sp([("stormeagle", 6), ("thunderrhino", 4), ("stormshaman", 5)])),
+            RpgMapDef(id: .canyonBoss, name: "폭풍의 눈", levelText: "보스 Lv90", width: 28, height: 22, kind: .boss, seed: 223,
+                      portals: [p(14, 20, .canyon, 25, 4, minLevel: 83)], monsters: sp([("stormgiant", 1)]), zone: .desert),
+            RpgMapDef(id: .darkforest, name: "어둠의 숲", levelText: "Lv86~91", width: 50, height: 30, kind: .forest, seed: 179,
+                      portals: [p(1, 15, .canyon, 45, 15, minLevel: 83), p(48, 15, .library, 4, 16, minLevel: 89)],
+                      monsters: sp([("shadowwolf", 4), ("spooktree", 5), ("sporebomb", 3), ("hexwitch", 5)])),
+            RpgMapDef(id: .library, name: "고대 도서관", levelText: "Lv89~94", width: 50, height: 32, kind: .castle, seed: 181,
+                      portals: [p(1, 16, .darkforest, 45, 15, minLevel: 86), p(48, 16, .stargarden, 4, 15, minLevel: 92), p(25, 1, .libraryBoss, 14, 17, minLevel: 90)],
+                      monsters: sp([("tomeswarm", 7), ("scribeghost", 5), ("statuelibrarian", 4), ("inkbomb", 3)])),
+            RpgMapDef(id: .libraryBoss, name: "금서고", levelText: "보스 Lv95", width: 28, height: 22, kind: .boss, seed: 227,
+                      portals: [p(14, 20, .library, 25, 4, minLevel: 89)], monsters: sp([("archivist", 1)]), zone: .castle),
+            RpgMapDef(id: .stargarden, name: "별의 정원", levelText: "Lv92~97", width: 50, height: 30, kind: .field, seed: 191,
+                      portals: [p(1, 15, .library, 45, 16, minLevel: 89), p(48, 15, .dimension, 4, 16, minLevel: 95)],
+                      monsters: sp([("starfairy", 6), ("cometboar", 4), ("starknight", 6)])),
+            RpgMapDef(id: .dimension, name: "차원의 끝", levelText: "Lv95~100", width: 50, height: 32, kind: .castle, seed: 193,
+                      portals: [p(1, 16, .stargarden, 45, 15, minLevel: 92), p(25, 1, .dimensionBoss, 14, 17, minLevel: 95)],
+                      monsters: sp([("voidhound", 4), ("riftmage", 5), ("voidknight", 6)])),
+            RpgMapDef(id: .dimensionBoss, name: "차원의 균열", levelText: "보스 Lv100", width: 28, height: 22, kind: .boss, seed: 229,
+                      portals: [p(14, 20, .dimension, 25, 4, minLevel: 95)], monsters: sp([("voidlord", 1)]), zone: .castle),
         ]
         return maps
     }()
@@ -655,11 +811,16 @@ enum RpgMaps {
     static func def(_ id: RpgMapID) -> RpgMapDef { byID[id]! }
 
     /// Zones the 차원문 can open once visited.
-    static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .swamp, .snow, .ruins, .volcano, .castle, .crypt]
+    static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .swamp, .snow, .ruins, .volcano, .castle, .crypt,
+        .sky, .abyss, .temple, .demongate, .dragon, .icepalace, .firetemple, .canyon, .darkforest, .library, .stargarden, .dimension]
 
+    /// XP to the next level. Up to Lv60 the original curve (Lv1 50, Lv15 3375, Lv30 17325, Lv36 27256, Lv50 73575, Lv60 154300);
+    /// past 60 a quadratic + cubic term is added so the late game stays slow: Lv70 ~342k, Lv80 ~760k, Lv90 ~1.5M, Lv99 ~2.6M.
     static func xpNeeded(_ level: Int) -> Int {
         let l = level
+        let d = max(0, l - 60)
         return (15 * l + 5 * l * l) * 5 / 2 + (l > 15 ? 22 * (l - 15) * (l - 15) : 0) + (l > 35 ? 40 * (l - 35) * (l - 35) * (l - 35) / 10 : 0)
+            + 250 * d * d + 15 * d * d * d
     }
-    static let maxLevel = 60
+    static let maxLevel = 100
 }
