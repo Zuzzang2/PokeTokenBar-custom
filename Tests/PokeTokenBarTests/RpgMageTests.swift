@@ -111,4 +111,13 @@ final class RpgMageTests: XCTestCase {
         p.level = 10
         XCTAssertEqual(p.maxMP, 284, accuracy: 0.001, "was 142 at Lv10")
     }
+    /// Only 순간이동 and 마나 실드 used to be for sale; every other mage book had to drop.
+    func testEveryNonStarterMageBookIsSoldInTheShop() throws {
+        let prices = ["m_blink": 700, "m_shield": 900, "m_blizzard": 2500, "m_pillar": 4000, "m_heal": 6000, "m_ult": 30000]
+        for (id, price) in prices {
+            let book = try XCTUnwrap(RpgItems.item("book_\(id)"), id)
+            XCTAssertTrue(book.inShop, id)
+            XCTAssertEqual(book.price, price, id)
+        }
+    }
 }
