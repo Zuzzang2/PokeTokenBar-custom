@@ -80,17 +80,20 @@ func crystalFactorySkyisleChecks() {
         // Flyers pay ~7% less than walkers of their level (as in the main line), so compare monsters two or more levels apart.
         let walkers = normals.filter { $0.behavior != .swarm && $0.behavior != .charger && $0.behavior != .exploder }
         check(walkers.allSatisfy { a in walkers.allSatisfy { b in b.level < a.level + 2 || a.xp < b.xp } }, "\(id): XP per kill rises with level")
-        let bosses = region.monsters.filter { $0.behavior == .boss }.sorted { $0.level < $1.level }
+        let bosses = region.monsters.filter { $0.behavior == .boss }
         check(bosses.count == 2 && bosses.allSatisfy { b in
             let hp = Double(b.hp) / base(b.level).hp, atk = Double(b.attack) / base(b.level).atk
-            return (25...40).contains(hp) && (1.4...1.55).contains(atk) && b.drops.filter { $0.item == "stone" && $0.chance == 1 }.count >= 3
-        }, "\(id): bosses have 25-40x the HP and ~1.5x the attack of a same-level monster, plus a stone bundle")
+            return (90...110).contains(hp) && (1.35...1.55).contains(atk) && b.drops.filter { $0.item == "stone" && $0.chance == 1 }.count >= 3
+        }, "\(id): bosses have ~100x the HP and ~1.4-1.5x the attack of a same-level monster (like the shipped ones), plus a stone bundle")
 
         // Items: tier-safe ids, every one obtainable, gear never strictly better than the next real tier.
         let dropped = Set(region.monsters.flatMap { $0.drops.map(\.item) })
         check(region.items.count >= 8 && region.items.allSatisfy { $0.id.hasPrefix(id + "_") && $0.tier == 0 && dropped.contains($0.id) },
               "\(id): \(region.items.count) items, all dropped by the region's monsters")
-        check(region.recipes.allSatisfy { r in region.items.contains { $0.id == r.output } && r.gold > 0 }, "\(id): recipes make the region's own items")
+        let materials = Set(region.items.filter { $0.kind == .material }.map(\.id))
+        check(region.recipes.allSatisfy { r in region.items.contains { $0.id == r.output } && r.gold > 0 && r.materials.keys.allSatisfy { $0 == "stone" || materials.contains($0) } }
+              && Set(region.recipes.flatMap(\.materials.keys)).isSuperset(of: materials),
+              "\(id): recipes turn the region's own materials (plus gold and stones) into its items")
         var tiersOK = true
         for item in region.items where item.isEquipment {
             let prefix: String, stats: (RpgItem) -> [Double]
@@ -115,19 +118,42 @@ func crystalFactorySkyisleChecks() {
         let w = RpgWorld(player: p)
         w.perform(.warp(region.entry), for: 1)
         check(w.player(1)?.map == .town, "\(id): the 차원문 refuses Lv\(region.minLevel - 1)")
+        // The hunter is built like a player of that level (stat points spent, 2nd job, the band's shop gear); a bare Lv-up
+        // character got swarmed and died before its first kill now and then. Three tries, fresh world each, settle bad luck.
         var q = RpgSaveStore.newPlayer(name: "traveller", cls: .warrior, id: 1)
         q.level = band(hunting[0].levelText).upperBound
+        q.stats = [(q.level - 1) * 5 * 6 / 10, 0, (q.level - 1) * 5 * 4 / 10, 0]
+        q.job = 1
+        q.tier = 1
         q.weapon = "sword6"
         q.armor = "armor5"
+        let t = q.level / 9
+        q.ring = "ring\(t)"; q.amulet = "amulet\(t)"; q.helmet = "helmet\(t)"; q.boots = "boots\(t)"
         q.hp = q.maxHP
-        let w2 = RpgWorld(player: q)
-        w2.perform(.warp(region.entry), for: 1)
         let want = hunting[0].monsters.reduce(0) { $0 + Int((Double($1.count) * RpgWorld.monsterDensity).rounded(.up)) }
-        check(w2.player(1)?.map == region.entry && w2.player(1)?.pos == RpgMap.center(region.entryTile) && w2.mobs[region.entry]?.count == want,
-              "\(id): the 차원문 takes a Lv\(q.level) player to \(hunting[0].name) with \(want) monsters")
-        hunt(w2, id: 1, seconds: 15)
-        check(w2.player(1)?.kills.keys.contains { $0.hasPrefix(id + "_") } == true, "\(id): a Lv\(q.level) warrior in shop gear hunts there")
+        var arrived = false, hunted = false
+        for attempt in 0..<3 where !hunted {
+            let w2 = RpgWorld(player: q)
+            w2.perform(.warp(region.entry), for: 1)
+            if attempt == 0 {
+                arrived = w2.player(1)?.map == region.entry && w2.player(1)?.pos == RpgMap.center(region.entryTile) && w2.mobs[region.entry]?.count == want
+            }
+            hunt(w2, id: 1, seconds: 20)
+            hunted = w2.player(1)?.kills.keys.contains { $0.hasPrefix(id + "_") } == true
+        }
+        check(arrived, "\(id): the 차원문 takes a Lv\(q.level) player to \(hunting[0].name) with \(want) monsters")
+        check(hunted, "\(id): a Lv\(q.level) warrior in shop gear hunts there")
     }
+
+    // Bosses climb with level among the shipped ones up to the Lv58 마왕: HP, attack, defense, XP and gold.
+    let regionMonsterIDs = Set(RpgRegions.all.flatMap(\.monsters).map(\.id))
+    let ladder = RpgMonsters.all.filter { b in
+        b.behavior == .boss && b.level <= 58 && (!regionMonsterIDs.contains(b.id) || ["crystal_", "factory_", "skyisle_"].contains { b.id.hasPrefix($0) })
+    }.sorted { $0.level < $1.level }
+    let rising = zip(ladder, ladder.dropFirst()).allSatisfy { a, b in
+        a.hp < b.hp && a.attack < b.attack && a.defense <= b.defense && a.xp < b.xp && a.gold.upperBound < b.gold.upperBound
+    }
+    check(rising, "the six new bosses slot into the shipped boss ladder (\(ladder.map { "\($0.name) Lv\($0.level) \($0.hp / 1000)k" }.joined(separator: ", ")))")
 
     // Sprites: no two of the new monsters look alike, and none looks like an older one.
     let mine = RpgMonsters.all.filter { m in ["crystal_", "factory_", "skyisle_"].contains { m.id.hasPrefix($0) } }

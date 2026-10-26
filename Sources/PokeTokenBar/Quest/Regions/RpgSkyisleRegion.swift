@@ -5,10 +5,10 @@ import Foundation
 // (Lv47) off island 4 and the storm lord (Lv57) off island 7. Monsters use the same fitted curve and behaviour ratios as `RpgCrystalRegion`:
 //   Lv35 3203/164/54/1082/245 · Lv45 5710/246/83/1977/405 · Lv55 9059/339/118/3201/605 (base HP/attack/defense/XP/gold).
 // Everything stays below Lv58: the content checks count Lv58+ monsters as the late game (sprite == id, exactly six late bosses).
-// Bosses: HP 30× / 38× base, attack 1.5× / 1.45×, XP 10× / 13×. Gear: accessories on the tier-6 budget (wind ring: more crit, less HP;
+// Bosses: HP 98× base, the rest on the shipped boss curve (see `RpgCrystalRegion`). Gear: accessories on the tier-6 budget (wind ring: more crit, less HP;
 // feather boots: tier-8 speed with little defense), weapons 112 attack (tier 7 is 84, tier 8 130).
-// Recipes take the band's banded `mat_*` materials: the content checks accept no other recipe input yet, so the region's own
-// materials are sell loot for now, priced so a kill here is worth ~8% more than a main-line kill of its level (4-14% by monster).
+// Recipes take the region's own materials plus gold and stones; the materials also sell, priced so a kill here is worth ~8% more
+// than a main-line kill of its level (4-14% by monster).
 
 enum RpgSkyisleRegion {
     private static let s1 = RpgMapID("skyisle_1"), s2 = RpgMapID("skyisle_2"), s3 = RpgMapID("skyisle_3"), s4 = RpgMapID("skyisle_4")
@@ -83,9 +83,9 @@ enum RpgSkyisleRegion {
                       [("hp3", 0.05), ("skyisle_cloud", 0.08), ("skyisle_gem", 0.02), ("skyisle_tea", 0.04), ("skyisle_halo", 0.003), ("skyisle_featherboots", 0.003), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001), ("book_r_ult", 0.001), ("book_c_ult", 0.001), ("book_k_ult", 0.001), ("book_s_ult", 0.001), ("bow7", 0.004), ("sword7", 0.004), ("staff7", 0.004), ("armor6", 0.004), ("armor7", 0.002), ("bow8", 0.0015), ("sword8", 0.0015), ("staff8", 0.0015), ("stone", 0.205)]),
         RpgMonsters.m("skyisle_chick", "황금 깃털 병아리", "skyisle_chick", 45, 4550, 0, 50, 52, 2570, 1995...2865, .coward,
                       [("hp3", 0.3), ("skyisle_feather", 0.5), ("skyisle_cloud", 0.3), ("skyisle_scroll", 0.12), ("stone", 0.3)]),
-        RpgMonsters.boss("skyisle_griffinqueen", "그리핀 여왕 하늘깃", "skyisle_griffinqueen", 47, 190000, 395, 85, 40, 22000, 5300...8000, .yeti, minion: "skyisle_sparrow", element: .wind,
+        RpgMonsters.boss("skyisle_griffinqueen", "그리핀 여왕 하늘깃", "skyisle_griffinqueen", 47, 620000, 384, 82, 40, 44000, 13300...20000, .yeti, minion: "skyisle_sparrow", element: .wind,
                          [("skyisle_feather", 1), ("skyisle_feather", 1), ("skyisle_cloud", 0.6), ("skyisle_gem", 0.35), ("skyisle_halo", 0.12), ("skyisle_featherboots", 0.12), ("skyisle_scroll", 0.3), ("skyisle_tea", 1), ("sword7", 0.07), ("bow7", 0.07), ("staff7", 0.07), ("dagger7", 0.07), ("mace7", 0.07), ("claw7", 0.07), ("rod7", 0.07), ("armor6", 0.15), ("book_w_ult", 0.03), ("book_a_ult", 0.03), ("book_m_ult", 0.03), ("book_r_ult", 0.03), ("book_c_ult", 0.03), ("book_k_ult", 0.03), ("book_s_ult", 0.03), ("hp3", 1)]),
-        RpgMonsters.boss("skyisle_thunderbird", "뇌우의 군주 썬더버드", "skyisle_thunderbird", 57, 375000, 520, 120, 40, 45500, 10400...15600, .demon, minion: "skyisle_gull", element: .thunder,
+        RpgMonsters.boss("skyisle_thunderbird", "뇌우의 군주 썬더버드", "skyisle_thunderbird", 57, 965000, 491, 108, 40, 85000, 29700...44500, .demon, minion: "skyisle_gull", element: .thunder,
                          [("skyisle_gem", 1), ("skyisle_gem", 0.5), ("skyisle_cloud", 1), ("skyisle_cloud", 1), ("skyisle_bow", 0.15), ("skyisle_dagger", 0.15), ("skyisle_rod", 0.15), ("skyisle_windring", 0.12), ("skyisle_amulet", 0.12), ("skyisle_halo", 0.08), ("skyisle_featherboots", 0.08), ("sword8", 0.05), ("bow8", 0.05), ("staff8", 0.05), ("dagger8", 0.05), ("mace8", 0.05), ("claw8", 0.05), ("rod8", 0.05), ("armor7", 0.12), ("ring6", 0.06), ("amulet6", 0.06), ("book_w_ult", 0.05), ("book_a_ult", 0.05), ("book_m_ult", 0.05), ("book_r_ult", 0.05), ("book_c_ult", 0.05), ("book_k_ult", 0.05), ("book_s_ult", 0.05), ("hp3", 1)]),
     ]
 
@@ -107,14 +107,14 @@ enum RpgSkyisleRegion {
     ]
 
     private static let recipes: [RpgRecipe] = [
-        RpgRecipe(id: "skyisle_windring", output: "skyisle_windring", count: 1, materials: ["mat_dark": 12, "mat_wraith": 8, "stone": 10], gold: 100_000),
-        RpgRecipe(id: "skyisle_amulet", output: "skyisle_amulet", count: 1, materials: ["mat_dark": 12, "mat_wraith": 7, "stone": 8], gold: 95000),
-        RpgRecipe(id: "skyisle_halo", output: "skyisle_halo", count: 1, materials: ["mat_dark": 11, "mat_wraith": 7, "stone": 6], gold: 90000),
-        RpgRecipe(id: "skyisle_featherboots", output: "skyisle_featherboots", count: 1, materials: ["mat_dark": 10, "mat_wraith": 8, "stone": 6], gold: 95000),
-        RpgRecipe(id: "skyisle_bow", output: "skyisle_bow", count: 1, materials: ["mat_wraith": 12, "mat_dark": 6, "stone": 12], gold: 90000),
-        RpgRecipe(id: "skyisle_dagger", output: "skyisle_dagger", count: 1, materials: ["mat_wraith": 12, "mat_dark": 6, "stone": 12], gold: 90000),
-        RpgRecipe(id: "skyisle_rod", output: "skyisle_rod", count: 1, materials: ["mat_wraith": 12, "mat_dark": 6, "stone": 12], gold: 90000),
-        RpgRecipe(id: "skyisle_tea", output: "skyisle_tea", count: 3, materials: ["mat_dark": 2], gold: 1500),
+        RpgRecipe(id: "skyisle_windring", output: "skyisle_windring", count: 1, materials: ["skyisle_feather": 12, "skyisle_cloud": 8, "stone": 10], gold: 100_000),
+        RpgRecipe(id: "skyisle_amulet", output: "skyisle_amulet", count: 1, materials: ["skyisle_feather": 12, "skyisle_cloud": 7, "stone": 8], gold: 95000),
+        RpgRecipe(id: "skyisle_halo", output: "skyisle_halo", count: 1, materials: ["skyisle_feather": 10, "skyisle_cloud": 7, "stone": 6], gold: 90000),
+        RpgRecipe(id: "skyisle_featherboots", output: "skyisle_featherboots", count: 1, materials: ["skyisle_feather": 12, "skyisle_cloud": 7, "stone": 6], gold: 95000),
+        RpgRecipe(id: "skyisle_bow", output: "skyisle_bow", count: 1, materials: ["skyisle_cloud": 10, "skyisle_gem": 3, "stone": 12], gold: 90000),
+        RpgRecipe(id: "skyisle_dagger", output: "skyisle_dagger", count: 1, materials: ["skyisle_cloud": 10, "skyisle_gem": 3, "stone": 12], gold: 90000),
+        RpgRecipe(id: "skyisle_rod", output: "skyisle_rod", count: 1, materials: ["skyisle_cloud": 10, "skyisle_gem": 3, "stone": 12], gold: 90000),
+        RpgRecipe(id: "skyisle_tea", output: "skyisle_tea", count: 3, materials: ["skyisle_feather": 1, "skyisle_cloud": 1], gold: 1200),
     ]
 }
 
