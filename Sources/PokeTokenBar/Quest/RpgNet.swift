@@ -26,6 +26,8 @@ struct RpgPlayerPub: Codable, Sendable {
     let bubble: String?
     let bubbleLeft: Double
     var partyID: Int? = nil
+    var hardcore: Bool? = nil
+    var fallen: Bool? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {
@@ -62,6 +64,7 @@ struct RpgSnapshot: Codable, Sendable {
     let toasts: [RpgToast]
     let chat: [RpgChat]
     let shake: Double
+    var graves: [RpgGrave] = []
 }
 
 struct RpgPrivate: Codable, Sendable {
@@ -86,4 +89,6 @@ enum RpgNetMessage: Codable, Sendable {
     case chat(peer: String, text: String)
     case snapshot(RpgSnapshot)
     case privateState(peer: String, state: RpgPrivate)
+    /// Client → host: tombstones this player has seen, so they appear for everyone.
+    case graves(peer: String, list: [RpgGrave])
 }

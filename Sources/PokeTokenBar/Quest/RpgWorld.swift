@@ -114,6 +114,9 @@ struct RpgPlayer {
     var inviteFrom: Int?
     /// Boss id → when this player last received its personal loot (seconds since 1970, survives restarts).
     var bossLoot: [String: Double] = [:]
+    /// Hardcore: one life. `fallen` once that life is spent.
+    var hardcore = false
+    var fallen = false
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -259,6 +262,9 @@ final class RpgWorld {
     static let slotCount = 8
     static let berserkAfter = 480.0
     static let bossLootLockout = 1800.0
+    static let hardcoreDamage = 1.5
+    static let hardcoreReward = 1.3
+    static let gravesPerMap = 50
 
     private(set) var maps: [RpgMapID: RpgMap] = [:]
     private(set) var players: [RpgPlayer] = []
@@ -271,6 +277,9 @@ final class RpgWorld {
     private(set) var drops: [RpgDropped] = []
     private(set) var toasts: [RpgToast] = []
     private(set) var chatLog: [RpgChat] = []
+    private(set) var graves: [RpgGrave] = []
+    /// Called whenever a new tombstone appears, so it can be written to disk.
+    var onGraves: (() -> Void)?
     /// Who an action is being resolved for, so toasts reach only that player in a shared world.
     private var actor: Int?
     /// A client mirrors the host: no simulation, snapshots fill it in.
@@ -937,7 +946,7 @@ final class RpgWorld {
                 }
             } else {
                 for i in players.indices where players[i].map == h.map && !players[i].dead && dist(players[i].pos, h.pos) < h.radius {
-                    hurtPlayer(i, h.damage, from: h.pos)
+                    hurtPlayer(i, h.damage, from: h.pos, by: mobName(h.ownerID))
                 }
                 shake = max(shake, 1)
             }
@@ -1068,7 +1077,8 @@ final class RpgWorld {
                 }
             }
             for owner in rolls {
-                for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
+                let luck = (player(owner)?.hardcore ?? false) ? Self.hardcoreReward : 1
+                for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance * luck {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
                                             gold: 0, item: d.item, at: time, owner: shared.count > 1 ? owner : nil))
                 }
@@ -1111,7 +1121,7 @@ final class RpgWorld {
         guard let i = pIndex(playerID) else { return }
         float("+\(amount) XP", players[i].map, CGPoint(x: players[i].pos.x, y: players[i].pos.y - 10), .xp)
         guard players[i].level < RpgMaps.maxLevel else { return }
-        players[i].xp += amount
+        players[i].xp += players[i].hardcore ? Int(Double(amount) * Self.hardcoreReward) : amount
         while players[i].level < RpgMaps.maxLevel, players[i].xp >= RpgMaps.xpNeeded(players[i].level) {
             players[i].xp -= RpgMaps.xpNeeded(players[i].level)
             players[i].level += 1
@@ -1125,12 +1135,18 @@ final class RpgWorld {
         }
     }
 
-    private func hurtPlayer(_ i: Int, _ raw: Double, from p: CGPoint) {
+    private func mobName(_ id: Int) -> String {
+        for list in mobs.values { if let m = list.first(where: { $0.id == id }) { return m.def.name } }
+        return "알 수 없는 힘"
+    }
+
+    private func hurtPlayer(_ i: Int, _ raw: Double, from p: CGPoint, by cause: String = "알 수 없는 힘") {
         guard !players[i].dead, players[i].invulnerable <= 0, players[i].dash == nil else { return }
         let previousActor = actor
         actor = players[i].id
         defer { actor = previousActor }
         var dmg = max(1, raw - players[i].defense * 0.5) * rand(0.9, 1.1)
+        if players[i].hardcore { dmg *= Self.hardcoreDamage }
         if time < players[i].ironUntil { dmg *= 0.6 }
         if time < players[i].shieldUntil {
             let toMP = min(players[i].mp, dmg * 0.7)
@@ -1146,6 +1162,21 @@ final class RpgWorld {
         let dx = Double(players[i].pos.x - p.x), dy = Double(players[i].pos.y - p.y), d = max(1, hypot(dx, dy))
         let shove = CGPoint(x: players[i].pos.x + CGFloat(dx / d * 6), y: players[i].pos.y + CGFloat(dy / d * 6))
         if map(players[i].map).canStand(shove) { players[i].pos = shove }
+        if players[i].hp <= 0, players[i].hardcore {
+            // Hardcore: no coming back. A tombstone marks the spot for everyone who passes by.
+            players[i].hp = 0
+            players[i].dead = true
+            players[i].fallen = true
+            players[i].respawnAt = .infinity
+            players[i].cycloneUntil = 0
+            let p = players[i]
+            let grave = RpgGrave(name: p.name, cls: p.cls, level: p.level, map: p.map, x: Double(p.pos.x), y: Double(p.pos.y),
+                                 cause: cause, date: Date().timeIntervalSince1970)
+            addGraves([grave])
+            effect(.burst(radius: 30), p.map, p.pos, .cosmic, duration: 0.6)
+            toast("☠ Lv\(p.level) \(p.name) 님이 \(cause)에게 쓰러져 영원히 잠들었습니다", to: nil)
+            return
+        }
         if players[i].hp <= 0 {
             players[i].hp = 0
             players[i].dead = true
@@ -1264,7 +1295,7 @@ final class RpgWorld {
                         if w - dt <= 0 {
                             mob.windup = nil
                             mob.attackTimer = 1.1
-                            if dist(players[t].pos, mob.pos) < 20 { hurtPlayer(t, Double(mob.def.attack), from: mob.pos) }
+                            if dist(players[t].pos, mob.pos) < 20 { hurtPlayer(t, Double(mob.def.attack), from: mob.pos, by: mob.def.name) }
                         }
                     } else if d < 15, mob.attackTimer <= 0 {
                         mob.windup = 0.35
@@ -1279,7 +1310,7 @@ final class RpgWorld {
             // keeps standing in a crowd from melting you instantly.
             if mob.def.attack > 0, mob.def.behavior != .boss, !mob.airborne {
                 for i in here where dist(players[i].pos, mob.pos) < Double(mob.radius) + 7 {
-                    hurtPlayer(i, Double(mob.def.attack) * 0.7, from: mob.pos)
+                    hurtPlayer(i, Double(mob.def.attack) * 0.7, from: mob.pos, by: mob.def.name)
                 }
             }
             list[k] = mob
@@ -1409,7 +1440,7 @@ final class RpgWorld {
             }
             if d < 24, mob.attackTimer <= 0, let ti = pIndex(target.id) {
                 mob.attackTimer = 1
-                hurtPlayer(ti, atk, from: mob.pos)
+                hurtPlayer(ti, atk, from: mob.pos, by: mob.def.name)
             }
         case .jump:
             if let jt = mob.jumpTarget, time >= mob.phaseUntil - 0.05 {
@@ -1424,7 +1455,7 @@ final class RpgWorld {
                 let np = CGPoint(x: mob.pos.x + dir.dx * CGFloat(260 * dt), y: mob.pos.y + dir.dy * CGFloat(260 * dt))
                 if map(mapID).canStand(np, radius: 8) { mob.pos = np } else { mob.chargeDir = nil; shake = max(shake, 1.5) }
                 mob.facingRight = dir.dx > 0
-                for i in players.indices where players[i].map == mapID && dist(players[i].pos, mob.pos) < 22 { hurtPlayer(i, atk * 1.3, from: mob.pos) }
+                for i in players.indices where players[i].map == mapID && dist(players[i].pos, mob.pos) < 22 { hurtPlayer(i, atk * 1.3, from: mob.pos, by: mob.def.name) }
             }
         default: break
         }
@@ -1458,7 +1489,7 @@ final class RpgWorld {
                 }
                 if done { continue }
             } else if let i = players.indices.first(where: { players[$0].map == s.map && !players[$0].dead && dist(players[$0].pos, foot) < 8 }) {
-                hurtPlayer(i, s.damage, from: s.pos)
+                hurtPlayer(i, s.damage, from: s.pos, by: mobName(s.ownerID))
                 continue
             }
             if s.life > 0 { keep.append(s) } else if s.fromPlayer, s.kind == .orb, s.element == .fire { explode(s) }
@@ -1547,7 +1578,7 @@ extension RpgWorld {
                          dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
                          rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
                          shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
-                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID)
+                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, hardcore: p.hardcore, fallen: p.fallen)
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -1563,7 +1594,7 @@ extension RpgWorld {
         return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
                            fx: fx.filter { occupied.contains($0.map) }, floaters: floaters.filter { occupied.contains($0.map) },
                            drops: drops.filter { occupied.contains($0.map) }, traps: traps.filter { occupied.contains($0.map) },
-                           toasts: toasts, chat: Array(chatLog.suffix(10)), shake: shake)
+                           toasts: toasts, chat: Array(chatLog.suffix(10)), shake: shake, graves: graves.filter { occupied.contains($0.map) })
     }
 
     func privateState(for id: Int) -> RpgPrivate? {
@@ -1608,6 +1639,9 @@ extension RpgWorld {
             p.bubble = pub.bubble
             p.bubbleUntil = time + pub.bubbleLeft
             p.partyID = pub.partyID
+            p.hardcore = pub.hardcore ?? false
+            if pub.id != localID { p.fallen = pub.fallen ?? false }
+            if pub.id == localID, pub.fallen == true { p.fallen = true; p.respawnAt = .infinity }
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
@@ -1645,6 +1679,7 @@ extension RpgWorld {
         toasts = s.toasts
         chatLog = s.chat
         shake = max(shake, s.shake)
+        addGraves(s.graves)
     }
 
     func applyPrivate(_ s: RpgPrivate, localID: Int) {
@@ -1662,6 +1697,8 @@ extension RpgWorld {
         players[i].slots = d.slots ?? players[i].slots
         players[i].quests = d.quests ?? []
         players[i].bossLoot = d.bossLoot ?? [:]
+        players[i].hardcore = d.hardcore ?? false
+        if d.fallen == true { players[i].fallen = true }
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
         players[i].hp = s.hp
@@ -1711,5 +1748,38 @@ extension RpgWorld {
         }
         for j in floaters.indices { floaters[j].life -= dt; floaters[j].pos.y -= CGFloat(dt * 18) }
         floaters.removeAll { $0.life <= 0 }
+    }
+}
+
+// MARK: - hardcore graves
+
+struct RpgGrave: Codable, Sendable, Equatable {
+    var id = UUID().uuidString
+    let name: String
+    let cls: RpgClass
+    let level: Int
+    let map: RpgMapID
+    let x: Double
+    let y: Double
+    let cause: String
+    let date: Double
+}
+
+extension RpgWorld {
+    /// Merge tombstones (new deaths, or ones another player brings into the world); keeps the newest per map.
+    func addGraves(_ list: [RpgGrave]) {
+        let known = Set(graves.map(\.id))
+        let fresh = list.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        var all = graves + fresh
+        for mapID in Set(all.map(\.map)) {
+            let here = all.filter { $0.map == mapID }.sorted { $0.date > $1.date }
+            if here.count > Self.gravesPerMap {
+                let drop = Set(here.dropFirst(Self.gravesPerMap).map(\.id))
+                all.removeAll { drop.contains($0.id) }
+            }
+        }
+        graves = all
+        onGraves?()
     }
 }
