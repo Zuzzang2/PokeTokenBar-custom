@@ -57,9 +57,7 @@ extension EchoGameView {
         let fr = viewFrame
         let ghosts = EchoCore.ghosts(echoes.map(\.rec), at: fr)
         let me = mode == .rewind ? rewindSource[min(fr, rewindSource.count - 1)] : EchoCore.snapshot(world.player)
-        let pressed = mode == .play || mode == .spectate
-            ? world.pressed
-            : EchoCore.platesPressed(level, bodies: ghosts + [me])
+        let pressed = displayedPressed
         let open = EchoCore.doorsOpen(level, pressed: pressed)
         for (i, p) in level.plates.enumerated() { EchoArt.plate(f, p.rect, lit: pressed.contains(i)) }
         for d in level.doors { EchoArt.door(f, tx: d.tx, ty: d.ty, open: open[d.group] == true, clock: clock) }
@@ -87,6 +85,16 @@ extension EchoGameView {
             f.setFillColor(KartArt.rgb(255, 255, 230, 0.10))
             f.fill(CGRect(x: 0, y: 0, width: EchoArt.width, height: EchoArt.height))
         }
+    }
+
+    /// Plates as drawn. Only active play has a fresh simulation; a spectator, the rewind and the clear
+    /// montage recompute from what is on screen (echoes, live teammates, the rewinding player).
+    var displayedPressed: Set<Int> {
+        if mode == .play { return world.pressed }
+        var bodies: [EchoFrame?] = EchoCore.ghosts(echoes.map(\.rec), at: viewFrame)
+        if mode == .rewind, !rewindSource.isEmpty { bodies.append(rewindSource[min(viewFrame, rewindSource.count - 1)]) }
+        if mode == .spectate { bodies += livePeers() }
+        return EchoCore.platesPressed(level, bodies: bodies)
     }
 
     /// A Pokémon standing with its feet on the hitbox bottom. Echoes use a tinted copy of their owner's sprite.
