@@ -456,12 +456,12 @@ final class RpgWorld {
             if let portal = nearbyPortal(for: id), !portal.waypoint { travel(i, to: portal.to, at: portal.arrive, minLevel: portal.minLevel) }
         case .hpPotion:
             let missing = players[i].maxHP - players[i].hp
-            let order = ["hp0", "hp1", "hp2", "hp3"].filter { (players[i].inventory[$0] ?? 0) > 0 }
+            let order = ["hp0", "hp1", "hp2", "hp3", "hp4", "hp5"].filter { (players[i].inventory[$0] ?? 0) > 0 }
             // The smallest potion that covers what is missing, else the biggest one carried.
             let pick = order.first { Double(RpgItems.item($0)?.heal ?? 0) >= missing } ?? order.last
             if let pick { use(pick, i) } else { toast("HP 물약이 없어요") }
         case .mpPotion:
-            let order = ["mp0", "mp1"].filter { (players[i].inventory[$0] ?? 0) > 0 }
+            let order = ["mp0", "mp1", "mp2", "mp3"].filter { (players[i].inventory[$0] ?? 0) > 0 }
             let missing = players[i].maxMP - players[i].mp
             if let pick = order.first(where: { Double(RpgItems.item($0)?.heal ?? 0) >= missing }) ?? order.last { use(pick, i) } else { toast("MP 물약이 없어요") }
         case .scroll:
@@ -1688,9 +1688,10 @@ final class RpgWorld {
                 if shared.count >= 3 {
                     for owner in rolls {
                         guard let p = player(owner) else { continue }
-                        let mythic = p.cls.weaponPrefix + "8"
+                        let late = max(0, (m.def.level - 58) / 10)
+                        let mythic = p.cls.weaponPrefix + "\(min(12, 8 + late))"
                         var bonus = Array(repeating: "stone", count: 3 + shared.count)
-                        if rng.int(1000) < 15 + 2 * m.def.level / 10 { bonus.append(rng.int(2) == 0 ? mythic : "armor7") }
+                        if rng.int(1000) < 15 + 2 * m.def.level / 10 { bonus.append(rng.int(2) == 0 ? mythic : "armor\(min(11, 7 + late))") }
                         for item in bonus {
                             drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(41) - 20), y: m.pos.y + CGFloat(rng.int(21) - 10)),
                                                     gold: 0, item: item, at: time, owner: owner))
@@ -1708,7 +1709,7 @@ final class RpgWorld {
                 // Crafting materials by level band, and now and then a ring or amulet of the monster's tier.
                 var extra: [String] = []
                 if Double(rng.int(10_000)) / 10_000 < RpgMaterials.chance * luck, let mat = RpgMaterials.pick(level: m.def.level, roll: rng.int(1000)) { extra.append(mat) }
-                if Double(rng.int(10_000)) / 10_000 < 0.006 * luck { extra.append(["ring", "amulet", "helmet", "boots"][rng.int(4)] + "\(min(7, m.def.level / 7))") }
+                if Double(rng.int(10_000)) / 10_000 < 0.006 * luck { extra.append(["ring", "amulet", "helmet", "boots"][rng.int(4)] + "\(min(11, m.def.level / 9))") }
                 for item in extra {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
                                             gold: 0, item: item, at: time, owner: shared.count > 1 ? owner : nil))
@@ -2377,12 +2378,12 @@ extension RpgWorld {
 // MARK: - 무한의 탑
 
 extension RpgWorld {
-    /// The monsters of tower floor `n`: levels climb two per floor (capped at 58), every 5th floor is all golden
+    /// The monsters of tower floor `n`: levels climb two per floor (up to the level cap), every 5th floor is all golden
     /// elites, every 10th is a boss with escorts.
     static func towerWave(floor n: Int) -> (defs: [RpgMonsterDef], elite: Bool, boss: Bool) {
         let normal = RpgMonsters.all.filter { $0.behavior != .boss }
         let bosses = RpgMonsters.all.filter { $0.behavior == .boss }.sorted { $0.level < $1.level }
-        let target = min(58, 3 + n * 2)
+        let target = min(RpgMaps.maxLevel, 3 + n * 2)
         var pool = normal.filter { abs($0.level - target) <= 5 }
         if pool.isEmpty { pool = Array(normal.sorted { abs($0.level - target) < abs($1.level - target) }.prefix(3)) }
         let count = min(16, 5 + n / 2)
@@ -2406,8 +2407,8 @@ extension RpgWorld {
         towerClearedAt = nil
         let m = map(.tower)
         let wave = Self.towerWave(floor: n)
-        // Past floor 25 the monster levels stop climbing, so their HP keeps growing instead.
-        let growth = 1 + 0.1 * Double(max(0, n - 25))
+        // Once the monster levels stop climbing (at the level cap) their HP keeps growing instead.
+        let growth = 1 + 0.1 * Double(max(0, n - (RpgMaps.maxLevel - 3) / 2))
         var list: [RpgMob] = []
         for def in wave.defs {
             let boss = def.behavior == .boss
@@ -2435,9 +2436,9 @@ extension RpgWorld {
             var rewards: [String] = []
             if floor % 5 == 0 { rewards += Array(repeating: "stone", count: 1 + floor / 10) }
             if floor % 10 == 0 {
-                let tier = floor >= 30 ? 7 : 6
+                let tier = min(12, floor >= 30 ? 7 + (floor - 30) / 10 : 6)
                 let weapon = players[i].cls.weaponPrefix + "\(tier)"
-                rewards.append(floor % 20 == 10 ? weapon : "armor\(tier)")
+                rewards.append(floor % 20 == 10 ? weapon : "armor\(min(11, tier))")
             }
             for (k, item) in rewards.enumerated() where RpgItems.item(item) != nil {
                 drops.append(RpgDropped(id: newID(), map: .tower, pos: CGPoint(x: center.x + CGFloat(k * 9 - rewards.count * 4), y: center.y + 12),

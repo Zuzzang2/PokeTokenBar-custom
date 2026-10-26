@@ -993,8 +993,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
         x += 12
         let consumables: [(RpgKeyAction, String, Int)] = [
-            (.hpPotion, "hp0", ["hp0", "hp1", "hp2", "hp3"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
-            (.mpPotion, "mp0", ["mp0", "mp1"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
+            (.hpPotion, "hp0", ["hp0", "hp1", "hp2", "hp3", "hp4", "hp5"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
+            (.mpPotion, "mp0", ["mp0", "mp1", "mp2", "mp3"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
             (.scroll, "scroll", me.inventory["scroll"] ?? 0),
         ]
         for (action, icon, count) in consumables {
