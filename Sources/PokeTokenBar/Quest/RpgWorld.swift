@@ -112,6 +112,8 @@ struct RpgPlayer {
     /// Party = the founder's player id; nil when solo.
     var partyID: Int?
     var inviteFrom: Int?
+    /// Boss id → when this player last received its personal loot (seconds since 1970, survives restarts).
+    var bossLoot: [String: Double] = [:]
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -166,6 +168,8 @@ struct RpgMob {
     var hpScale = 1.0
     /// Bosses: everyone who landed a hit gets credit and loot, even if they fell before the end.
     var contributors: Set<Int> = []
+    /// When the first hit landed (0 = not engaged); drives the berserk timer.
+    var engagedAt = 0.0
 
     var radius: CGFloat { def.behavior == .boss ? 14 : 6 }
     var flies: Bool { def.behavior == .flyer }
@@ -253,6 +257,8 @@ struct RpgDropped: Codable, Sendable {
 final class RpgWorld {
     static let townSpawn = RpgTile(x: 15, y: 10)
     static let slotCount = 8
+    static let berserkAfter = 480.0
+    static let bossLootLockout = 1800.0
 
     private(set) var maps: [RpgMapID: RpgMap] = [:]
     private(set) var players: [RpgPlayer] = []
@@ -567,7 +573,7 @@ final class RpgWorld {
         list.removeAll { $0.summoned }
         for k in list.indices {
             list[k].targetID = nil
-            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].hpScale = 1; list[k].contributors = []; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
+            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].hpScale = 1; list[k].contributors = []; list[k].engagedAt = 0; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
         }
         mobs[id] = list
         pending.removeAll { $0.map == id }
@@ -968,7 +974,7 @@ final class RpgWorld {
         m.hp -= dmg
         m.hurtFlash = 0.12
         m.lastHitBy = playerID
-        if m.def.behavior == .boss { m.contributors.insert(playerID) }
+        if m.def.behavior == .boss { m.contributors.insert(playerID); if m.engagedAt == 0 { m.engagedAt = time } }
         if m.def.behavior != .boss {
             let dx = Double(m.pos.x - p.pos.x), dy = Double(m.pos.y - p.pos.y), d = max(1, hypot(dx, dy))
             m.knock = CGVector(dx: dx / d * (skill ? 140 : 90), dy: dy / d * (skill ? 140 : 90))
@@ -1032,8 +1038,35 @@ final class RpgWorld {
         if !m.summoned {
             // Bosses roll their loot once per participant (personal loot); other monsters roll once and the
             // item is reserved for the next party member in turn.
-            let rolls = boss ? shared : [shared[lootTurn % shared.count]]
+            var rolls = boss ? shared : [shared[lootTurn % shared.count]]
             if !boss { lootTurn += 1 }
+            if boss {
+                // Personal boss loot once per 30 minutes per player; locked players still get XP and gold.
+                let now = Date().timeIntervalSince1970
+                rolls = rolls.filter { id in
+                    guard let pi = pIndex(id) else { return false }
+                    if let last = players[pi].bossLoot[m.def.id], now - last < Self.bossLootLockout {
+                        toast("\(m.def.name) 보상 쿨타임 — \(Int((Self.bossLootLockout - (now - last)) / 60) + 1)분 남음", to: id)
+                        return false
+                    }
+                    players[pi].bossLoot[m.def.id] = now
+                    return true
+                }
+                // Raid bonus (3+ players): a bundle of stones each and a small shot at mythic gear.
+                if shared.count >= 3 {
+                    for owner in rolls {
+                        guard let p = player(owner) else { continue }
+                        let mythic = p.cls == .warrior ? "sword8" : (p.cls == .archer ? "bow8" : "staff8")
+                        var bonus = Array(repeating: "stone", count: 3 + shared.count)
+                        if rng.int(1000) < 15 + 2 * m.def.level / 10 { bonus.append(rng.int(2) == 0 ? mythic : "armor7") }
+                        for item in bonus {
+                            drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(41) - 20), y: m.pos.y + CGFloat(rng.int(21) - 10)),
+                                                    gold: 0, item: item, at: time, owner: owner))
+                        }
+                        toast("레이드 보상 획득!", to: owner)
+                    }
+                }
+            }
             for owner in rolls {
                 for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
@@ -1133,7 +1166,7 @@ final class RpgWorld {
         // Raid scaling: a boss grows (never shrinks mid-fight) with everyone standing in its room.
         let crowd = Double(max(1, players.filter { $0.map == mapID }.count))
         for k in list.indices where list[k].def.behavior == .boss && !list[k].dead {
-            let want = 1 + 0.75 * (crowd - 1)
+            let want = 1 + 0.9 * (crowd - 1)
             if want > list[k].hpScale { list[k].hp *= want / list[k].hpScale; list[k].hpScale = want }
         }
         var spawned: [RpgMob] = []
@@ -1286,9 +1319,12 @@ final class RpgWorld {
     /// Bosses cycle through their move list; below 40% HP everything comes faster and harder.
     private func bossThink(_ mob: inout RpgMob, _ target: RpgPlayer, _ dt: Double, _ mapID: RpgMapID, _ spawned: inout [RpgMob]) {
         let enraged = mob.hp < Double(mob.def.hp) * mob.hpScale * 0.4
-        let pace = enraged ? 0.7 : 1.0
+        // Eight minutes after the first hit the boss goes berserk: triple damage, double speed.
+        let berserk = mob.engagedAt > 0 && time - mob.engagedAt > Self.berserkAfter
+        let pace = berserk ? 0.45 : (enraged ? 0.7 : 0.9)
+        let raid = false   // reserved for a future heroic mode
         let moves = bossMoves(mob.def.bossStyle)
-        let atk = Double(mob.def.attack) * (1 + 0.05 * (mob.hpScale - 1) / 0.75)
+        let atk = Double(mob.def.attack) * (1 + 0.03 * (mob.hpScale - 1)) * (berserk ? 3 : 1)
         let el = mob.def.element
         if time >= mob.phaseUntil {
             mob.phase = (mob.phase + 1) % moves.count
@@ -1304,7 +1340,7 @@ final class RpgWorld {
                 schedule(1.0 * pace, mapID, target.pos, radius: 34, damage: atk * 1.5, owner: mob.id, fromPlayer: false, element: el, fx: .burst(radius: 34))
             case .ring:
                 mob.phaseUntil = time + 1.6 * pace
-                for wave in 0..<(enraged ? 3 : 2) {
+                for wave in 0..<((enraged ? 3 : 2) + (raid ? 1 : 0)) {
                     let n = mob.def.bossStyle == .demon ? 16 : 12
                     for k in 0..<n {
                         let a = Double(k) / Double(n) * .pi * 2 + Double(wave) * 0.26
@@ -1332,7 +1368,7 @@ final class RpgWorld {
                 }
             case .marks:
                 mob.phaseUntil = time + 1.8 * pace
-                let count = enraged ? 7 : 5
+                let count = (enraged ? 7 : 5) + (raid ? 2 : 0)
                 for k in 0..<count {
                     let jitter = k == 0 ? CGPoint.zero : CGPoint(x: rand(-60, 60), y: rand(-40, 40))
                     let c = CGPoint(x: target.pos.x + jitter.x, y: target.pos.y + jitter.y)
@@ -1514,7 +1550,7 @@ extension RpgWorld {
                                          jy: m.jumpTarget.map { Double($0.y) }, phaseLeft: m.phaseUntil - time, hurt: m.hurtFlash > 0,
                                          stunLeft: max(0, m.stunUntil - time), slowLeft: max(0, m.slowUntil - time),
                                          dot: m.dotTicks > 0 ? m.dotElement : nil, windup: m.windup != nil, facingRight: m.facingRight,
-                                         summoned: m.summoned, hpScale: m.hpScale))
+                                         summoned: m.summoned, hpScale: m.hpScale, berserkIn: m.engagedAt > 0 ? Self.berserkAfter - (time - m.engagedAt) : nil))
             }
         }
         return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
@@ -1588,6 +1624,7 @@ extension RpgWorld {
             m.facingRight = mp.facingRight
             m.summoned = mp.summoned
             m.hpScale = mp.hpScale
+            m.engagedAt = mp.berserkIn.map { time - (Self.berserkAfter - $0) } ?? 0
             if hypot(target.x - m.pos.x, target.y - m.pos.y) > 60 { m.pos = target }
             netTargets["m\(mp.id)"] = target
             byMap[mp.map, default: []].append(m)
@@ -1617,6 +1654,7 @@ extension RpgWorld {
         players[i].sp = d.sp ?? players[i].sp
         players[i].slots = d.slots ?? players[i].slots
         players[i].quests = d.quests ?? []
+        players[i].bossLoot = d.bossLoot ?? [:]
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
         players[i].hp = s.hp

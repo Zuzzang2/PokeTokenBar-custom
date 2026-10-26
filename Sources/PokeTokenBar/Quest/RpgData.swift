@@ -310,7 +310,7 @@ enum RpgMonsters {
         m("golem", "골렘", "golem", 13, 480, 44, 14, 20, 115, 40...70, .aggressive,
           [("armor3", 0.02), ("staff2", 0.01), ("staff3", 0.01), ("staff4", 0.01), ("sword4", 0.01), ("stone", 0.08)]),
         m("goldslime", "황금 슬라임", "goldslime", 8, 110, 0, 5, 44, 45, 150...320, .coward, [("hp1", 0.3), ("stone", 0.3)]),
-        boss("slimeking", "슬라임 킹", "slimeking", 15, 30000, 60, 10, 34, 1500, 500...800, .slime, minion: "slime", element: .base,
+        boss("slimeking", "슬라임 킹", "slimeking", 15, 45000, 60, 10, 34, 1500, 500...800, .slime, minion: "slime", element: .base,
              [("sword5", 0.1), ("bow5", 0.1), ("staff5", 0.1), ("armor4", 0.15), ("hp1", 1)]),
 
         m("sandslime", "모래 슬라임", "sandslime", 15, 420, 52, 14, 32, 160, 40...70, .passive, [("hp1", 0.1), ("stone", 0.05)]),
@@ -319,7 +319,7 @@ enum RpgMonsters {
         m("mummy", "미라", "mummy", 19, 700, 66, 20, 30, 250, 60...95, .aggressive, [("hp2", 0.06), ("armor5", 0.006), ("stone", 0.07)]),
         m("sandgolem", "모래 골렘", "sandgolem", 21, 1100, 78, 30, 22, 340, 80...130, .aggressive,
           [("sword6", 0.008), ("bow6", 0.008), ("staff6", 0.008), ("stone", 0.1), ("book_w_cyclone", 0.005), ("book_a_trap", 0.005), ("book_m_pillar", 0.005)]),
-        boss("sandking", "모래골렘 왕", "sandking", 24, 150000, 140, 30, 30, 6000, 2000...3000, .golem, minion: "sandslime", element: .fire,
+        boss("sandking", "모래골렘 왕", "sandking", 24, 225000, 140, 30, 30, 6000, 2000...3000, .golem, minion: "sandslime", element: .fire,
              [("sword6", 0.25), ("bow6", 0.25), ("staff6", 0.25), ("armor5", 0.3), ("book_w_cyclone", 0.15), ("book_a_trap", 0.15), ("book_m_pillar", 0.15)]),
 
         m("iceslime", "얼음 슬라임", "iceslime", 22, 900, 82, 26, 32, 380, 70...110, .passive, [("hp2", 0.08), ("stone", 0.07)]),
@@ -328,7 +328,7 @@ enum RpgMonsters {
         m("icebat", "얼음 박쥐", "icebat", 25, 820, 96, 24, 52, 420, 70...110, .flyer, [("mp1", 0.06), ("stone", 0.08)]),
         m("yeti", "설인", "yeti", 28, 2000, 115, 40, 26, 650, 120...190, .aggressive,
           [("armor6", 0.004), ("bow7", 0.004), ("stone", 0.12), ("book_w_slam", 0.006), ("book_a_focus", 0.006), ("book_m_heal", 0.006)]),
-        boss("yetiking", "설인 왕", "yetiking", 32, 220000, 210, 45, 34, 14000, 4000...6000, .yeti, minion: "snowwolf", element: .ice,
+        boss("yetiking", "설인 왕", "yetiking", 32, 330000, 210, 45, 34, 14000, 4000...6000, .yeti, minion: "snowwolf", element: .ice,
              [("armor6", 0.2), ("bow7", 0.2), ("staff6", 0.3), ("book_w_slam", 0.2), ("book_a_focus", 0.2), ("book_m_heal", 0.2)]),
 
         m("magmaslime", "용암 슬라임", "magmaslime", 30, 1900, 130, 42, 34, 720, 130...200, .passive, [("hp2", 0.1), ("stone", 0.1)]),
@@ -337,7 +337,7 @@ enum RpgMonsters {
           [("hp3", 0.03), ("sword7", 0.004), ("staff7", 0.004), ("stone", 0.12)]),
         m("lavagolem", "용암 골렘", "lavagolem", 38, 4200, 185, 66, 24, 1300, 240...340, .aggressive,
           [("sword7", 0.005), ("staff7", 0.005), ("bow7", 0.005), ("stone", 0.15), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001)]),
-        boss("skelking", "화염 해골왕", "skelking", 42, 350000, 330, 70, 36, 30000, 8000...12000, .skeleton, minion: "flameskel", element: .fire,
+        boss("skelking", "화염 해골왕", "skelking", 42, 525000, 330, 70, 36, 30000, 8000...12000, .skeleton, minion: "flameskel", element: .fire,
              [("sword7", 0.25), ("staff7", 0.25), ("bow7", 0.25), ("book_w_ult", 0.1), ("book_a_ult", 0.1), ("book_m_ult", 0.1)]),
 
         m("darkknight", "암흑 기사", "darkknight", 42, 5200, 230, 80, 40, 1700, 300...450, .aggressive, [("hp3", 0.05), ("stone", 0.15)]),
@@ -345,7 +345,7 @@ enum RpgMonsters {
         m("demonbat", "악마 박쥐", "demonbat", 44, 4000, 240, 60, 60, 1800, 300...450, .flyer, [("hp3", 0.04), ("stone", 0.15)]),
         m("gargoyle", "가고일", "gargoyle", 50, 8000, 290, 100, 28, 2600, 450...650, .aggressive,
           [("stone", 0.22), ("book_w_ult", 0.002), ("book_a_ult", 0.002), ("book_m_ult", 0.002)]),
-        boss("demonking", "마왕", "demonking", 58, 650000, 500, 110, 40, 90000, 30000...50000, .demon, minion: "darkknight", element: .cosmic,
+        boss("demonking", "마왕", "demonking", 58, 975000, 500, 110, 40, 90000, 30000...50000, .demon, minion: "darkknight", element: .cosmic,
              [("sword8", 0.15), ("bow8", 0.15), ("staff8", 0.15), ("armor7", 0.2), ("book_w_ult", 0.25), ("book_a_ult", 0.25), ("book_m_ult", 0.25)]),
     ]
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
