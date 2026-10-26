@@ -1,6 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
+@MainActor
 final class SelfUpdaterTests: XCTestCase {
     private let remote = "b5dfb12060ebcc0882fba4e9d2bad8adea2bf5ff"
 
