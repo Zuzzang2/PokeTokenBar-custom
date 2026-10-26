@@ -11,11 +11,16 @@ struct RpgPetInfo: Codable, Sendable, Equatable {
     /// The companion's attack stat on the battle scale (level-50 stats, roughly 60...200).
     var power: Int
     var element: RpgElement
+    /// Its strongest real move, used as the pet's special attack (optional so older peers still decode it).
+    var moveName: String? = nil
+    var moveType: String? = nil
+    var movePower: Int? = nil
 
     /// Remote players send this over the wire; keep it inside sane bounds.
     var sanitized: RpgPetInfo {
         RpgPetInfo(speciesID: min(max(speciesID, 1), 99_999), shiny: shiny, name: String(name.prefix(12)),
-                   power: min(max(power, 1), 400), element: element)
+                   power: min(max(power, 1), 400), element: element, moveName: moveName.map { String($0.prefix(14)) },
+                   moveType: moveType.map { String($0.prefix(12)) }, movePower: movePower.map { min(max($0, 0), 250) })
     }
 }
 
@@ -27,6 +32,8 @@ struct RpgPetState {
     var facingRight = true
     var moving = false
     var attackAt = 0.0
+    /// Next time the pet may use its special attack (host only).
+    var skillAt = 0.0
     var info: RpgPetInfo
 }
 
@@ -47,8 +54,12 @@ enum RpgPetFactory {
     static func make(companion: CompanionStore) async -> RpgPetInfo? {
         guard let pick = BattleMonBuilder.candidates(companion: companion).first(where: \.isRaising),
               let mon = try? await BattleMonBuilder.build(pick, trainer: "") else { return nil }
+        // The special attack is the companion's highest-power move, scaled by the matching attack stat.
+        let move = mon.moves.max { $0.power < $1.power }
+        let stat = move.map { $0.isPhysical ? "attack" : "special-attack" } ?? "attack"
         return RpgPetInfo(speciesID: pick.speciesID, shiny: pick.isShiny, name: pick.name,
-                          power: mon.stats["attack"] ?? 80, element: element(for: mon.types)).sanitized
+                          power: mon.stats[stat] ?? mon.stats["attack"] ?? 80, element: element(for: [move?.type ?? mon.types.first ?? ""]),
+                          moveName: move?.name, moveType: move?.type, movePower: move?.power).sanitized
     }
 
     /// The pet attacks with the element of its first type.

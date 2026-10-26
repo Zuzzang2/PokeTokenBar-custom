@@ -119,5 +119,23 @@ do {
     }
 }
 
+// MARK: pet special attack
+do {
+    let (w, id) = fieldWorld(level: 30)
+    let info = RpgPetInfo(speciesID: 25, shiny: false, name: "피카", power: 120, element: .thunder,
+                          moveName: "Test Move", moveType: "electric", movePower: 90)
+    w.perform(.pet(info), for: id)
+    check(w.player(id)?.petInfo?.moveName == "Test Move", "pet info arrives with its move")
+    var sawMove = false
+    for _ in 0..<300 {
+        hunt(w, id: id, seconds: 0.2)
+        if w.floaters.contains(where: { $0.text == "Test Move" }) { sawMove = true; break }
+    }
+    check(sawMove, "pet uses its special move (name floats up)")
+    check(w.pets[id] != nil, "pet exists in the world")
+    // The pet also fetches loot: after a while the bag has gold from fights.
+    check((w.player(id)?.gold ?? 0) > 150, "gold collected while hunting with a pet")
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

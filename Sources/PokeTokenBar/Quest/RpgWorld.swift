@@ -1659,6 +1659,26 @@ extension RpgWorld {
     private static let petLootRadius = 150.0
     private static let petFightRadius = 90.0
 
+    /// The pet's special attack: its real strongest move hits everything around the target, with the move's name
+    /// floating up and an effect matching the move's type.
+    fileprivate func petSpecial(_ info: RpgPetInfo, owner p: RpgPlayer, at target: CGPoint) {
+        let element = info.moveType.map { RpgPetFactory.element(for: [$0]) } ?? info.element
+        let name = info.moveName ?? "필살기"
+        float(name, p.map, CGPoint(x: target.x, y: target.y - 10), .info)
+        let fx: RpgFX.Kind
+        switch element {
+        case .ice: fx = .ice(radius: 30)
+        case .thunder: fx = .strike
+        case .cosmic: fx = .meteor(radius: 34)
+        case .wind: fx = .slash(angle: 0, radius: 24)
+        case .fire, .holy, .poison, .base: fx = .burst(radius: element == .base ? 26 : 32)
+        }
+        effect(fx, p.map, target, element, duration: 0.4)
+        shake = max(shake, 0.4)
+        let damage = Double(info.power) * Double(info.movePower ?? 60) / 80 * 0.9 + p.attack(at: time) * 0.9
+        for v in mobIDs(near: target, radius: 34, map: p.map) { damageMob(v, map: p.map, base: damage, by: p.id, element: element, skill: true) }
+    }
+
     /// Pets follow their owner, hit monsters near them and fetch drops. Only the host simulates them.
     fileprivate func stepPets(_ dt: Double) {
         guard !isMirror else { return }
@@ -1699,6 +1719,10 @@ extension RpgWorld {
                            CGPoint(x: target.pos.x, y: target.pos.y - 6), info.element, duration: 0.25)
                     damageMob(target.id, map: p.map, base: Double(info.power) * 0.4 + p.attack(at: time) * 0.35, by: p.id,
                               element: info.element, skill: false)
+                }
+                if time >= s.skillAt, dist(s.pos, target.pos) < 60 {
+                    s.skillAt = time + rand(6, 8)
+                    petSpecial(info, owner: p, at: target.pos)
                 }
             } else if dist(s.pos, p.pos) > 34 {
                 goal = CGPoint(x: p.pos.x + (p.facingRight ? -18 : 18), y: p.pos.y)
