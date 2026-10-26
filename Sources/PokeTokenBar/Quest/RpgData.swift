@@ -529,11 +529,24 @@ enum RpgMonsters {
 
 // MARK: maps
 
-enum RpgMapID: String, Codable, CaseIterable, Sendable {
-    case town, field, forest, cave1, cave2, boss, pond
-    case desert, desertBoss, snow, snowBoss, volcano, volcanoBoss, castle, castleBoss
-    case swamp, ruins, crypt
-    case tower
+/// A map's identifier. A string wrapper rather than an enum so hundreds of maps can be declared as data (`RpgMaps.all`);
+/// the original maps keep their names as constants so `.town`, `.field`, … still read the same.
+struct RpgMapID: RawRepresentable, Codable, Hashable, Sendable {
+    let rawValue: String
+    init(rawValue: String) { self.rawValue = rawValue }
+    init(_ rawValue: String) { self.rawValue = rawValue }
+    init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
+    func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(rawValue) }
+
+    static let town = RpgMapID("town"), field = RpgMapID("field"), forest = RpgMapID("forest"), cave1 = RpgMapID("cave1"), cave2 = RpgMapID("cave2")
+    static let boss = RpgMapID("boss"), pond = RpgMapID("pond")
+    static let desert = RpgMapID("desert"), desertBoss = RpgMapID("desertBoss"), snow = RpgMapID("snow"), snowBoss = RpgMapID("snowBoss")
+    static let volcano = RpgMapID("volcano"), volcanoBoss = RpgMapID("volcanoBoss"), castle = RpgMapID("castle"), castleBoss = RpgMapID("castleBoss")
+    static let swamp = RpgMapID("swamp"), ruins = RpgMapID("ruins"), crypt = RpgMapID("crypt")
+    static let tower = RpgMapID("tower")
+
+    /// Every declared map, in `RpgMaps.all` order.
+    static var allCases: [RpgMapID] { RpgMaps.all.map(\.id) }
 }
 
 enum RpgMapKind: Sendable { case town, field, forest, cave, boss, pond, desert, snow, volcano, castle }
@@ -638,7 +651,8 @@ enum RpgMaps {
         ]
         return maps
     }()
-    static func def(_ id: RpgMapID) -> RpgMapDef { all.first { $0.id == id }! }
+    private static let byID: [RpgMapID: RpgMapDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    static func def(_ id: RpgMapID) -> RpgMapDef { byID[id]! }
 
     /// Zones the 차원문 can open once visited.
     static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .swamp, .snow, .ruins, .volcano, .castle, .crypt]
