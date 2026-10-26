@@ -252,7 +252,9 @@ enum RpgPlace: Sendable, Equatable {
 
 // MARK: monsters
 
-enum RpgBehavior: Sendable { case passive, aggressive, ranged, flyer, coward, boss }
+/// `swarm`: weak fast packs that call each other; `charger`: telegraphs, then dashes in a line; `exploder`: runs up
+/// and blows itself up (no reward unless it is killed first).
+enum RpgBehavior: Sendable { case passive, aggressive, ranged, flyer, coward, boss, swarm, charger, exploder }
 
 /// What a boss does besides chasing, slamming and firing rings.
 enum RpgBossStyle: Sendable { case slime, golem, yeti, skeleton, demon }
@@ -368,6 +370,41 @@ enum RpgMonsters {
           [("hp3", 0.05), ("stone", 0.18), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001)]),
         m("cryptguard", "지하묘지 수호상", "cryptguard", 52, 10000, 310, 110, 26, 3000, 500...720, .aggressive,
           [("stone", 0.25), ("book_w_ult", 0.002), ("book_a_ult", 0.002), ("book_m_ult", 0.002)]),
+
+        // Packs, chargers and bombs for every zone (see RpgBehavior.swarm / .charger / .exploder).
+        m("fieldswarm", "초록 새끼슬라임", "fieldswarm", 2, 17, 5, 0, 52.0, 5, 2...4, .swarm, [("hp0", 0.1), ("stone", 0.033)]),
+        m("fieldcharger", "들개", "fieldcharger", 4, 75, 9, 1, 30.0, 16, 5...10, .charger, [("hp0", 0.1), ("stone", 0.033)]),
+        m("fieldexploder", "폭죽 버섯", "fieldexploder", 4, 35, 11, 0, 36.0, 14, 4...8, .exploder, [("hp0", 0.1), ("stone", 0.033)]),
+        m("forestswarm", "숲 박쥐떼", "forestswarm", 5, 38, 11, 1, 62.0, 12, 4...7, .swarm, [("hp0", 0.1), ("stone", 0.037)]),
+        m("forestcharger", "멧돼지", "forestcharger", 7, 165, 18, 3, 40.0, 37, 11...19, .charger, [("hp0", 0.1), ("stone", 0.037)]),
+        m("forestexploder", "폭발 버섯", "forestexploder", 7, 77, 22, 1, 46.0, 32, 9...16, .exploder, [("hp0", 0.1), ("stone", 0.037)]),
+        m("cave1swarm", "동굴 거미", "cave1swarm", 9, 70, 19, 3, 62.0, 22, 7...13, .swarm, [("hp1", 0.1), ("stone", 0.041)]),
+        m("cave1charger", "돌진 해골", "cave1charger", 11, 300, 32, 6, 40.0, 67, 19...33, .charger, [("hp1", 0.1), ("stone", 0.041)]),
+        m("cave1exploder", "폭탄 슬라임", "cave1exploder", 11, 140, 39, 3, 46.0, 58, 16...28, .exploder, [("hp1", 0.1), ("stone", 0.041)]),
+        m("cave2swarm", "바위 거미", "cave2swarm", 11, 115, 26, 5, 52.0, 42, 13...22, .swarm, [("hp1", 0.1), ("stone", 0.043)]),
+        m("cave2charger", "돌 파쇄자", "cave2charger", 13, 495, 43, 11, 30.0, 127, 33...58, .charger, [("hp1", 0.1), ("stone", 0.043)]),
+        m("cave2exploder", "폭탄 해골", "cave2exploder", 13, 230, 53, 6, 36.0, 110, 28...49, .exploder, [("hp1", 0.1), ("stone", 0.043)]),
+        m("desertswarm", "사막 전갈떼", "desertswarm", 17, 210, 43, 9, 67.0, 110, 27...45, .swarm, [("hp1", 0.1), ("stone", 0.05)]),
+        m("desertcharger", "모래 늑대", "desertcharger", 19, 900, 71, 19, 45.0, 330, 71...117, .charger, [("hp1", 0.1), ("stone", 0.05)]),
+        m("desertexploder", "선인장 폭탄", "desertexploder", 19, 420, 86, 10, 51.0, 286, 60...99, .exploder, [("hp1", 0.1), ("stone", 0.05)]),
+        m("snowswarm", "서리 진드기", "snowswarm", 24, 350, 64, 14, 72.0, 215, 40...60, .swarm, [("hp2", 0.1), ("stone", 0.058)]),
+        m("snowcharger", "빙하 멧돼지", "snowcharger", 26, 1500, 105, 30, 50.0, 645, 104...156, .charger, [("hp2", 0.1), ("stone", 0.058)]),
+        m("snowexploder", "눈폭탄 슬라임", "snowexploder", 26, 700, 128, 16, 56.0, 559, 88...132, .exploder, [("hp2", 0.1), ("stone", 0.058)]),
+        m("volcanoswarm", "불씨 전갈떼", "volcanoswarm", 33, 840, 105, 24, 62.0, 440, 75...115, .swarm, [("hp2", 0.1), ("stone", 0.068)]),
+        m("volcanocharger", "용암 멧돼지", "volcanocharger", 35, 3600, 172, 52, 40.0, 1320, 195...299, .charger, [("hp2", 0.1), ("stone", 0.068)]),
+        m("volcanoexploder", "폭발 해골", "volcanoexploder", 35, 1680, 210, 28, 46.0, 1144, 165...253, .exploder, [("hp2", 0.1), ("stone", 0.068)]),
+        m("castleswarm", "굶주린 구울떼", "castleswarm", 45, 1924, 168, 42, 62.0, 925, 160...240, .swarm, [("hp3", 0.1), ("stone", 0.081)]),
+        m("castlecharger", "돌격 기사", "castlecharger", 47, 8250, 276, 93, 40.0, 2775, 416...624, .charger, [("hp3", 0.1), ("stone", 0.081)]),
+        m("castleexploder", "영혼 폭탄", "castleexploder", 47, 3849, 336, 51, 46.0, 2405, 352...528, .exploder, [("hp3", 0.1), ("stone", 0.081)]),
+        m("swampswarm", "늪 거머리떼", "swampswarm", 17, 227, 42, 9, 62.0, 95, 25...42, .swarm, [("hp1", 0.1), ("stone", 0.05)]),
+        m("swampcharger", "늪 멧돼지", "swampcharger", 19, 975, 69, 19, 40.0, 285, 65...110, .charger, [("hp1", 0.1), ("stone", 0.05)]),
+        m("swampexploder", "포자 폭탄", "swampexploder", 19, 454, 84, 10, 46.0, 247, 55...93, .exploder, [("hp1", 0.1), ("stone", 0.05)]),
+        m("ruinsswarm", "유적 전갈떼", "ruinsswarm", 30, 700, 96, 20, 62.0, 380, 65...100, .swarm, [("hp2", 0.1), ("stone", 0.064)]),
+        m("ruinscharger", "석상 돌격병", "ruinscharger", 32, 3000, 158, 44, 40.0, 1140, 169...260, .charger, [("hp2", 0.1), ("stone", 0.064)]),
+        m("ruinsexploder", "저주 폭탄", "ruinsexploder", 32, 1400, 193, 24, 46.0, 988, 143...220, .exploder, [("hp2", 0.1), ("stone", 0.064)]),
+        m("cryptswarm", "원혼떼", "cryptswarm", 47, 2275, 183, 44, 58.0, 1100, 180...260, .swarm, [("hp3", 0.1), ("stone", 0.083)]),
+        m("cryptcharger", "뼈 투우", "cryptcharger", 49, 9750, 301, 96, 36.0, 3300, 468...676, .charger, [("hp3", 0.1), ("stone", 0.083)]),
+        m("cryptexploder", "죽음의 폭탄", "cryptexploder", 49, 4550, 366, 52, 42.0, 2860, 396...572, .exploder, [("hp3", 0.1), ("stone", 0.083)]),
     ]
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: String) -> RpgMonsterDef { byID[id]! }
@@ -433,16 +470,16 @@ enum RpgMaps {
                       portals: [p(30, 11, .field, 4, 14), p(28, 7, .tower, 14, 17, minLevel: 10), town], monsters: []),
             RpgMapDef(id: .field, name: "초원", levelText: "Lv1~4", width: 46, height: 28, kind: .field, seed: 11,
                       portals: [p(1, 14, .town, 28, 11), p(44, 14, .forest, 4, 15)],
-                      monsters: sp([("slime", 10), ("blueslime", 5), ("brownshroom", 6)])),
+                      monsters: sp([("slime", 10), ("blueslime", 5), ("brownshroom", 6), ("fieldswarm", 6), ("fieldcharger", 3), ("fieldexploder", 2)])),
             RpgMapDef(id: .forest, name: "숲", levelText: "Lv4~8", width: 46, height: 30, kind: .forest, seed: 23,
                       portals: [p(1, 15, .field, 41, 14), p(44, 15, .cave1, 4, 13), p(6, 3, .pond, 11, 11, hidden: true)],
-                      monsters: sp([("poisonshroom", 8), ("wolf", 5), ("bat", 6)])),
+                      monsters: sp([("poisonshroom", 8), ("wolf", 5), ("bat", 6), ("forestswarm", 6), ("forestcharger", 3), ("forestexploder", 2)])),
             RpgMapDef(id: .cave1, name: "동굴 1층", levelText: "Lv8~12", width: 42, height: 26, kind: .cave, seed: 37,
                       portals: [p(1, 13, .forest, 41, 15), p(40, 13, .cave2, 4, 13)],
-                      monsters: sp([("cavebat", 8), ("skeleton", 7)])),
+                      monsters: sp([("cavebat", 8), ("skeleton", 7), ("cave1swarm", 6), ("cave1charger", 3), ("cave1exploder", 2)])),
             RpgMapDef(id: .cave2, name: "동굴 2층", levelText: "Lv10~14", width: 42, height: 26, kind: .cave, seed: 41,
                       portals: [p(1, 13, .cave1, 37, 13), p(21, 1, .boss, 14, 17, minLevel: 12)],
-                      monsters: sp([("skelarcher", 6), ("golem", 4), ("skeleton", 4)])),
+                      monsters: sp([("skelarcher", 6), ("golem", 4), ("skeleton", 4), ("cave2swarm", 6), ("cave2charger", 3), ("cave2exploder", 2)])),
             RpgMapDef(id: .boss, name: "슬라임 킹의 둥지", levelText: "보스 Lv15", width: 28, height: 22, kind: .boss, seed: 53,
                       portals: [p(14, 20, .cave2, 21, 4), p(26, 10, .desert, 4, 15, minLevel: 15)],
                       monsters: sp([("slimeking", 1)]), zone: .cave),
@@ -454,33 +491,33 @@ enum RpgMaps {
 
             RpgMapDef(id: .desert, name: "작열의 사막", levelText: "Lv15~22", width: 50, height: 30, kind: .desert, seed: 71,
                       portals: [p(1, 15, .boss, 23, 10), p(48, 15, .snow, 4, 15, minLevel: 22), p(25, 1, .desertBoss, 14, 17, minLevel: 20), p(25, 28, .swamp, 4, 15, minLevel: 16)],
-                      monsters: sp([("sandslime", 9), ("scorpion", 7), ("mummy", 6), ("sandgolem", 4)])),
+                      monsters: sp([("sandslime", 9), ("scorpion", 7), ("mummy", 6), ("sandgolem", 4), ("desertswarm", 6), ("desertcharger", 3), ("desertexploder", 2)])),
             RpgMapDef(id: .desertBoss, name: "피라미드 심층", levelText: "보스 Lv24", width: 28, height: 22, kind: .boss, seed: 73,
                       portals: [p(14, 20, .desert, 25, 4)], monsters: sp([("sandking", 1)]), zone: .desert),
             RpgMapDef(id: .snow, name: "얼어붙은 설원", levelText: "Lv22~30", width: 50, height: 30, kind: .snow, seed: 79,
                       portals: [p(1, 15, .desert, 45, 15), p(48, 15, .volcano, 4, 15, minLevel: 30), p(25, 1, .snowBoss, 14, 17, minLevel: 28), p(25, 28, .ruins, 4, 15, minLevel: 29)],
-                      monsters: sp([("iceslime", 9), ("snowwolf", 7), ("icebat", 6), ("yeti", 4)])),
+                      monsters: sp([("iceslime", 9), ("snowwolf", 7), ("icebat", 6), ("yeti", 4), ("snowswarm", 6), ("snowcharger", 3), ("snowexploder", 2)])),
             RpgMapDef(id: .snowBoss, name: "빙하 동굴", levelText: "보스 Lv32", width: 28, height: 22, kind: .boss, seed: 83,
                       portals: [p(14, 20, .snow, 25, 4)], monsters: sp([("yetiking", 1)]), zone: .snow),
             RpgMapDef(id: .volcano, name: "불타는 화산", levelText: "Lv30~40", width: 50, height: 30, kind: .volcano, seed: 89,
                       portals: [p(1, 15, .snow, 45, 15), p(48, 15, .castle, 4, 15, minLevel: 40), p(25, 1, .volcanoBoss, 14, 17, minLevel: 37)],
-                      monsters: sp([("magmaslime", 9), ("firebat", 7), ("flameskel", 6), ("lavagolem", 4)])),
+                      monsters: sp([("magmaslime", 9), ("firebat", 7), ("flameskel", 6), ("lavagolem", 4), ("volcanoswarm", 6), ("volcanocharger", 3), ("volcanoexploder", 2)])),
             RpgMapDef(id: .volcanoBoss, name: "화산의 심장", levelText: "보스 Lv42", width: 28, height: 22, kind: .boss, seed: 97,
                       portals: [p(14, 20, .volcano, 25, 4)], monsters: sp([("skelking", 1)]), zone: .volcano),
             RpgMapDef(id: .castle, name: "마왕성", levelText: "Lv40~55", width: 50, height: 32, kind: .castle, seed: 101,
                       portals: [p(1, 16, .volcano, 45, 15), p(25, 1, .castleBoss, 14, 17, minLevel: 50), p(25, 30, .crypt, 4, 15, minLevel: 44)],
-                      monsters: sp([("darkknight", 8), ("shadowmage", 6), ("demonbat", 6), ("gargoyle", 4)])),
+                      monsters: sp([("darkknight", 8), ("shadowmage", 6), ("demonbat", 6), ("gargoyle", 4), ("castleswarm", 6), ("castlecharger", 3), ("castleexploder", 2)])),
             RpgMapDef(id: .castleBoss, name: "마왕의 옥좌", levelText: "보스 Lv58", width: 28, height: 22, kind: .boss, seed: 103,
                       portals: [p(14, 20, .castle, 25, 4)], monsters: sp([("demonking", 1)]), zone: .castle),
             RpgMapDef(id: .swamp, name: "안개 늪", levelText: "Lv16~21", width: 46, height: 30, kind: .forest, seed: 107,
                       portals: [p(1, 15, .desert, 25, 25)],
-                      monsters: sp([("bogshroom", 8), ("bogwolf", 6), ("mossgolem", 4)])),
+                      monsters: sp([("bogshroom", 8), ("bogwolf", 6), ("mossgolem", 4), ("swampswarm", 6), ("swampcharger", 3), ("swampexploder", 2)])),
             RpgMapDef(id: .ruins, name: "잊힌 유적", levelText: "Lv29~34", width: 46, height: 30, kind: .cave, seed: 109,
                       portals: [p(1, 15, .snow, 25, 25)],
-                      monsters: sp([("ruinbat", 7), ("ruinskel", 6), ("ruinwarden", 4)])),
+                      monsters: sp([("ruinbat", 7), ("ruinskel", 6), ("ruinwarden", 4), ("ruinsswarm", 6), ("ruinscharger", 3), ("ruinsexploder", 2)])),
             RpgMapDef(id: .crypt, name: "왕가의 지하묘지", levelText: "Lv44~52", width: 46, height: 30, kind: .castle, seed: 113,
                       portals: [p(1, 15, .castle, 25, 27)],
-                      monsters: sp([("wraith", 7), ("bonelord", 6), ("cryptguard", 4)])),
+                      monsters: sp([("wraith", 7), ("bonelord", 6), ("cryptguard", 4), ("cryptswarm", 6), ("cryptcharger", 3), ("cryptexploder", 2)])),
         ]
         return maps
     }()

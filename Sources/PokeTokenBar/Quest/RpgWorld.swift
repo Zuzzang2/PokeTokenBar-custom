@@ -302,6 +302,9 @@ final class RpgWorld {
     static let comboWindow = 4.0
     /// Chance (percent) that a normal monster spawns as a golden elite, and what it is worth.
     static let eliteChance = 3
+    /// How many times the per-map monster counts in `RpgMaps` are multiplied (bosses excluded), and how fast they come back.
+    static let monsterDensity = 1.5
+    static let respawnDelay = 6.0
     static let eliteHP = 3.0
     static let eliteAttack = 1.5
     static func comboBonus(_ combo: Int) -> Double { min(0.5, Double(combo / 10) * 0.05) }
@@ -388,7 +391,8 @@ final class RpgWorld {
         let m = map(id)
         var list: [RpgMob] = []
         for spawn in m.def.monsters {
-            for _ in 0..<spawn.count {
+            let count = RpgMonsters.def(spawn.monster).behavior == .boss ? spawn.count : Int((Double(spawn.count) * Self.monsterDensity).rounded(.up))
+            for _ in 0..<count {
                 let def = RpgMonsters.def(spawn.monster)
                 let p = def.behavior == .boss ? CGPoint(x: m.pixelSize.width / 2, y: m.pixelSize.height / 2 - 24) : randomSpawn(m)
                 list.append(newMob(id: newID(), def: def, at: p))
@@ -717,7 +721,7 @@ final class RpgWorld {
     }
 
     private func makeQuest(level: Int, cls: RpgClass) -> RpgQuest? {
-        let normal = RpgMonsters.all.filter { $0.behavior != .boss && $0.behavior != .coward && $0.level >= level - 5 && $0.level <= level + 3 }
+        let normal = RpgMonsters.all.filter { $0.behavior != .boss && $0.behavior != .coward && $0.behavior != .exploder && $0.level >= level - 5 && $0.level <= level + 3 }
         let bosses = RpgMonsters.all.filter { $0.behavior == .boss && $0.level >= level - 4 && $0.level <= level + 6 }
         let bossTurn = !bosses.isEmpty && rng.int(4) == 0
         guard let m = bossTurn ? bosses[rng.int(bosses.count)] : (normal.isEmpty ? nil : normal[rng.int(normal.count)]) else { return nil }
@@ -1196,7 +1200,7 @@ final class RpgWorld {
         m.dead = true
         m.diedAt = time
         m.dotTicks = 0
-        m.respawnAt = m.summoned || map == .tower ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : 10))
+        m.respawnAt = m.summoned || map == .tower ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : Self.respawnDelay))
         list[k] = m
         mobs[map] = list
         if m.def.behavior == .boss {
@@ -1438,9 +1442,19 @@ final class RpgWorld {
                 case .flyer: 90
                 case .ranged: 120
                 case .boss: 200
+                case .swarm: 100
+                case .charger: 110
+                case .exploder: 100
                 default: 0
                 }
                 if d < aggro { mob.targetID = players[n].id; mob.aggroUntil = time + 8 }
+            }
+            // A pack moves as one: when one swarm monster has a target, the idle ones of its kind nearby join in.
+            if mob.def.behavior == .swarm, let t = mob.targetID {
+                for b in list.indices where b != k && !list[b].dead && list[b].targetID == nil && list[b].def.id == mob.def.id && dist(list[b].pos, mob.pos) < 90 {
+                    list[b].targetID = t
+                    list[b].aggroUntil = time + 8
+                }
             }
             if mob.targetID != nil, time > mob.aggroUntil, mob.def.behavior == .passive { mob.targetID = nil }
             if dist(mob.pos, mob.home) > 260, mob.def.behavior != .boss, !mob.summoned { mob.targetID = nil; mob.wanderTo = mob.home }
@@ -1481,6 +1495,60 @@ final class RpgWorld {
                                              kind: magic ? .bossOrb : .mobArrow, life: 1.4))
                     }
                 } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
+            case .charger:
+                if let t = target {
+                    let tp = players[t].pos, d = dist(tp, mob.pos)
+                    let power = Double(mob.def.attack) * (mob.elite ? Self.eliteAttack : 1)
+                    if let dir = mob.chargeDir {
+                        // Dashing in a straight line: hits whoever is in the way, then needs a moment to recover.
+                        let np = CGPoint(x: mob.pos.x + dir.dx * CGFloat(260 * speedK * dt), y: mob.pos.y + dir.dy * CGFloat(260 * speedK * dt))
+                        if m.canStand(np) { mob.pos = np }
+                        mob.facingRight = dir.dx > 0
+                        let blocked = !m.canStand(np)
+                        if dist(players[t].pos, mob.pos) < 14 {
+                            hurtPlayer(t, power * 1.6, from: mob.pos, by: mob.def.name)
+                            mob.chargeDir = nil; mob.stunUntil = time + 0.8; mob.attackTimer = 1.5
+                        } else if blocked || time >= mob.phaseUntil {
+                            mob.chargeDir = nil; mob.stunUntil = time + 1.2; mob.attackTimer = 1.5
+                        }
+                    } else if let w = mob.windup {
+                        mob.windup = w - dt
+                        mob.facingRight = tp.x > mob.pos.x
+                        if w - dt <= 0 {
+                            mob.windup = nil
+                            let l = max(1, d)
+                            mob.chargeDir = CGVector(dx: (tp.x - mob.pos.x) / l, dy: (tp.y - mob.pos.y) / l)
+                            mob.phaseUntil = time + 0.55
+                        }
+                    } else if d < 110, d > 24, mob.attackTimer <= 0 {
+                        mob.windup = 0.6
+                    } else if d >= 20 {
+                        walk(to: tp, mob.def.speed)
+                    }
+                } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
+            case .exploder:
+                if let t = target {
+                    let tp = players[t].pos, d = dist(tp, mob.pos)
+                    if let w = mob.windup {
+                        mob.windup = w - dt
+                        if w - dt <= 0 {
+                            // Blows itself up: no XP or drops for it, but it hurts everyone close.
+                            effect(.burst(radius: 40), mapID, mob.pos, .fire, duration: 0.4)
+                            shake = max(shake, 0.6)
+                            for i in here where dist(players[i].pos, mob.pos) < 38 {
+                                hurtPlayer(i, Double(mob.def.attack) * 2.2 * (mob.elite ? Self.eliteAttack : 1), from: mob.pos, by: mob.def.name)
+                            }
+                            mob.dead = true
+                            mob.diedAt = time
+                            mob.respawnAt = time + Self.respawnDelay + 2
+                            mob.windup = nil
+                        }
+                    } else if d < 26 {
+                        mob.windup = 0.8
+                    } else {
+                        walk(to: tp, mob.def.speed)
+                    }
+                } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
             default:
                 if let t = target {
                     let tp = players[t].pos
@@ -1503,7 +1571,7 @@ final class RpgWorld {
             }
             // Touching a monster hurts (bosses have their own body slam); the hit's brief invulnerability
             // keeps standing in a crowd from melting you instantly.
-            if mob.def.attack > 0, mob.def.behavior != .boss, !mob.airborne {
+            if mob.def.attack > 0, mob.def.behavior != .boss, !mob.airborne, !mob.dead {
                 for i in here where dist(players[i].pos, mob.pos) < Double(mob.radius) + 7 {
                     hurtPlayer(i, Double(mob.def.attack) * 0.7 * (mob.elite ? Self.eliteAttack : 1), from: mob.pos, by: mob.def.name)
                 }

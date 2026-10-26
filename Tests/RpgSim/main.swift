@@ -290,5 +290,92 @@ do {
     check(w.player(1)?.map == .town, "warping to a party member checks the level a portal there would need")
 }
 
+// MARK: monsters: density and new behaviours
+/// A world with a strong player parked next to `mob` on `map` (tries a few offsets until the spot is walkable).
+func parkedWorld(on map: RpgMapID, level: Int = 60, near target: (RpgWorld) -> RpgMob?) -> (RpgWorld, RpgMob)? {
+    var seed = RpgSaveStore.newPlayer(name: "bait", cls: .warrior, id: 2)
+    seed.level = level
+    seed.map = map
+    seed.pos = RpgMap.center(RpgMaps.def(map).portals.first!.arrive)
+    let w = world(level: level)
+    w.addPlayer(seed)
+    guard let mob = target(w) else { return nil }
+    for off in [CGPoint(x: -50, y: 0), CGPoint(x: 50, y: 0), CGPoint(x: 0, y: -50), CGPoint(x: 0, y: 50), CGPoint(x: -30, y: 30)] {
+        var p = seed
+        p.pos = CGPoint(x: mob.pos.x + off.x, y: mob.pos.y + off.y)
+        if RpgMap(RpgMaps.def(map)).canStand(p.pos) { w.addPlayer(p); return (w, mob) }
+    }
+    return nil
+}
+
+do {
+    for map in RpgMapID.allCases where map != .tower && RpgMaps.def(map).kind != .boss {
+        let def = RpgMaps.def(map)
+        guard !def.monsters.isEmpty else { continue }
+        let want = def.monsters.reduce(0) { $0 + Int((Double($1.count) * RpgWorld.monsterDensity).rounded(.up)) }
+        let w = world(level: 1)
+        var p = RpgSaveStore.newPlayer(name: "scout", cls: .warrior, id: 2)
+        p.map = map
+        p.pos = RpgMap.center(def.portals.first!.arrive)
+        w.addPlayer(p)
+        check(w.mobs[map]?.count == want, "\(map.rawValue) spawns \(want) monsters (density x\(RpgWorld.monsterDensity))")
+    }
+    let ids = RpgMonsters.all.map(\.id)
+    check(Set(ids).count == ids.count, "monster ids are unique (\(ids.count) monsters)")
+    let allSprites = MainActor.assumeIsolated { RpgMonsters.all.allSatisfy { RpgArt.sprite($0.sprite) != nil } }
+    check(allSprites, "every monster has a sprite")
+    check(RpgMonsters.all.filter { [.swarm, .charger, .exploder].contains($0.behavior) }.count == 33, "33 pack / charger / bomb monsters exist")
+}
+
+do {
+    // Swarm: waking one wakes the pack around it.
+    if let (w, a) = parkedWorld(on: .desert, near: { $0.mobs[.desert]?.first { $0.def.id == "desertswarm" } }) {
+        for _ in 0..<12 { w.step(1.0 / 30, inputs: [:]) }
+        let pack = (w.mobs[.desert] ?? []).filter { $0.def.id == "desertswarm" && hypot($0.pos.x - a.pos.x, $0.pos.y - a.pos.y) < 90 }
+        check(pack.count >= 1 && pack.allSatisfy { $0.targetID != nil }, "a swarm pack (\(pack.count) near) all turn on the player together")
+    } else { check(false, "found a spot next to a swarm monster") }
+}
+do {
+    // Charger: telegraphs, then dashes.
+    if let (w, a) = parkedWorld(on: .snow, near: { $0.mobs[.snow]?.first { $0.def.id == "snowcharger" } }) {
+        var telegraphed = false, dashed = false
+        for _ in 0..<240 {
+            w.step(1.0 / 30, inputs: [:])
+            if let m = w.mobs[.snow]?.first(where: { $0.id == a.id }) {
+                if m.windup != nil { telegraphed = true }
+                if m.chargeDir != nil { dashed = true }
+            }
+        }
+        check(telegraphed && dashed, "a charger winds up and then dashes")
+    } else { check(false, "found a spot next to a charger") }
+}
+do {
+    // Exploder: runs in, detonates, hurts, and pays no XP.
+    if let (w, a) = parkedWorld(on: .volcano, level: 40, near: { $0.mobs[.volcano]?.first { $0.def.id == "volcanoexploder" } }) {
+        let hpBefore = w.player(2)!.hp, xpBefore = w.player(2)!.xp
+        var blew = false
+        for _ in 0..<240 {
+            w.step(1.0 / 30, inputs: [:])
+            if w.mobs[.volcano]?.first(where: { $0.id == a.id })?.dead == true { blew = true; break }
+        }
+        check(blew, "an exploder detonates next to the player")
+        check(w.player(2)!.hp < hpBefore && w.player(2)!.xp == xpBefore, "the blast hurts and gives no XP")
+    } else { check(false, "found a spot next to an exploder") }
+}
+do {
+    // The densest map still steps quickly.
+    var seed = RpgSaveStore.newPlayer(name: "lag", cls: .warrior, id: 2)
+    seed.level = 60
+    seed.map = .desert
+    seed.pos = RpgMap.center(RpgMaps.def(.desert).portals.first!.arrive)
+    let w = world(level: 60)
+    w.addPlayer(seed)
+    let count = w.mobs[.desert]?.count ?? 0
+    let start = Date()
+    for _ in 0..<600 { w.step(1.0 / 30, inputs: [:]) }
+    let perStep = Date().timeIntervalSince(start) / 600 * 1000
+    check(perStep < 4, "desert with \(count) monsters steps in \(String(format: "%.2f", perStep)) ms (budget 4 ms)")
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")
