@@ -133,7 +133,8 @@ do {
     }
     check(sawMove, "pet uses its special move (name floats up)")
     check(w.pets[id] != nil, "pet exists in the world")
-    // The pet also fetches loot: after a while the bag has gold from fights.
+    // Keep hunting: kills drop gold and the bag fills up (the pet fetches drops too).
+    hunt(w, id: id, seconds: 25)
     check((w.player(id)?.gold ?? 0) > 150, "gold collected while hunting with a pet")
 }
 
