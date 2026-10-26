@@ -13,7 +13,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests }
+    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party }
 
     private let world: RpgWorld
     private let localID: Int
@@ -162,6 +162,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .keys: return RpgKeyAction.allCases.count
         case .waypoint: return waypoints(p).count
         case .quests: return p.quests.count
+        case .party: return tab == 0 ? partyRows(p).count : inviteCandidates(p).count
         }
     }
 
@@ -170,6 +171,16 @@ final class RpgView: NSView, NSTextFieldDelegate {
     }
 
     private func waypoints(_ p: RpgPlayer) -> [RpgMapID] { RpgMaps.waypoints.filter { p.visited.contains($0) } }
+
+    /// Party tab rows: a pending invite first (-1), then the members (me included).
+    private func partyRows(_ p: RpgPlayer) -> [Int] {
+        let members = p.partyID == nil ? [p.id] : world.players.filter { $0.partyID == p.partyID }.map(\.id)
+        return (p.inviteFrom != nil ? [-1] : []) + members
+    }
+
+    private func inviteCandidates(_ p: RpgPlayer) -> [RpgPlayer] {
+        world.players.filter { $0.id != p.id && ($0.partyID == nil || $0.partyID != p.partyID) }
+    }
 
     private func handlePanelKey(_ code: UInt16, repeatKey: Bool) {
         guard let p = me else { return }
@@ -184,7 +195,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             return
         }
         // The key that opened a window also closes it.
-        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests)]
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
         if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
@@ -209,6 +220,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case 51:
             guard !repeatKey else { return }
             switch panel {
+            case .party where tab == 0:
+                let rows = partyRows(p)
+                if rows.indices.contains(selection) {
+                    if rows[selection] == -1 { act(.declineInvite) } else { act(.leaveParty) }
+                }
             case .board where tab == 1, .quests:
                 if p.quests.indices.contains(selection) { act(.abandonQuest(p.quests[selection].id)); world.toast("의뢰 포기") }
             case .skills:
@@ -257,6 +273,18 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .waypoint:
             let list = waypoints(p)
             if list.indices.contains(selection) { act(.warp(list[selection])); close() }
+        case .party:
+            if tab == 0 {
+                let rows = partyRows(p)
+                guard rows.indices.contains(selection) else { return }
+                if rows[selection] == -1 { act(.acceptInvite) }
+                else if rows[selection] != localID {
+                    if p.map == .town { act(.warpToMember(rows[selection])); close() } else { world.toast("파티원 곁으로는 마을에서 이동할 수 있어요", to: nil) }
+                }
+            } else {
+                let list = inviteCandidates(p)
+                if list.indices.contains(selection) { act(.invite(list[selection].id)) }
+            }
         case .quests, .none:
             break
         }
@@ -293,6 +321,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
             if tapped(.keys) { open(.keys) }
+            if tapped(.party) { open(.party) }
             if pressed.contains(53) { saveNow(); onExit?() }
             if pressed.contains(36) { openChat() }
         }
@@ -362,6 +391,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
         for trap in world.traps where trap.map == me.map { RpgArt.trap(f, at: trap.pos, time: t) }
         for d in world.drops where d.map == me.map {
+            let reserved = d.owner != nil && d.owner != localID && t - d.at < 30
+            if reserved { f.setAlpha(0.35) }
+            defer { f.setAlpha(1) }
             if d.gold > 0 { RpgArt.coin(f, at: d.pos, time: t) }
             if let id = d.item, let item = RpgItems.item(id), let icon = RpgArt.icon(item) {
                 let bob = CGFloat((sin(t * 4 + Double(d.id)) * 1.5).rounded())
@@ -462,7 +494,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.fill(f, c, feet.x - 3 + CGFloat(Int(t * 7) % 6), rect.minY + 4, 1, 2)
         }
         if t < m.slowUntil { KartArt.fill(f, KartArt.rgb(170, 238, 255), feet.x - 5, feet.y - 1, 10, 1) }
-        if !m.dead, !boss, m.hp < Double(m.def.hp) {
+        if !m.dead, !boss, m.hp < Double(m.def.hp) * m.hpScale {
             let bw: CGFloat = 14, x = (feet.x - bw / 2).rounded(), y = rect.minY - 4
             KartArt.fill(f, KartArt.rgb(20, 20, 24), x - 1, y - 1, bw + 2, 4)
             KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / Double(m.def.hp))).rounded(), 2)
@@ -703,8 +735,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if let boss = (world.mobs[me.map] ?? []).first(where: { $0.def.behavior == .boss && !$0.dead }) {
             let w = min(520, bounds.width - 520)
             let r = CGRect(x: bounds.midX - w / 2, y: 34, width: w, height: 14)
-            text("\(boss.def.name)  Lv\(boss.def.level)", at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
-            bar(ctx, r, boss.hp / Double(boss.def.hp), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
+            text("\(boss.def.name)  Lv\(boss.def.level)" + (boss.hpScale > 1 ? "  · 레이드 \(Int((boss.hpScale - 1) / 0.75 + 1.5))인" : ""), at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
+            bar(ctx, r, boss.hp / (Double(boss.def.hp) * boss.hpScale), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
         }
 
         for (k, toast) in world.toasts.filter({ $0.to == nil || $0.to == localID }).suffix(4).enumerated() {
@@ -721,16 +753,31 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
         }
 
+        // Party frames.
+        if me.partyID != nil {
+            let mates = world.players.filter { $0.partyID == me.partyID && $0.id != localID }
+            for (k, m) in mates.enumerated() {
+                let y = 150 + CGFloat(k) * 34
+                box(ctx, CGRect(x: 10, y: y, width: 190, height: 30), alpha: 0.45)
+                text("\(m.name) Lv\(m.level)", at: CGPoint(x: 18, y: y + 2), size: 11, color: m.dead ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : .white, weight: .bold)
+                if m.map != me.map {
+                    text(RpgMaps.def(m.map).name, at: CGPoint(x: 194, y: y + 3), size: 9, color: Self.dim, weight: .semibold, align: .right)
+                }
+                bar(ctx, CGRect(x: 18, y: y + 19, width: 174, height: 5), m.hp / max(1, m.maxHP), NSColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1))
+            }
+        }
+
         // Online status and chat log.
         if let d = driver {
             let n = d.onlineCount
             text(n > 1 ? "● 온라인 \(n)명 · \(d.statusLabel)" : "● 혼자 · 같은 Wi-Fi 동료를 찾는 중", at: CGPoint(x: 14, y: 128), size: 11,
                  color: n > 1 ? NSColor(red: 0.5, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .bold)
         }
-        let recent = world.chatLog.filter { world.time - $0.at < 30 }.suffix(6)
+        let recent = world.chatLog.filter { world.time - $0.at < 30 && ($0.party == nil || $0.party == me.partyID) }.suffix(6)
         for (k, line) in recent.enumerated() {
             let y = bounds.height - 160 - CGFloat(recent.count - k) * 18
-            text("\(line.name): \(line.text)", at: CGPoint(x: 16, y: y), size: 12, color: NSColor(white: 1, alpha: 0.9), weight: .semibold)
+            text((line.party != nil ? "[파티] " : "") + "\(line.name): \(line.text)", at: CGPoint(x: 16, y: y), size: 12,
+                 color: line.party != nil ? NSColor(red: 0.55, green: 1, blue: 0.65, alpha: 1) : NSColor(white: 1, alpha: 0.9), weight: .semibold)
         }
         if chatField == nil, panel == .none {
             text("Enter 채팅", at: CGPoint(x: 16, y: bounds.height - 150), size: 10, color: NSColor(white: 1, alpha: 0.4), weight: .semibold)
@@ -738,7 +785,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
         drawHotbar(ctx, me)
         let b = bindings
-        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   키설정 \(b.label(.keys))   나가기 Esc",
+        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   나가기 Esc",
              at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
 
         if me.dead {
@@ -973,6 +1020,30 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let label = (waitingKey && i == selection) ? "…" : bindings.label(actions[i])
                 text(label, at: CGPoint(x: r.maxX - 12, y: r.minY + 3), size: 13, color: Self.gold, align: .right, mono: true)
             }
+        case .party:
+            let count = p.partyID == nil ? 1 : world.players.filter { $0.partyID == p.partyID }.count
+            let area = frame(ctx, title: "파티 \(count)/8",
+                             hint: tab == 0 ? "Enter 초대 수락 · 파티원 곁으로 이동(마을에서)   Delete 거절 · 파티 나가기   ←→ 탭   \(bindings.label(.party))/Esc 닫기"
+                                            : "Enter 초대하기   ←→ 탭   파티 채팅은 /p 메시지   \(bindings.label(.party))/Esc 닫기",
+                             tabs: ["내 파티", "초대하기"])
+            if tab == 0 {
+                let rows = partyRows(p)
+                list(ctx, count: rows.count, in: area, rowH: 44) { i, r in
+                    if rows[i] == -1 {
+                        let from = p.inviteFrom.flatMap { world.player($0) }?.name ?? "누군가"
+                        text("📨 \(from) 님의 파티 초대 — Enter 수락 · Delete 거절", at: CGPoint(x: r.minX + 12, y: r.minY + 12), size: 14, color: Self.gold)
+                        return
+                    }
+                    guard let m = world.player(rows[i]) else { return }
+                    memberRow(ctx, m, r, me: m.id == localID)
+                }
+            } else {
+                let list = inviteCandidates(p)
+                self.list(ctx, count: list.count, in: area, rowH: 44) { i, r in memberRow(ctx, list[i], r, me: false) }
+                if list.isEmpty {
+                    text("같은 세계에 초대할 동료가 없어요", at: CGPoint(x: area.midX, y: area.minY + 20), size: 13, color: Self.dim, align: .center)
+                }
+            }
         case .waypoint:
             let area = frame(ctx, title: "차원문", hint: "가 본 지역으로 바로 이동해요   ↑↓ 선택   Enter 이동   Esc 닫기")
             let list = waypoints(p)
@@ -982,6 +1053,17 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 text(def.levelText, at: CGPoint(x: r.maxX - 12, y: r.minY + 6), size: 12, color: Self.dim, align: .right)
             }
         }
+    }
+
+    private func memberRow(_ ctx: CGContext, _ m: RpgPlayer, _ r: CGRect, me: Bool) {
+        if let img = RpgArt.sprite(m.cls.rawValue) {
+            ctx.interpolationQuality = .none
+            KartArt.draw(img, in: ctx, rect: CGRect(x: r.minX + 6, y: r.minY + 4, width: 34, height: 34))
+        }
+        text("\(m.name)\(me ? " (나)" : "")  ·  \(m.cls.name) Lv\(m.level)", at: CGPoint(x: r.minX + 50, y: r.minY + 4), size: 13, weight: .bold)
+        bar(ctx, CGRect(x: r.minX + 50, y: r.minY + 24, width: 160, height: 7), m.hp / max(1, m.maxHP), NSColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1))
+        text(m.dead ? "쓰러짐" : RpgMaps.def(m.map).name, at: CGPoint(x: r.maxX - 10, y: r.minY + 12), size: 12,
+             color: m.dead ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : Self.dim, weight: .semibold, align: .right)
     }
 
     private func questRow(_ ctx: CGContext, _ q: RpgQuest, _ r: CGRect, active: Bool) {

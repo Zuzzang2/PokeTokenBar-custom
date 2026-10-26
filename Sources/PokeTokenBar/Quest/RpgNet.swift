@@ -25,6 +25,7 @@ struct RpgPlayerPub: Codable, Sendable {
     let invulnerable: Bool
     let bubble: String?
     let bubbleLeft: Double
+    var partyID: Int? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {
@@ -45,6 +46,7 @@ struct RpgMobPub: Codable, Sendable {
     let windup: Bool
     let facingRight: Bool
     let summoned: Bool
+    var hpScale: Double = 1
 }
 
 struct RpgSnapshot: Codable, Sendable {
@@ -68,6 +70,7 @@ struct RpgPrivate: Codable, Sendable {
     let cooldowns: [String: Double]
     let offers: [RpgQuest]
     let respawnIn: Double
+    var inviteFrom: Int? = nil
 }
 
 enum RpgNetMessage: Codable, Sendable {

@@ -27,6 +27,8 @@ struct RpgChat: Codable, Sendable {
     let name: String
     let text: String
     let at: Double
+    /// Party chat (/p …) is shown only to that party.
+    var party: Int? = nil
 }
 
 enum RpgAction: Codable, Sendable {
@@ -43,6 +45,12 @@ enum RpgAction: Codable, Sendable {
     case warp(RpgMapID)
     /// A remote player fires skill slot n (sent reliably so a press is never lost).
     case cast(Int)
+    case invite(Int)
+    case acceptInvite
+    case declineInvite
+    case leaveParty
+    /// 차원문: go stand next to a party member wherever they are.
+    case warpToMember(Int)
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -101,6 +109,9 @@ struct RpgPlayer {
     var posLockUntil = 0.0
     var bubble: String?
     var bubbleUntil = 0.0
+    /// Party = the founder's player id; nil when solo.
+    var partyID: Int?
+    var inviteFrom: Int?
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -151,6 +162,10 @@ struct RpgMob {
     var chargeDir: CGVector?
     var lastHitBy: Int?
     var summoned = false
+    /// Bosses grow with the raid: HP x(1 + 0.75 per extra player in the room).
+    var hpScale = 1.0
+    /// Bosses: everyone who landed a hit gets credit and loot, even if they fell before the end.
+    var contributors: Set<Int> = []
 
     var radius: CGFloat { def.behavior == .boss ? 14 : 6 }
     var flies: Bool { def.behavior == .flyer }
@@ -231,6 +246,8 @@ struct RpgDropped: Codable, Sendable {
     let gold: Int
     let item: String?
     let at: Double
+    /// Party loot: only this player can pick it up for the first 30 seconds.
+    var owner: Int? = nil
 }
 
 final class RpgWorld {
@@ -254,6 +271,7 @@ final class RpgWorld {
     var isMirror = false
     /// Client side: where the host last put each remote player (p<id>) and monster (m<id>); drawn positions ease toward them.
     var netTargets: [String: CGPoint] = [:]
+    private var lootTurn = 0
     private(set) var offers: [RpgQuest] = []
     private(set) var time = 0.0
     private(set) var shake = 0.0
@@ -381,6 +399,41 @@ final class RpgWorld {
             players[i].quests.removeAll { $0.id == qid }
         case .cast(let slot):
             if players[i].slots.indices.contains(slot), let s = players[i].slots[slot] { castSkill(i, s) }
+        case .invite(let target):
+            guard target != id, let t = pIndex(target) else { return }
+            if players[i].partyID == nil { players[i].partyID = id }
+            guard partyMembers(of: id).count < 8 else { toast("파티는 8명까지예요"); return }
+            guard players[t].partyID == nil || players[t].partyID != players[i].partyID else { toast("이미 같은 파티예요"); return }
+            players[t].inviteFrom = id
+            toast("\(players[t].name) 님에게 파티 초대를 보냈어요")
+            toast("\(players[i].name) 님의 파티 초대! 파티창(P)에서 수락하세요", to: target)
+        case .acceptInvite:
+            guard let from = players[i].inviteFrom, let f = pIndex(from), let party = players[f].partyID else {
+                players[i].inviteFrom = nil
+                toast("초대가 사라졌어요")
+                return
+            }
+            guard partyMembers(of: from).count < 8 else { toast("파티가 가득 찼어요"); return }
+            leaveParty(i)
+            players[i].partyID = party
+            players[i].inviteFrom = nil
+            for m in partyMembers(of: from) { toast("\(players[i].name) 님이 파티에 들어왔어요 (\(partyMembers(of: from).count)/8)", to: m) }
+        case .declineInvite:
+            players[i].inviteFrom = nil
+        case .leaveParty:
+            leaveParty(i)
+            toast("파티를 나왔어요")
+        case .warpToMember(let member):
+            guard let m = player(member), m.partyID != nil, m.partyID == players[i].partyID, !m.dead else { return }
+            let from = players[i].map
+            players[i].map = m.map
+            players[i].pos = m.pos
+            players[i].dash = nil
+            players[i].posLockUntil = time + 0.6
+            players[i].visited.insert(m.map)
+            spawnMobsIfNeeded(m.map)
+            leaveMapIfEmpty(from)
+            toast("\(m.name) 님 곁으로 이동했어요")
         case .warp(let target):
             guard players[i].visited.contains(target), let arrive = arrival(for: target) else { return }
             travel(i, to: target, at: arrive, minLevel: 1)
@@ -514,7 +567,7 @@ final class RpgWorld {
         list.removeAll { $0.summoned }
         for k in list.indices {
             list[k].targetID = nil
-            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
+            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].hpScale = 1; list[k].contributors = []; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
         }
         mobs[id] = list
         pending.removeAll { $0.map == id }
@@ -915,6 +968,7 @@ final class RpgWorld {
         m.hp -= dmg
         m.hurtFlash = 0.12
         m.lastHitBy = playerID
+        if m.def.behavior == .boss { m.contributors.insert(playerID) }
         if m.def.behavior != .boss {
             let dx = Double(m.pos.x - p.pos.x), dy = Double(m.pos.y - p.pos.y), d = max(1, hypot(dx, dy))
             m.knock = CGVector(dx: dx / d * (skill ? 140 : 90), dy: dy / d * (skill ? 140 : 90))
@@ -961,27 +1015,63 @@ final class RpgWorld {
             toast("\(m.def.name)을(를) 쓰러뜨렸다!", to: nil)
             pending.removeAll { !$0.fromPlayer && $0.map == map }
         }
+        // Everyone in the killer's party on this map and nearby shares the kill.
+        let killerPos = player(playerID)?.pos ?? m.pos
+        let boss = m.def.behavior == .boss
+        var shared = partyMembers(of: playerID).filter { id in
+            guard let p = player(id), p.map == map, !p.dead else { return false }
+            return id == playerID || boss || dist(p.pos, killerPos) < 320
+        }
+        if boss { shared = Array(Set(shared).union(m.contributors.filter { pIndex($0) != nil })).sorted() }
+        if shared.isEmpty { shared = [playerID] }
         if !m.summoned || rng.int(3) == 0 {
-            let gold = Int.random(in: m.def.gold) / (m.summoned ? 3 : 1)
+            let gold = Int.random(in: m.def.gold) / (m.summoned ? 3 : 1) * (boss ? shared.count : 1)
             drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(9) - 4), y: m.pos.y + CGFloat(rng.int(5) - 2)),
                                     gold: gold, item: nil, at: time))
         }
         if !m.summoned {
-            for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
-                drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(25) - 12), y: m.pos.y + CGFloat(rng.int(13) - 6)),
-                                        gold: 0, item: d.item, at: time))
+            // Bosses roll their loot once per participant (personal loot); other monsters roll once and the
+            // item is reserved for the next party member in turn.
+            let rolls = boss ? shared : [shared[lootTurn % shared.count]]
+            if !boss { lootTurn += 1 }
+            for owner in rolls {
+                for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
+                    drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
+                                            gold: 0, item: d.item, at: time, owner: shared.count > 1 ? owner : nil))
+                }
             }
         }
-        if let pi = pIndex(playerID) {
+        for id in shared {
+            guard let pi = pIndex(id) else { continue }
             for q in players[pi].quests.indices where players[pi].quests[q].monster == m.def.id && !players[pi].quests[q].done {
                 players[pi].quests[q].progress += 1
-                if players[pi].quests[q].done { toast("의뢰 달성! 의뢰소에서 보상을 받으세요") }
+                if players[pi].quests[q].done { toast("의뢰 달성! 의뢰소에서 보상을 받으세요", to: id) }
             }
         }
-        // Farming far below your level barely pays: move on to the next zone.
-        let gap = (players.first { $0.id == playerID }?.level ?? 1) - m.def.level
-        let base = m.summoned ? m.def.xp / 3 : m.def.xp
-        grantXP(playerID, gap > 5 ? max(1, base / 5) : base)
+        // XP: each member gets max(40%, (1 + 10% per extra member) / members) of the kill.
+        let n = Double(shared.count)
+        let share = max(0.4, (1 + 0.1 * (n - 1)) / n)
+        for id in shared {
+            // Farming far below your level barely pays: move on to the next zone.
+            let gap = (player(id)?.level ?? 1) - m.def.level
+            let base = Double(m.summoned ? m.def.xp / 3 : m.def.xp) * (shared.count > 1 ? share : 1)
+            grantXP(id, max(1, Int(gap > 5 ? base / 5 : base)))
+        }
+    }
+
+    func partyMembers(of id: Int) -> [Int] {
+        guard let p = player(id), let party = p.partyID else { return [id] }
+        return players.filter { $0.partyID == party }.map(\.id)
+    }
+
+    private func leaveParty(_ i: Int) {
+        guard let party = players[i].partyID else { return }
+        let name = players[i].name
+        players[i].partyID = nil
+        let rest = players.indices.filter { players[$0].partyID == party }
+        for k in rest { toast("\(name) 님이 파티를 나갔어요", to: players[k].id) }
+        // A party of one is no party.
+        if rest.count == 1 { players[rest[0]].partyID = nil }
     }
 
     private func grantXP(_ playerID: Int, _ amount: Int) {
@@ -1040,6 +1130,12 @@ final class RpgWorld {
         guard var list = mobs[mapID] else { return }
         let m = map(mapID)
         let here = players.indices.filter { players[$0].map == mapID && !players[$0].dead }
+        // Raid scaling: a boss grows (never shrinks mid-fight) with everyone standing in its room.
+        let crowd = Double(max(1, players.filter { $0.map == mapID }.count))
+        for k in list.indices where list[k].def.behavior == .boss && !list[k].dead {
+            let want = 1 + 0.75 * (crowd - 1)
+            if want > list[k].hpScale { list[k].hp *= want / list[k].hpScale; list[k].hpScale = want }
+        }
         var spawned: [RpgMob] = []
         for k in list.indices {
             var mob = list[k]
@@ -1189,10 +1285,10 @@ final class RpgWorld {
 
     /// Bosses cycle through their move list; below 40% HP everything comes faster and harder.
     private func bossThink(_ mob: inout RpgMob, _ target: RpgPlayer, _ dt: Double, _ mapID: RpgMapID, _ spawned: inout [RpgMob]) {
-        let enraged = mob.hp < Double(mob.def.hp) * 0.4
+        let enraged = mob.hp < Double(mob.def.hp) * mob.hpScale * 0.4
         let pace = enraged ? 0.7 : 1.0
         let moves = bossMoves(mob.def.bossStyle)
-        let atk = Double(mob.def.attack)
+        let atk = Double(mob.def.attack) * (1 + 0.05 * (mob.hpScale - 1) / 0.75)
         let el = mob.def.element
         if time >= mob.phaseUntil {
             mob.phase = (mob.phase + 1) % moves.count
@@ -1337,14 +1433,20 @@ final class RpgWorld {
         guard !drops.isEmpty else { return }
         var keep: [RpgDropped] = []
         for d in drops {
+            let reserved = d.owner != nil && time - d.at < 30
             guard time - d.at > 0.35,
-                  let i = players.indices.first(where: { players[$0].map == d.map && !players[$0].dead && dist(players[$0].pos, d.pos) < 26 })
+                  let i = players.indices.first(where: {
+                      players[$0].map == d.map && !players[$0].dead && dist(players[$0].pos, d.pos) < 26 && (!reserved || players[$0].id == d.owner)
+                  })
             else { keep.append(d); continue }
             actor = players[i].id
             defer { actor = nil }
             if d.gold > 0 {
-                players[i].gold += d.gold
-                float("+\(d.gold)G", d.map, d.pos, .gold)
+                // Gold is split between party members on the same map.
+                let mates = partyMembers(of: players[i].id).compactMap(pIndex).filter { players[$0].map == d.map }
+                let each = max(1, d.gold / max(1, mates.count))
+                for k in mates { players[k].gold += each }
+                float(mates.count > 1 ? "+\(each)G ×\(mates.count)" : "+\(d.gold)G", d.map, d.pos, .gold)
             }
             if let item = d.item, let it = RpgItems.item(item) {
                 players[i].inventory[item, default: 0] += 1
@@ -1374,6 +1476,7 @@ extension RpgWorld {
 
     func removePlayer(_ id: Int) {
         guard let i = pIndex(id) else { return }
+        leaveParty(i)
         let p = players.remove(at: i)
         leaveMapIfEmpty(p.map)
         toast("\(p.name) 님이 나갔어요", to: nil)
@@ -1384,9 +1487,10 @@ extension RpgWorld {
         guard let i = pIndex(id) else { return }
         let line = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
         guard !line.isEmpty else { return }
-        players[i].bubble = line
-        players[i].bubbleUntil = time + 5
-        chatLog.append(RpgChat(name: players[i].name, text: line, at: time))
+        let partyOnly = line.hasPrefix("/p ") && players[i].partyID != nil
+        let body = partyOnly ? String(line.dropFirst(3)) : line
+        if !partyOnly { players[i].bubble = body; players[i].bubbleUntil = time + 5 }
+        chatLog.append(RpgChat(name: players[i].name, text: body, at: time, party: partyOnly ? players[i].partyID : nil))
         if chatLog.count > 30 { chatLog.removeFirst() }
     }
 
@@ -1400,7 +1504,7 @@ extension RpgWorld {
                          dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
                          rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
                          shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
-                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time))
+                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID)
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -1410,7 +1514,7 @@ extension RpgWorld {
                                          jy: m.jumpTarget.map { Double($0.y) }, phaseLeft: m.phaseUntil - time, hurt: m.hurtFlash > 0,
                                          stunLeft: max(0, m.stunUntil - time), slowLeft: max(0, m.slowUntil - time),
                                          dot: m.dotTicks > 0 ? m.dotElement : nil, windup: m.windup != nil, facingRight: m.facingRight,
-                                         summoned: m.summoned))
+                                         summoned: m.summoned, hpScale: m.hpScale))
             }
         }
         return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
@@ -1422,7 +1526,7 @@ extension RpgWorld {
     func privateState(for id: Int) -> RpgPrivate? {
         guard let p = player(id) else { return nil }
         return RpgPrivate(save: RpgSaveStore.snapshot(p), hp: p.hp, mp: p.mp, cooldowns: p.cooldowns, offers: boardOffers(for: id),
-                          respawnIn: max(0, p.respawnAt - time))
+                          respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom)
     }
 
     // MARK: client mirror
@@ -1460,6 +1564,7 @@ extension RpgWorld {
             p.invulnerable = pub.invulnerable ? 0.1 : 0
             p.bubble = pub.bubble
             p.bubbleUntil = time + pub.bubbleLeft
+            p.partyID = pub.partyID
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
@@ -1482,6 +1587,7 @@ extension RpgWorld {
             m.windup = mp.windup ? 0.1 : nil
             m.facingRight = mp.facingRight
             m.summoned = mp.summoned
+            m.hpScale = mp.hpScale
             if hypot(target.x - m.pos.x, target.y - m.pos.y) > 60 { m.pos = target }
             netTargets["m\(mp.id)"] = target
             byMap[mp.map, default: []].append(m)
@@ -1517,6 +1623,7 @@ extension RpgWorld {
         players[i].mp = s.mp
         players[i].cooldowns = s.cooldowns
         players[i].respawnAt = time + s.respawnIn
+        players[i].inviteFrom = s.inviteFrom
         offers = s.offers
     }
 
