@@ -488,7 +488,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             f.setStrokeColor(KartArt.rgb(140, 190, 255, 0.8))
             f.strokeEllipse(in: CGRect(x: p.pos.x - 10, y: p.pos.y - 20, width: 20, height: 22))
         }
-        if p.dead { f.setAlpha(0.35) } else if p.invulnerable > 0, Int(t * 20) % 2 == 0 { f.setAlpha(0.45) }
+        if p.dead { f.setAlpha(0.35) } else if t < p.stealthUntil { f.setAlpha(p.id == localID ? 0.5 : 0.25) }
+        else if p.invulnerable > 0, Int(t * 20) % 2 == 0 { f.setAlpha(0.45) }
         KartArt.draw(img, in: f, rect: CGRect(x: (p.pos.x - 8).rounded(), y: (p.pos.y - 15 - bob).rounded(), width: 16, height: 16), flipX: !p.facingRight)
         f.setAlpha(1)
         // Glint on a highly enhanced weapon.

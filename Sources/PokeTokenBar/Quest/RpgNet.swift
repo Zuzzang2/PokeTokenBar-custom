@@ -32,6 +32,8 @@ struct RpgPlayerPub: Codable, Sendable {
     var job: Int? = nil
     var combo: Int? = nil
     var comboLeft: Double? = nil
+    /// Seconds of stealth left (nil or 0 = visible).
+    var stealth: Double? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {

@@ -147,6 +147,9 @@ struct RpgPlayer {
     /// Kills in a row; resets when `comboUntil` passes. Not saved.
     var combo = 0
     var comboUntil = 0.0
+    /// 은신: ordinary monsters cannot see the player until this time; attacking breaks it and leaves a short ambush window.
+    var stealthUntil = 0.0
+    var ambushUntil = 0.0
     /// Lifetime counters (saved): kills per monster id, golden elites, best combo, unlocked achievements.
     var kills: [String: Int] = [:]
     var eliteKills = 0
@@ -908,7 +911,15 @@ final class RpgWorld {
         return CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d))
     }
 
+    /// Attacking from stealth reveals the player; the next second's hits are ambush crits.
+    private func breakStealth(_ i: Int) {
+        guard time < players[i].stealthUntil else { return }
+        players[i].stealthUntil = 0
+        players[i].ambushUntil = time + 1.0
+    }
+
     private func basicAttack(_ i: Int) {
+        breakStealth(i)
         let p = players[i]
         players[i].attackTimer = p.attackInterval(at: time)
         let angle = facingAngle(p)
@@ -954,6 +965,7 @@ final class RpgWorld {
         guard let def = RpgSkills.def(skill), let lv = p.skills[skill] else { return }
         guard (p.cooldowns[skill] ?? 0) <= 0 else { return }
         guard p.mp >= Double(def.mp) else { toast("MP가 부족해요"); return }
+        if skill != "r_vanish" { breakStealth(i) }
         let angle = facingAngle(p)
         let e = p.element
         let atk = p.attack(at: time)
@@ -1120,9 +1132,10 @@ final class RpgWorld {
         case "r_vanish":
             players[i].focusUntil = time + 12
             players[i].buffUntil["speed"] = time + 12
+            players[i].stealthUntil = time + 10
             players[i].invulnerable = max(players[i].invulnerable, 0.5)
             effect(.levelUp, p.map, p.pos, .wind, duration: 1)
-            toast("은신! 치명타·공속·이동속도 상승")
+            toast("은신! 10초간 몬스터가 못 봐요 (공격하면 풀리고, 첫 공격은 치명타)")
         case "r_ult", "j_ass2":
             let targets = nearestMobs(p, 160, 8)
             if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
@@ -1465,9 +1478,10 @@ final class RpgWorld {
               let pi = pIndex(playerID) else { return }
         let p = players[pi]
         var m = list[k]
-        let crit = !splash && Double(rng.int(1000)) / 1000 < p.critChance(at: time)
+        let ambush = !splash && time < p.ambushUntil
+        let crit = ambush || (!splash && Double(rng.int(1000)) / 1000 < p.critChance(at: time))
         var dmg = max(1, base - Double(m.def.defense) * 0.6) * rand(0.9, 1.1)
-        if crit { dmg *= 1.7 }
+        if crit { dmg *= ambush ? 2.1 : 1.7 }
         m.hp -= dmg
         m.hurtFlash = 0.12
         m.lastHitBy = playerID
@@ -1752,8 +1766,10 @@ final class RpgWorld {
             }
             if time < mob.stunUntil { list[k] = mob; continue }
             let speedK = time < mob.slowUntil ? 0.5 : 1.0
-            let nearest = here.min { dist(players[$0].pos, mob.pos) < dist(players[$1].pos, mob.pos) }
-            if let t = mob.targetID, !here.contains(where: { players[$0].id == t }) { mob.targetID = nil }
+            // Hidden (stealthed) players are invisible to ordinary monsters, not to bosses.
+            let seen = mob.def.behavior == .boss ? here : here.filter { time >= players[$0].stealthUntil }
+            let nearest = seen.min { dist(players[$0].pos, mob.pos) < dist(players[$1].pos, mob.pos) }
+            if let t = mob.targetID, !seen.contains(where: { players[$0].id == t }) { mob.targetID = nil }
             if mob.targetID == nil, let n = nearest {
                 let d = dist(players[n].pos, mob.pos)
                 let aggro: Double = switch mob.def.behavior {
@@ -2452,14 +2468,21 @@ extension RpgWorld {
 
     func snapshot() -> RpgSnapshot {
         let occupied = Set(players.map(\.map))
-        let pubs = players.map { p in
-            RpgPlayerPub(id: p.id, name: p.name, cls: p.cls, level: p.level, map: p.map, x: Double(p.pos.x), y: Double(p.pos.y),
-                         fx: Double(p.facing.dx), fy: Double(p.facing.dy), facingRight: p.facingRight, moving: p.moving, hp: p.hp, mp: p.mp,
-                         dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
-                         rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
-                         shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
-                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
-                         combo: p.combo, comboLeft: max(0, p.comboUntil - time))
+        let pubs: [RpgPlayerPub] = players.map { p in
+            var pub = RpgPlayerPub(id: p.id, name: p.name, cls: p.cls, level: p.level, map: p.map, x: Double(p.pos.x), y: Double(p.pos.y),
+                                   fx: Double(p.facing.dx), fy: Double(p.facing.dy), facingRight: p.facingRight, moving: p.moving, hp: p.hp, mp: p.mp,
+                                   dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
+                                   rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
+                                   shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
+                                   bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time))
+            pub.partyID = p.partyID
+            pub.hardcore = p.hardcore
+            pub.fallen = p.fallen
+            pub.job = p.job
+            pub.combo = p.combo
+            pub.comboLeft = max(0, p.comboUntil - time)
+            pub.stealth = max(0, p.stealthUntil - time)
+            return pub
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -2530,6 +2553,7 @@ extension RpgWorld {
             if pub.id == localID, pub.fallen == true { p.fallen = true; p.respawnAt = .infinity }
             p.job = pub.job ?? 0
             p.combo = pub.combo ?? 0
+            p.stealthUntil = time + (pub.stealth ?? 0)
             p.comboUntil = time + (pub.comboLeft ?? 0)
             next.append(p)
         }
