@@ -321,6 +321,8 @@ final class RpgWorld {
     /// How many times the per-map monster counts in `RpgMaps` are multiplied (bosses excluded), and how fast they come back.
     static let monsterDensity = 1.5
     static let respawnDelay = 6.0
+    /// Seconds a killed monster stays down (bosses included); cowards (golden slimes) wait longer.
+    static func respawnDelay(for behavior: RpgBehavior) -> Double { behavior == .coward ? 30 : respawnDelay }
     static let eliteHP = 3.0
     static let eliteAttack = 1.5
     static func comboBonus(_ combo: Int) -> Double { min(0.5, Double(combo / 10) * 0.05) }
@@ -1265,7 +1267,7 @@ final class RpgWorld {
         m.dead = true
         m.diedAt = time
         m.dotTicks = 0
-        m.respawnAt = m.summoned || map == .tower ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : Self.respawnDelay))
+        m.respawnAt = m.summoned || map == .tower ? .infinity : time + Self.respawnDelay(for: m.def.behavior)
         list[k] = m
         mobs[map] = list
         if m.def.behavior == .boss {
