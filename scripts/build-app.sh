@@ -47,6 +47,9 @@ if compgen -G "assets/battle/trainers/local/*.png" >/dev/null; then
     cp assets/battle/trainers/local/*.png "$APP/Contents/Resources/battle/trainers/local/"
 fi
 cp -R assets/digimon "$APP/Contents/Resources/digimon"
+# SPIKE 메아리 art (backgrounds, stone texture, exit shrine).
+mkdir -p "$APP/Contents/Resources/echo"
+cp assets/echo/*.png "$APP/Contents/Resources/echo/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -72,6 +75,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <string>_ptb-plaza2._udp</string>
         <string>_ptb-kart1._tcp</string>
         <string>_ptb-kart1._udp</string>
+        <string>_ptb-echo1._tcp</string>
+        <string>_ptb-echo1._udp</string>
     </array>
 </dict>
 </plist>
