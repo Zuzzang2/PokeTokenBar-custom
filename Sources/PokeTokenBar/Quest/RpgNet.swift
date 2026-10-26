@@ -28,6 +28,8 @@ struct RpgPlayerPub: Codable, Sendable {
     var partyID: Int? = nil
     /// 2차 전직 (nil or 0 = not advanced); optional so peers on an older build still decode snapshots.
     var job: Int? = nil
+    var combo: Int? = nil
+    var comboLeft: Double? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {

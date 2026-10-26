@@ -123,6 +123,9 @@ struct RpgPlayer {
     /// The raised companion that follows this player; not saved.
     var petInfo: RpgPetInfo?
     var frenzyUntil = 0.0
+    /// Kills in a row; resets when `comboUntil` passes. Not saved.
+    var combo = 0
+    var comboUntil = 0.0
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -274,6 +277,9 @@ final class RpgWorld {
     static let townSpawn = RpgTile(x: 15, y: 10)
     static let slotCount = 8
     static let berserkAfter = 480.0
+    /// Seconds between kills that keep a combo alive, and the XP / gold bonus it earns (+5% per 10 kills, max +50%).
+    static let comboWindow = 4.0
+    static func comboBonus(_ combo: Int) -> Double { min(0.5, Double(combo / 10) * 0.05) }
     static let bossLootLockout = 1800.0
 
     private(set) var maps: [RpgMapID: RpgMap] = [:]
@@ -686,6 +692,7 @@ final class RpgWorld {
         p.invulnerable = max(0, p.invulnerable - dt)
         p.hurtFlash = max(0, p.hurtFlash - dt)
         p.potionTimer = max(0, p.potionTimer - dt)
+        if p.combo > 0, time > p.comboUntil { p.combo = 0 }
         if p.dead {
             players[i] = p
             if time >= p.respawnAt {
@@ -1138,8 +1145,14 @@ final class RpgWorld {
         }
         if boss { shared = Array(Set(shared).union(m.contributors.filter { pIndex($0) != nil })).sorted() }
         if shared.isEmpty { shared = [playerID] }
+        if !m.summoned, let ki = pIndex(playerID) {
+            players[ki].combo += 1
+            players[ki].comboUntil = time + Self.comboWindow
+            if [5, 10, 25, 50, 100].contains(players[ki].combo) { toast("콤보 ×\(players[ki].combo)!", to: playerID) }
+        }
+        let comboGold = 1 + Self.comboBonus(player(playerID)?.combo ?? 0)
         if !m.summoned || rng.int(3) == 0 {
-            let gold = Int.random(in: m.def.gold) / (m.summoned ? 3 : 1) * (boss ? shared.count : 1)
+            let gold = Int(Double(Int.random(in: m.def.gold) / (m.summoned ? 3 : 1) * (boss ? shared.count : 1)) * comboGold)
             drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(9) - 4), y: m.pos.y + CGFloat(rng.int(5) - 2)),
                                     gold: gold, item: nil, at: time))
         }
@@ -1196,7 +1209,8 @@ final class RpgWorld {
             // Farming far below your level barely pays: move on to the next zone.
             let gap = (player(id)?.level ?? 1) - m.def.level
             let base = Double(m.summoned ? m.def.xp / 3 : m.def.xp) * (shared.count > 1 ? share : 1)
-            grantXP(id, max(1, Int(gap > 5 ? base / 5 : base)))
+            let bonus = 1 + Self.comboBonus(player(id)?.combo ?? 0)
+            grantXP(id, max(1, Int((gap > 5 ? base / 5 : base) * bonus)))
         }
     }
 
@@ -1731,7 +1745,7 @@ extension RpgWorld {
                          dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
                          rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
                          shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
-                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, job: p.job)
+                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, job: p.job, combo: p.combo, comboLeft: max(0, p.comboUntil - time))
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -1797,6 +1811,8 @@ extension RpgWorld {
             p.bubbleUntil = time + pub.bubbleLeft
             p.partyID = pub.partyID
             p.job = pub.job ?? 0
+            p.combo = pub.combo ?? 0
+            p.comboUntil = time + (pub.comboLeft ?? 0)
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }

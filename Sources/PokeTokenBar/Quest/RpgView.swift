@@ -777,13 +777,22 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if let boss = (world.mobs[me.map] ?? []).first(where: { $0.def.behavior == .boss && !$0.dead }) {
             let w = min(520, bounds.width - 520)
             let r = CGRect(x: bounds.midX - w / 2, y: 34, width: w, height: 14)
-            text("\(boss.def.name)  Lv\(boss.def.level)" + (boss.hpScale > 1 ? "  · 레이드 \(Int((boss.hpScale - 1) / 0.75 + 1.5))인" : ""), at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
+            text("\(boss.def.name)  Lv\(boss.def.level)" + (boss.hpScale > 1 ? "  · 레이드 \(Int((boss.hpScale - 1) / 0.9 + 1.5))인" : ""), at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
             bar(ctx, r, boss.hp / (Double(boss.def.hp) * boss.hpScale), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
             if boss.engagedAt > 0 {
                 let left = RpgWorld.berserkAfter - (world.time - boss.engagedAt)
                 text(left > 0 ? String(format: "광폭화까지 %d:%02d", Int(left) / 60, Int(left) % 60) : "광폭화! 공격력 3배", at: CGPoint(x: bounds.midX, y: 50), size: 12,
                      color: left > 60 ? Self.dim : NSColor(red: 1, green: 0.35, blue: 0.3, alpha: 1), weight: .bold, align: .center, mono: true)
             }
+        }
+
+        if me.combo >= 2, me.comboUntil > world.time {
+            let bonus = Int(RpgWorld.comboBonus(me.combo) * 100)
+            let color = me.combo >= 50 ? NSColor(red: 1, green: 0.35, blue: 0.9, alpha: 1)
+                : me.combo >= 25 ? NSColor(red: 1, green: 0.4, blue: 0.3, alpha: 1)
+                : me.combo >= 10 ? NSColor(red: 1, green: 0.7, blue: 0.2, alpha: 1) : NSColor(red: 1, green: 0.95, blue: 0.6, alpha: 1)
+            text("COMBO ×\(me.combo)" + (bonus > 0 ? "   XP·골드 +\(bonus)%" : ""), at: CGPoint(x: bounds.midX, y: 62), size: 22, color: color, align: .center, mono: true)
+            bar(ctx, CGRect(x: bounds.midX - 60, y: 88, width: 120, height: 3), (me.comboUntil - world.time) / RpgWorld.comboWindow, color)
         }
 
         for (k, toast) in world.toasts.filter({ $0.to == nil || $0.to == localID }).suffix(4).enumerated() {
