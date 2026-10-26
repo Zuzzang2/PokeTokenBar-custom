@@ -2467,7 +2467,12 @@ extension RpgWorld {
         let isBoss = n % 10 == 0 && !bosses.isEmpty
         var defs: [RpgMonsterDef] = []
         for k in 0..<(isBoss ? 4 : count) { defs.append(pool[(k * 7 + n) % pool.count]) }
-        if isBoss { defs.insert(bosses[min(bosses.count - 1, n / 10 - 1)], at: 0) }
+        if isBoss {
+            // The boss nearest the floor's level, rotating among those within 8 levels so floors do not all repeat one.
+            let near = bosses.filter { abs($0.level - target) <= 8 }
+            let pickFrom = near.isEmpty ? [bosses.min { abs($0.level - target) < abs($1.level - target) }!] : near
+            defs.insert(pickFrom[(n / 10) % pickFrom.count], at: 0)
+        }
         return (defs, n % 5 == 0 && !isBoss, isBoss)
     }
 
