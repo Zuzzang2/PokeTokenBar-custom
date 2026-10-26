@@ -350,8 +350,8 @@ extension RpgArt {
                          ".KZZZZZZZZZZZZK.", ".KZZZZZZZZZZZZK.", ".KZzZZZZZZZZzZK.", ".KzzZZZZZZZZzzK.", "..KzzZZZZZZzzK..", "...KzzjjjjzzK...", ".....KjKKjK.....", "......K..K......"]),
             ],
             torso: [
-                part(18, ["....KKKKKKKK....", "....KZLZZZZK....", "....KZZLZZZK....", "....KZNZRZZK....", "....KLLLLLLK....", "....KzzXzzzK....", "....KKKKKKKK...."]),
-                part(18, ["...KKKKKKKKKK...", "...KZLZZZZLZK...", "...KZZLZZLZZK...", "...KZNZRRZZzK...", "...KLLLLLLLLK...", "...KzZXZZXZzK...", "...KKKKKKKKKK..."]),
+                part(18, ["....KKKKKKKK....", "....KZLZZZZK....", "....KZZLZZZK....", "....KZNZRZZK....", "....KLLLLLXK....", "....KzzzzzlK....", "....KKKKKKlK....", "..........K....."]),
+                part(18, ["...KKKKKKKKKK...", "...KZLZZZZLZK...", "...KZZLZZLZZK...", "...KZNZRRZZzK...", "...KLXLLLLXLK...", "...KzlZZZZlzK...", "...KKlKKKKlKK...", ".....K....K....."]),
                 part(18, ["...KKKKKKKKKK...", "...KZLZZZZLZK...", "...KZZLZZLZZK...", "...KZZZLLZZZK...", "...KLLLLLLLLK...", "...KzZZZZZZzK...", "...KKKKKKKKKK..."]),
             ]),
         .cleric: HeroClassArt(
@@ -761,7 +761,16 @@ extension RpgArt {
                 if v == 1 { px[(16 + up) * n + 15] = "o"; px[(16 + up) * n + 16] = "o" } else if v == 0 { px[(16 + up) * n + 19] = "o" }
             }
         }
-        put(helmeted ? (art.helm?[v] ?? art.head[v]) : art.head[v], up)
+        // Walking: hair, hood and hat tops lag a pixel behind the bounce (painted first, so the rest overlaps them).
+        let top = helmeted ? (art.helm?[v] ?? art.head[v]) : art.head[v]
+        let squash = (1...4).contains(k.legs) && k.bob == -1 ? 1 : 0
+        if squash > 0 {
+            let above = max(0, min(top.g.count, 8 - top.y))
+            paint(Array(top.g[..<above]), top.x, top.y + up + squash, &px)
+            paint(Array(top.g[above...]), top.x, top.y + above + up, &px)
+        } else {
+            put(top, up)
+        }
         if layer == 2, let b = backPart { put(b, up) }
         let img = heroImage(px, pal, tone: k.tone)
         heroFrames[k] = img
@@ -1145,6 +1154,16 @@ extension RpgArt {
         c.saveGState()
         defer { c.restoreGState() }
         c.setAlpha(alpha * (ghost ? 0.8 : 1))
+        // A see-through hero (stealth) fades as one picture: compose it in a small layer so the weapon and arm
+        // don't double up where they cross the body.
+        let group = alpha < 1 && extras
+        if group {
+            c.clip(to: CGRect(x: ax - 30, y: ay - 46, width: 60, height: 56))
+            c.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+        defer { if group { c.endTransparencyLayer() } }
+        let base = group ? 1 : alpha * (ghost ? 0.8 : 1)
+        c.setAlpha(base)
         let glow = heroGlow(p.cls, palette: pal)
         if pose.action == .cast, art.robe {
             // Casters stand in a turning rune circle.
@@ -1169,9 +1188,9 @@ extension RpgArt {
         if v == 2 { drawWeapon() }
         KartArt.draw(body, in: c, rect: CGRect(x: ax - 16, y: ay - 29, width: 32, height: 32), flipX: pose.flip)
         if pose.action == .hurt, let flash = heroBody(heroFrameKey(p, pose: pose, time: time, tone: 1)) {
-            c.setAlpha(alpha * CGFloat(0.7 * max(0, 1 - pose.t / 0.2)))
+            c.setAlpha(base * CGFloat(0.7 * max(0, 1 - pose.t / 0.2)))
             KartArt.draw(flash, in: c, rect: CGRect(x: ax - 16, y: ay - 29, width: 32, height: 32), flipX: pose.flip)
-            c.setAlpha(alpha)
+            c.setAlpha(base)
         }
         if v != 2 { drawWeapon() }
         if !ghost {
@@ -1415,7 +1434,47 @@ extension RpgArt {
             let sx = x + side * (4 + rise * 9 + Double(i % 3) * 2), sy = y - 4 - rise * 34
             star(c, sx, sy, i % 3 == 0 ? 2 : 1, tone.copy(alpha: fade * (1 - rise * 0.6)) ?? tone, core)
         }
+        guard !m.burstBig else { return }
+        // A golden LEVEL UP! that pops up over the head and drifts away.
+        let w = levelUpBanner[0].count
+        let bx = x - Double(w / 2), by = y - Double(heroHeight(p.cls)) - 10 - min(k, 0.3) * 12 - max(0, k - 0.6) * 10
+        let a = CGFloat(min(1, (1 - k) / 0.3))
+        for (row, line) in levelUpBanner.enumerated() {
+            for (col, ch) in line.enumerated() where ch != "." {
+                let color = ch == "K" ? outline : (row <= 1 ? rgb(255, 250, 200) : row >= 4 ? rgb(236, 150, 40) : rgb(255, 214, 70))
+                KartArt.fill(c, color.copy(alpha: a) ?? color, CGFloat(bx) + CGFloat(col), CGFloat(by) + CGFloat(row), 1, 1)
+            }
+        }
     }
+
+    /// "LEVEL UP!" in a 3×5 pixel font with a 1 px outline.
+    fileprivate static let levelUpBanner: RpgGrid = {
+        let glyphs: [Character: [String]] = [
+            "L": ["X..", "X..", "X..", "X..", "XXX"], "E": ["XXX", "X..", "XX.", "X..", "XXX"], "V": ["X.X", "X.X", "X.X", "X.X", ".X."],
+            "U": ["X.X", "X.X", "X.X", "X.X", "XXX"], "P": ["XX.", "X.X", "XX.", "X..", "X.."], "!": ["X", "X", "X", ".", "X"], " ": ["..", "..", "..", "..", ".."],
+        ]
+        var rows = Array(repeating: ".", count: 5)
+        for (i, ch) in "LEVEL UP!".enumerated() {
+            for r in 0..<5 { rows[r] += (i == 0 ? "" : ".") + (glyphs[ch]?[r] ?? "") }
+        }
+        rows = rows.map { $0 + "." }
+        let w = rows[0].count, blank = String(repeating: ".", count: w)
+        var grid = [blank] + rows + [blank]
+        // Outline every empty pixel that touches a letter.
+        let cells = grid.map { Array($0) }
+        for y in cells.indices {
+            var line = cells[y]
+            for x in line.indices where line[x] == "." {
+                let near = [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)].contains { d in
+                    let ny = y + d.1, nx = x + d.0
+                    return ny >= 0 && ny < cells.count && nx >= 0 && nx < w && cells[ny][nx] == "X"
+                }
+                if near { line[x] = "K" }
+            }
+            grid[y] = String(line)
+        }
+        return grid
+    }()
 }
 
 // MARK: - showcase (title screen)
