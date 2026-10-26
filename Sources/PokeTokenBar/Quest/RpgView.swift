@@ -13,11 +13,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade }
+    enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade, equipment }
 
-    private let world: RpgWorld
-    private let localID: Int
-    private var bindings = RpgKeyBindings.load()
+    let world: RpgWorld
+    let localID: Int
+    var bindings = RpgKeyBindings.load()
     private var keys = Set<UInt16>()
     private var pressed = Set<UInt16>()
     private var link: CADisplayLink?
@@ -27,11 +27,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var mapImages: [RpgMapID: CGImage] = [:]
     private var origin = CGPoint.zero
     private var scale: CGFloat = 3
-    private var panel = Panel.none
+    var panel = Panel.none
     private static let codexMonsters = RpgMonsters.all.sorted { $0.level < $1.level }
     private var showMinimap = UserDefaults.standard.object(forKey: "rpgMinimap") as? Bool ?? true
-    private var selection = 0
-    private var tab = 0
+    var selection = 0
+    var tab = 0
     private var waitingKey = false
     private var saveClock = 0.0
     private var fallenAt: CFTimeInterval?
@@ -73,7 +73,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
     // MARK: actions and chat
 
-    private func act(_ action: RpgAction) {
+    func act(_ action: RpgAction) {
         if let driver { driver.send(action) } else { world.perform(action, for: localID) }
     }
 
@@ -137,7 +137,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         return true
     }
 
-    private func open(_ p: Panel) {
+    func open(_ p: Panel) {
         panel = p
         selection = 0
         tab = 0
@@ -145,24 +145,25 @@ final class RpgView: NSView, NSTextFieldDelegate {
         keys.removeAll()
     }
 
-    private func close() {
+    func close() {
         panel = .none
         waitingKey = false
         saveNow()
     }
 
-    private var me: RpgPlayer? { world.player(localID) }
+    var me: RpgPlayer? { world.player(localID) }
 
     private func panelCount() -> Int {
         guard let p = me else { return 0 }
         switch panel {
         case .none: return 0
-        case .inventory: return sortedInventory(p).count
+        case .inventory: return bagList(p).count
+        case .equipment: return RpgEquipSlot.allCases.count
         case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
         case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
         case .job: return me?.job == 0 ? 2 : 1
         case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
-        case .skills: return tab == 0 ? p.skillList.count : RpgStats.names.count
+        case .skills: return tab == 4 ? RpgStats.names.count : skillRows(p, tab: tab).count
         case .keys: return RpgKeyAction.allCases.count
         case .waypoint: return tab == 0 ? waypoints(p).count : RpgRegions.all.count
         case .quests: return p.quests.count
@@ -201,8 +202,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
             return
         }
         // The key that opened a window also closes it.
-        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.equipment, .equipment), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
+        if handleWindowKey(code, repeatKey: repeatKey, p) { return }
         if panel == .skills, tab == 0, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.skillList[min(selection, p.skillList.count - 1)]
             if p.skills[skill.id] != nil {
@@ -258,6 +260,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .inventory:
             let ids = sortedInventory(p)
             if ids.indices.contains(selection) { act(.equip(ids[selection])) }
+        case .equipment:
+            break
         case .shop(let s):
             if tab == 0 {
                 let items = stock(s, p)
@@ -343,6 +347,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 }
             }
             if tapped(.inventory) { open(.inventory) }
+            if tapped(.equipment) { open(.equipment) }
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
             if tapped(.codex) { open(.codex) }
@@ -699,7 +704,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
     private func screen(_ p: CGPoint) -> CGPoint { CGPoint(x: (p.x - origin.x) * scale, y: (p.y - origin.y) * scale) }
 
-    private func text(_ s: String, at p: CGPoint, size: CGFloat, color: NSColor = .white, weight: NSFont.Weight = .heavy,
+    func text(_ s: String, at p: CGPoint, size: CGFloat, color: NSColor = .white, weight: NSFont.Weight = .heavy,
                       align: NSTextAlignment = .left, mono: Bool = false) {
         let font = mono ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight)
         let shadow = NSShadow()
@@ -711,13 +716,13 @@ final class RpgView: NSView, NSTextFieldDelegate {
         str.draw(at: NSPoint(x: x, y: p.y))
     }
 
-    private func box(_ ctx: CGContext, _ rect: CGRect, alpha: CGFloat = 0.55) {
+    func box(_ ctx: CGContext, _ rect: CGRect, alpha: CGFloat = 0.55) {
         ctx.setFillColor(NSColor.black.withAlphaComponent(alpha).cgColor)
         ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
         ctx.fillPath()
     }
 
-    private func bar(_ ctx: CGContext, _ rect: CGRect, _ frac: Double, _ color: NSColor, label: String? = nil) {
+    func bar(_ ctx: CGContext, _ rect: CGRect, _ frac: Double, _ color: NSColor, label: String? = nil) {
         ctx.setFillColor(NSColor(white: 0.12, alpha: 1).cgColor)
         ctx.fill(rect)
         ctx.setFillColor(color.cgColor)
@@ -725,8 +730,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if let label { text(label, at: CGPoint(x: rect.midX, y: rect.minY - 2), size: 10, weight: .bold, align: .center, mono: true) }
     }
 
-    private static let gold = NSColor(red: 1, green: 0.85, blue: 0.3, alpha: 1)
-    private static let dim = NSColor(white: 0.75, alpha: 1)
+    static let gold = NSColor(red: 1, green: 0.85, blue: 0.3, alpha: 1)
+    static let dim = NSColor(white: 0.75, alpha: 1)
 
     private func drawWorldText(_ me: RpgPlayer) {
         let map = world.map(me.map)
@@ -978,9 +983,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let lv = me.skills[id] ?? 1
                 ctx.setFillColor(RpgArt.elem(def.cls == .mage && id == "m_blast" ? me.element : .base).mid)
                 ctx.fill(CGRect(x: x + 4, y: y + size - 6, width: size - 8, height: 2))
-                let short = def.name.count > 4 ? String(def.name.prefix(4)) : def.name
-                text(short, at: CGPoint(x: x + size / 2, y: y + 17), size: 10, weight: .bold, align: .center)
-                text("Lv\(lv)", at: CGPoint(x: x + size / 2, y: y + 31), size: 8, color: Self.dim, weight: .semibold, align: .center)
+                drawSkillIcon(ctx, def, in: CGRect(x: x + 9, y: y + 8, width: 32, height: 32))
+                text("Lv\(lv)", at: CGPoint(x: x + size - 4, y: y + size - 13), size: 9, color: Self.dim, weight: .bold, align: .right)
                 if me.mp < Double(def.mp) { ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor); ctx.fill(r) }
                 let cd = me.cooldowns[id] ?? 0
                 if cd > 0 {
@@ -1015,7 +1019,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
     // MARK: windows
 
-    private func sortedInventory(_ p: RpgPlayer) -> [String] {
+    func sortedInventory(_ p: RpgPlayer) -> [String] {
         func order(_ i: RpgItem) -> Int {
             switch i.kind {
             case .weapon: return 0
@@ -1042,7 +1046,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
     }
 
-    private func itemLine(_ item: RpgItem, _ p: RpgPlayer) -> String {
+    func itemLine(_ item: RpgItem, _ p: RpgPlayer) -> String {
         var parts: [String] = []
         let plus = p.plus[item.id] ?? 0
         if item.attack > 0 { parts.append("공격력 +\(Int(RpgItems.boosted(item.attack, plus: plus)))") }
@@ -1067,7 +1071,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         return parts.joined(separator: " · ")
     }
 
-    private func frame(_ ctx: CGContext, title: String, hint: String, tabs: [String] = []) -> CGRect {
+    func frame(_ ctx: CGContext, title: String, hint: String, tabs: [String] = []) -> CGRect {
         let w = min(680, bounds.width - 40), h = min(500, bounds.height - 110)
         let r = CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2 - 20, width: w, height: h)
         box(ctx, r, alpha: 0.88)
@@ -1081,7 +1085,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     }
 
     /// A scrolling list of rows; `row` draws one row's content into its rect.
-    private func list(_ ctx: CGContext, count: Int, in rect: CGRect, rowH: CGFloat = 46, row: (Int, CGRect) -> Void) {
+    func list(_ ctx: CGContext, count: Int, in rect: CGRect, rowH: CGFloat = 46, row: (Int, CGRect) -> Void) {
         let visible = max(1, Int(rect.height / rowH))
         let first = max(0, min(selection - visible / 2, count - visible))
         for i in first..<min(count, first + visible) {
@@ -1096,7 +1100,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if count == 0 { text("비어 있어요", at: CGPoint(x: rect.midX, y: rect.minY + 20), size: 13, color: Self.dim, align: .center) }
     }
 
-    private func itemRow(_ ctx: CGContext, _ id: String, _ r: CGRect, _ p: RpgPlayer, right: String?, color: NSColor = RpgView.gold) {
+    func itemRow(_ ctx: CGContext, _ id: String, _ r: CGRect, _ p: RpgPlayer, right: String?, color: NSColor = RpgView.gold) {
         guard let item = RpgItems.item(id) else { return }
         if let icon = RpgArt.icon(item) {
             ctx.interpolationQuality = .none
@@ -1116,25 +1120,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .none:
             return
         case .inventory:
-            let area = frame(ctx, title: "가방", hint: "↑↓ 선택   Enter 장착 · 사용 · 스킬북 읽기   \(bindings.label(.inventory))/Esc 닫기")
-            let ids = sortedInventory(p)
-            let listRect = CGRect(x: area.minX, y: area.minY, width: area.width * 0.62, height: area.height)
-            list(ctx, count: ids.count, in: listRect) { i, r in itemRow(ctx, ids[i], r, p, right: nil) }
-            let sx = area.minX + area.width * 0.65, sy = area.minY + 4
-            let lines: [(String, String)] = [
-                ("직업", p.title), ("레벨", "\(p.level)"), ("HP", "\(Int(p.hp)) / \(Int(p.maxHP))"), ("MP", "\(Int(p.mp)) / \(Int(p.maxMP))"),
-                ("공격력", "\(Int(p.attack(at: world.time)))"), ("방어력", "\(Int(p.defense))"), ("치명타", "\(Int(p.critChance(at: world.time) * 100))%"),
-                ("속성", p.element == .base ? "없음" : p.element.effectName),
-                ("무기", (p.weaponItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
-                ("갑옷", (p.armorItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
-                ("투구", p.helmetItem?.name ?? "-"), ("신발", p.bootsItem?.name ?? "-"), ("반지", p.ringItem?.name ?? "-"), ("목걸이", p.amuletItem?.name ?? "-"),
-                ("골드", "\(p.gold) G"), ("강화석", "\(p.inventory["stone"] ?? 0)"), ("스킬 포인트", "\(p.sp)"),
-                ("플레이", "\(Int(p.playTime / 60))분"),
-            ]
-            for (k, line) in lines.enumerated() {
-                text(line.0, at: CGPoint(x: sx, y: sy + CGFloat(k) * 22), size: 12, color: Self.dim, weight: .semibold)
-                text(line.1, at: CGPoint(x: area.maxX - 6, y: sy + CGFloat(k) * 22), size: 12, align: .right)
-            }
+            drawBag(ctx, p)
+        case .equipment:
+            drawEquipment(ctx, p)
         case .shop(let s):
             let area = frame(ctx, title: s.title, hint: "↑↓ 선택   ←→ 사기·팔기   Enter 거래   Esc 나가기", tabs: ["사기", "팔기"])
             text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)
@@ -1261,30 +1249,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .quests:
             let area = frame(ctx, title: "의뢰 목록", hint: "완료한 의뢰는 마을 의뢰소에서 보상을 받아요   Delete 포기   \(bindings.label(.quests))/Esc 닫기")
             list(ctx, count: p.quests.count, in: area, rowH: 58) { i, r in questRow(ctx, p.quests[i], r, active: true) }
-        case .skills where tab == 1:
-            let area = frame(ctx, title: "능력치  (AP \(p.ap))", hint: "↑↓ 선택   Enter +1   Delete 초기화(\(RpgStats.resetCost(level: p.level))G)   ←→ 탭   \(bindings.label(.skills))/Esc 닫기", tabs: ["스킬", "능력치"])
-            list(ctx, count: RpgStats.names.count, in: area, rowH: 60) { i, r in
-                text("\(RpgStats.names[i])  \(p.stats[i])", at: CGPoint(x: r.minX + 12, y: r.minY + 6), size: 16, color: p.ap > 0 ? Self.gold : .white, weight: .bold)
-                text(RpgStats.blurbs[i], at: CGPoint(x: r.minX + 12, y: r.minY + 32), size: 11, color: Self.dim, weight: .semibold)
-            }
-            let n = CGFloat(RpgStats.names.count) * 60 + 8
-            text("공격 \(Int(p.attack(at: world.time)))  ·  방어 \(Int(p.defense))  ·  HP \(Int(p.maxHP))  ·  MP \(Int(p.maxMP))  ·  치명타 \(Int(p.critChance(at: world.time) * 100))%",
-                 at: CGPoint(x: area.minX + 12, y: area.minY + n + 6), size: 13, color: .white, weight: .bold)
         case .skills:
-            let area = frame(ctx, title: "스킬  (SP \(p.sp))", hint: "↑↓ 선택   Enter 스킬 레벨업   슬롯 키(\(bindings.label(.slot(0)))…\(bindings.label(.slot(7))))를 눌러 배치   Delete 슬롯에서 빼기   ←→ 탭", tabs: ["스킬", "능력치"])
-            let skills = p.skillList
-            list(ctx, count: skills.count, in: area, rowH: 52) { i, r in
-                let s = skills[i]
-                let lv = p.skills[s.id]
-                let learned = lv != nil
-                let slot = p.slots.firstIndex(of: s.id).map { " [\(bindings.label(.slot($0)))]" } ?? ""
-                text("\(s.name)\(learned ? "  Lv\(lv!)/\(s.maxLevel)" : "  (미습득)")\(slot)", at: CGPoint(x: r.minX + 12, y: r.minY + 4), size: 14,
-                     color: learned ? (s.isUltimate ? RpgArt.rarityColors[3] : .white) : NSColor(white: 0.5, alpha: 1), weight: .bold)
-                let power = s.power > 0 ? " · 위력 \(Int(RpgSkills.damage(s, level: lv ?? 1) * 100))%" : ""
-                let source = learned ? "" : (s.price > 0 ? " · 마법서점 \(s.price)G" : (s.isUltimate ? " · 보스 드랍" : " · 몬스터 드랍"))
-                text("\(s.desc) · MP \(s.mp) · 쿨 \(Int(s.cooldown))초 · Lv\(s.minLevel)+\(power)\(source)", at: CGPoint(x: r.minX + 12, y: r.minY + 25), size: 10,
-                     color: Self.dim, weight: .semibold)
-            }
+            drawSkills(ctx, p)
         case .keys:
             let area = frame(ctx, title: "키 설정", hint: waitingKey ? "바꿀 키를 누르세요 (Esc 취소)" : "↑↓ 선택   Enter 키 바꾸기   Delete 기본값으로   \(bindings.label(.keys))/Esc 닫기")
             let actions = RpgKeyAction.allCases

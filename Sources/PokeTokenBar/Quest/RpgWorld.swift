@@ -69,6 +69,8 @@ enum RpgAction: Codable, Sendable {
     case addStat(Int)
     /// 3차·4차 전직.
     case promote
+    /// Take the armor/ring/amulet/helmet/boots in slot 1-5 (see `RpgEquipSlot`) off and back into the bag.
+    case unequip(Int)
     /// Take every point back for gold (`RpgStats.resetCost`).
     case resetStats
 }
@@ -499,6 +501,15 @@ final class RpgWorld {
             craft(i, recipeID)
         case .promote:
             promote(i)
+        case .unequip(let slot):
+            switch slot {
+            case 1: if let old = players[i].armor { players[i].inventory[old, default: 0] += 1; players[i].armor = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
+            case 2: if let old = players[i].ring { players[i].inventory[old, default: 0] += 1; players[i].ring = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
+            case 3: if let old = players[i].amulet { players[i].inventory[old, default: 0] += 1; players[i].amulet = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
+            case 4: if let old = players[i].helmet { players[i].inventory[old, default: 0] += 1; players[i].helmet = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
+            case 5: if let old = players[i].boots { players[i].inventory[old, default: 0] += 1; players[i].boots = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
+            default: toast("무기는 해제할 수 없어요 (다른 무기로 바꾸세요)")
+            }
         case .addStat(let k):
             guard RpgStats.names.indices.contains(k) else { return }
             guard players[i].ap > 0 else { toast("능력치 포인트가 없어요 (레벨업마다 \(RpgStats.perLevel))"); return }
