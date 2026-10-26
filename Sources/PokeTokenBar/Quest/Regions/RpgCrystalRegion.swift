@@ -8,10 +8,11 @@ import Foundation
 // times the average ratio of the existing monsters of that behaviour (hp/atk/def/xp/gold):
 //   passive .88/.95/1/1/.95 · aggressive .92/1/1/1/.95 · golem-like tank 1.1/1/1.05/1.02/1.03 · flyer .7/1/.82/.93/.85 · ranged .8/1.03/.8/1/1
 //   charger 1.18/1.06/.97/1.27/1.08 · swarm .31/.71/.49/.49/.46 · exploder .55/1.29/.52/1.1/.91 · treasure coward .8/0/.6/1.3/6
-// Bosses: HP 30× (mid) / 38× (final) the base HP of their level, attack 1.5× / 1.45×, defense .95×, XP 10× / 13×, gold 15× / 20×.
+// Bosses: HP 98× the base HP of their level (the shipped bosses run 95-127×); attack, defense, XP and gold follow the shipped bosses'
+// multiples, interpolated between 설인 왕 (Lv32), 화염 해골왕 (Lv42) and 마왕 (Lv58), so all bosses rise in that order.
 // Gear: accessories on the tier-4/5 budget with a different spread (more crit, MP or speed, less HP), weapons 80 attack (tier 7 is 84).
-// Recipes take the band's banded `mat_*` materials: the content checks accept no other recipe input yet, so the region's own
-// materials are sell loot for now, priced so a kill here is worth ~8% more than a main-line kill of its level (4-14% by monster).
+// Recipes take the region's own materials plus gold and stones; the materials also sell, priced so a kill here is worth ~8% more
+// than a main-line kill of its level (4-14% by monster).
 
 enum RpgCrystalRegion {
     private static let c1 = RpgMapID("crystal_1"), c2 = RpgMapID("crystal_2"), c3 = RpgMapID("crystal_3"), c4 = RpgMapID("crystal_4")
@@ -96,9 +97,9 @@ enum RpgCrystalRegion {
                       [("hp3", 0.05), ("crystal_amethyst", 0.08), ("crystal_core", 0.02), ("crystal_dew", 0.04), ("crystal_helmet", 0.003), ("crystal_boots", 0.003), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001), ("book_r_ult", 0.001), ("book_c_ult", 0.001), ("book_k_ult", 0.001), ("book_s_ult", 0.001), ("sword7", 0.004), ("staff7", 0.004), ("armor6", 0.004), ("stone", 0.175)]),
         RpgMonsters.m("crystal_thief", "보석 도둑 두더지", "crystal_thief", 36, 2750, 0, 34, 46, 1500, 1275...1835, .coward,
                       [("hp3", 0.3), ("crystal_shard", 0.5), ("crystal_amethyst", 0.3), ("crystal_charm", 0.12), ("stone", 0.3)]),
-        RpgMonsters.boss("crystal_moleking", "두더지 왕 드릴로", "crystal_moleking", 37, 110000, 269, 57, 34, 12500, 3300...4900, .yeti, minion: "crystal_mole", element: .base,
+        RpgMonsters.boss("crystal_moleking", "두더지 왕 드릴로", "crystal_moleking", 37, 355000, 268, 57, 34, 21000, 5700...8500, .yeti, minion: "crystal_mole", element: .base,
                          [("crystal_shard", 1), ("crystal_shard", 1), ("crystal_amethyst", 0.6), ("crystal_core", 0.35), ("crystal_helmet", 0.12), ("crystal_boots", 0.12), ("crystal_charm", 0.25), ("crystal_dew", 1), ("sword7", 0.06), ("bow7", 0.06), ("staff7", 0.06), ("dagger7", 0.06), ("mace7", 0.06), ("claw7", 0.06), ("rod7", 0.06), ("armor6", 0.15), ("book_w_slam", 0.05), ("book_a_focus", 0.05), ("book_m_heal", 0.05), ("book_r_vanish", 0.05), ("book_c_purify", 0.05), ("book_k_iron", 0.05), ("book_s_dragon", 0.05), ("hp3", 1)]),
-        RpgMonsters.boss("crystal_colossus", "수정 거신 젬하트", "crystal_colossus", 46, 230000, 369, 82, 30, 27000, 6800...10200, .golem, minion: "crystal_eye", element: .ice,
+        RpgMonsters.boss("crystal_colossus", "수정 거신 젬하트", "crystal_colossus", 46, 590000, 373, 80, 30, 41000, 12100...18200, .golem, minion: "crystal_eye", element: .ice,
                          [("crystal_core", 1), ("crystal_core", 0.5), ("crystal_amethyst", 1), ("crystal_amethyst", 1), ("crystal_pickaxe", 0.15), ("crystal_staff", 0.15), ("crystal_ring", 0.12), ("crystal_amulet", 0.12), ("crystal_helmet", 0.08), ("crystal_boots", 0.08), ("crystal_charm", 0.3), ("sword7", 0.1), ("bow7", 0.1), ("staff7", 0.1), ("dagger7", 0.1), ("mace7", 0.1), ("claw7", 0.1), ("rod7", 0.1), ("armor6", 0.2), ("ring5", 0.05), ("amulet5", 0.05), ("book_w_ult", 0.04), ("book_a_ult", 0.04), ("book_m_ult", 0.04), ("book_r_ult", 0.04), ("book_c_ult", 0.04), ("book_k_ult", 0.04), ("book_s_ult", 0.04), ("hp3", 1)]),
     ]
 
@@ -119,13 +120,13 @@ enum RpgCrystalRegion {
     ]
 
     private static let recipes: [RpgRecipe] = [
-        RpgRecipe(id: "crystal_ring", output: "crystal_ring", count: 1, materials: ["mat_ice": 8, "mat_magma": 6, "stone": 4], gold: 26000),
-        RpgRecipe(id: "crystal_amulet", output: "crystal_amulet", count: 1, materials: ["mat_ice": 8, "mat_magma": 5, "stone": 3], gold: 24000),
-        RpgRecipe(id: "crystal_helmet", output: "crystal_helmet", count: 1, materials: ["mat_ice": 7, "mat_magma": 6], gold: 22000),
-        RpgRecipe(id: "crystal_boots", output: "crystal_boots", count: 1, materials: ["mat_ice": 6, "mat_magma": 7], gold: 22000),
-        RpgRecipe(id: "crystal_pickaxe", output: "crystal_pickaxe", count: 1, materials: ["mat_magma": 10, "mat_dark": 4, "stone": 8], gold: 32000),
-        RpgRecipe(id: "crystal_staff", output: "crystal_staff", count: 1, materials: ["mat_magma": 10, "mat_dark": 4, "stone": 8], gold: 32000),
-        RpgRecipe(id: "crystal_dew", output: "crystal_dew", count: 3, materials: ["mat_ice": 2], gold: 500),
+        RpgRecipe(id: "crystal_ring", output: "crystal_ring", count: 1, materials: ["crystal_shard": 10, "crystal_amethyst": 5, "stone": 4], gold: 26000),
+        RpgRecipe(id: "crystal_amulet", output: "crystal_amulet", count: 1, materials: ["crystal_shard": 10, "crystal_amethyst": 4, "stone": 3], gold: 24000),
+        RpgRecipe(id: "crystal_helmet", output: "crystal_helmet", count: 1, materials: ["crystal_shard": 8, "crystal_amethyst": 4], gold: 22000),
+        RpgRecipe(id: "crystal_boots", output: "crystal_boots", count: 1, materials: ["crystal_shard": 8, "crystal_amethyst": 4], gold: 22000),
+        RpgRecipe(id: "crystal_pickaxe", output: "crystal_pickaxe", count: 1, materials: ["crystal_amethyst": 8, "crystal_core": 2, "stone": 8], gold: 32000),
+        RpgRecipe(id: "crystal_staff", output: "crystal_staff", count: 1, materials: ["crystal_amethyst": 8, "crystal_core": 2, "stone": 8], gold: 32000),
+        RpgRecipe(id: "crystal_dew", output: "crystal_dew", count: 3, materials: ["crystal_shard": 2], gold: 400),
     ]
 }
 

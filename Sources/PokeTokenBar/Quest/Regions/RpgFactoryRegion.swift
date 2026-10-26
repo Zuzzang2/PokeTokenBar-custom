@@ -4,10 +4,10 @@ import Foundation
 // 기계 공장 (Lv30-54): an abandoned steam factory, seven halls in a chain from the 차원문, the boiler (Lv44) off hall 4 and the
 // factory master (Lv54) off hall 7. Monsters use the same fitted curve and behaviour ratios as `RpgCrystalRegion` (see the table there):
 //   Lv30 2247/128/42/747/180 · Lv40 4355/203/68/1490/320 · Lv50 7276/291/100/2546/500 (base HP/attack/defense/XP/gold).
-// Bosses: HP 30× / 38× base, attack 1.5× / 1.45×, XP 10× / 13×. Gear: accessories on the tier-5 budget (gear ring: more attack, less HP;
+// Bosses: HP 98× base, the rest on the shipped boss curve (see `RpgCrystalRegion`). Gear: accessories on the tier-5 budget (gear ring: more attack, less HP;
 // piston boots: tier-7 speed with little defense), weapons and armor between tier 7 (84 / 75) and tier 8 (130 / 112).
-// Recipes take the band's banded `mat_*` materials: the content checks accept no other recipe input yet, so the region's own
-// materials are sell loot for now, priced so a kill here is worth ~8% more than a main-line kill of its level (4-14% by monster).
+// Recipes take the region's own materials plus gold and stones; the materials also sell, priced so a kill here is worth ~8% more
+// than a main-line kill of its level (4-14% by monster).
 
 enum RpgFactoryRegion {
     private static let f1 = RpgMapID("factory_1"), f2 = RpgMapID("factory_2"), f3 = RpgMapID("factory_3"), f4 = RpgMapID("factory_4")
@@ -88,9 +88,9 @@ enum RpgFactoryRegion {
                       [("hp3", 0.05), ("factory_gear", 0.08), ("factory_core", 0.02), ("factory_oil", 0.04), ("factory_goggles", 0.003), ("factory_pistonboots", 0.003), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001), ("book_r_ult", 0.001), ("book_c_ult", 0.001), ("book_k_ult", 0.001), ("book_s_ult", 0.001), ("mace7", 0.004), ("claw7", 0.004), ("rod7", 0.004), ("armor6", 0.004), ("armor7", 0.002), ("mace8", 0.0015), ("claw8", 0.0015), ("rod8", 0.0015), ("stone", 0.199)]),
         RpgMonsters.m("factory_mouse", "황금 태엽쥐", "factory_mouse", 41, 3700, 0, 43, 50, 2060, 1655...2380, .coward,
                       [("hp3", 0.3), ("factory_bolt", 0.5), ("factory_gear", 0.3), ("factory_battery", 0.15), ("stone", 0.3)]),
-        RpgMonsters.boss("factory_boiler", "폭주 보일러 빵빵이", "factory_boiler", 44, 165000, 356, 76, 36, 18500, 4600...7000, .skeleton, minion: "factory_bomb", element: .fire,
+        RpgMonsters.boss("factory_boiler", "폭주 보일러 빵빵이", "factory_boiler", 44, 530000, 351, 75, 36, 35000, 9900...14800, .skeleton, minion: "factory_bomb", element: .fire,
                          [("factory_bolt", 1), ("factory_bolt", 1), ("factory_gear", 0.6), ("factory_core", 0.35), ("factory_goggles", 0.12), ("factory_pistonboots", 0.12), ("factory_battery", 0.4), ("factory_oil", 1), ("sword7", 0.07), ("bow7", 0.07), ("staff7", 0.07), ("dagger7", 0.07), ("mace7", 0.07), ("claw7", 0.07), ("rod7", 0.07), ("armor6", 0.15), ("book_w_ult", 0.03), ("book_a_ult", 0.03), ("book_m_ult", 0.03), ("book_r_ult", 0.03), ("book_c_ult", 0.03), ("book_k_ult", 0.03), ("book_s_ult", 0.03), ("hp3", 1)]),
-        RpgMonsters.boss("factory_gigaton", "공장장 기가톤", "factory_gigaton", 54, 330000, 477, 109, 38, 40000, 9300...14000, .demon, minion: "factory_spider", element: .thunder,
+        RpgMonsters.boss("factory_gigaton", "공장장 기가톤", "factory_gigaton", 54, 850000, 459, 100, 38, 70500, 23900...35900, .demon, minion: "factory_spider", element: .thunder,
                          [("factory_core", 1), ("factory_core", 0.5), ("factory_gear", 1), ("factory_gear", 1), ("factory_wrench", 0.15), ("factory_drillfist", 0.15), ("factory_armor", 0.12), ("factory_gearring", 0.12), ("factory_amulet", 0.12), ("factory_goggles", 0.08), ("factory_pistonboots", 0.08), ("sword7", 0.1), ("bow7", 0.1), ("staff7", 0.1), ("dagger7", 0.1), ("mace7", 0.1), ("claw7", 0.1), ("rod7", 0.1), ("sword8", 0.03), ("bow8", 0.03), ("staff8", 0.03), ("dagger8", 0.03), ("mace8", 0.03), ("claw8", 0.03), ("rod8", 0.03), ("armor7", 0.08), ("ring6", 0.05), ("amulet6", 0.05), ("book_w_ult", 0.05), ("book_a_ult", 0.05), ("book_m_ult", 0.05), ("book_r_ult", 0.05), ("book_c_ult", 0.05), ("book_k_ult", 0.05), ("book_s_ult", 0.05), ("hp3", 1)]),
     ]
 
@@ -112,14 +112,14 @@ enum RpgFactoryRegion {
     ]
 
     private static let recipes: [RpgRecipe] = [
-        RpgRecipe(id: "factory_gearring", output: "factory_gearring", count: 1, materials: ["mat_magma": 10, "mat_dark": 6, "stone": 6], gold: 55000),
-        RpgRecipe(id: "factory_amulet", output: "factory_amulet", count: 1, materials: ["mat_magma": 10, "mat_dark": 5, "stone": 5], gold: 50000),
-        RpgRecipe(id: "factory_goggles", output: "factory_goggles", count: 1, materials: ["mat_magma": 9, "mat_dark": 6], gold: 46000),
-        RpgRecipe(id: "factory_pistonboots", output: "factory_pistonboots", count: 1, materials: ["mat_magma": 8, "mat_dark": 7, "stone": 4], gold: 50000),
-        RpgRecipe(id: "factory_wrench", output: "factory_wrench", count: 1, materials: ["mat_dark": 10, "mat_wraith": 5, "stone": 10], gold: 65000),
-        RpgRecipe(id: "factory_drillfist", output: "factory_drillfist", count: 1, materials: ["mat_dark": 10, "mat_wraith": 5, "stone": 10], gold: 65000),
-        RpgRecipe(id: "factory_armor", output: "factory_armor", count: 1, materials: ["mat_dark": 12, "mat_wraith": 6, "stone": 8], gold: 70000),
-        RpgRecipe(id: "factory_battery", output: "factory_battery", count: 3, materials: ["mat_magma": 2], gold: 300),
+        RpgRecipe(id: "factory_gearring", output: "factory_gearring", count: 1, materials: ["factory_bolt": 12, "factory_gear": 6, "stone": 6], gold: 55000),
+        RpgRecipe(id: "factory_amulet", output: "factory_amulet", count: 1, materials: ["factory_bolt": 12, "factory_gear": 5, "stone": 5], gold: 50000),
+        RpgRecipe(id: "factory_goggles", output: "factory_goggles", count: 1, materials: ["factory_bolt": 10, "factory_gear": 5], gold: 46000),
+        RpgRecipe(id: "factory_pistonboots", output: "factory_pistonboots", count: 1, materials: ["factory_bolt": 10, "factory_gear": 6, "stone": 4], gold: 50000),
+        RpgRecipe(id: "factory_wrench", output: "factory_wrench", count: 1, materials: ["factory_gear": 10, "factory_core": 2, "stone": 10], gold: 65000),
+        RpgRecipe(id: "factory_drillfist", output: "factory_drillfist", count: 1, materials: ["factory_gear": 10, "factory_core": 2, "stone": 10], gold: 65000),
+        RpgRecipe(id: "factory_armor", output: "factory_armor", count: 1, materials: ["factory_bolt": 14, "factory_gear": 8, "factory_core": 1, "stone": 8], gold: 70000),
+        RpgRecipe(id: "factory_battery", output: "factory_battery", count: 3, materials: ["factory_bolt": 2], gold: 250),
     ]
 }
 
