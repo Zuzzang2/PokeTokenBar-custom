@@ -15,13 +15,16 @@ enum DigimonCatalog {
     static let agumonLine: [Int] = [9001, 9002, 9003, 9004, 9005]
     /// Shiny Koromon branches off to this line instead of Agumon's; normal ones never take it.
     static let blackAgumonLine: [Int] = [9006, 9007, 9008]
-    static let shinyOnlyIDs: Set<Int> = Set(blackAgumonLine)
+    /// Gallantmon Crimson Mode: shiny-only alternative to Gallantmon at the end of the high-res Guilmon line.
+    static let crimsonID = 9146
+    static let crimsonLineBase = 9141
+    static let shinyOnlyIDs: Set<Int> = Set(blackAgumonLine + [crimsonID])
     /// Granted on the graduation that completes both of these finals. Not in `baseIDs`, so never hatched.
     static let omegamonID = 9021
     static let omegamonRequirements: Set<String> = ["9001:9005", "9011:9015"]
     static let gabumonLine: [Int] = [9011, 9012, 9013, 9014, 9015]
     /// Five-stage lines generated from `lineSpecs`: Guilmon 9031, Veemon 9041, Piyomon 9051,
-    /// Patamon 9061, Tentomon 9071, Gomamon 9081.
+    /// Patamon 9061, Tentomon 9071, Gomamon 9081, Tailmon 9111, Renamon 9121, Lopmon 9131, Guilmon (hi-res) 9141.
     static let extraLines: [[Int]] = lineSpecs.map { spec in (0..<5).map { spec.base + $0 } }
     static let baseIDs: [Int] = [agumonLine[0], gabumonLine[0]] + extraLines.map { $0[0] }
     /// Same as `PokeAPIClient`'s capture-rate threshold for `.rare`.
@@ -57,6 +60,10 @@ enum DigimonCatalog {
               stats: [140, 155, 130, 140, 120, 115], ability: "blaze",
               moves: [("dragon-claw", 1), ("sacred-sword", 1), ("flash-cannon", 30), ("fire-blast", 40),
                       ("dragon-pulse", 45), ("hyper-beam", 50)]),
+
+        Entry(id: 9146, names: ["ko": "듀크몬 크림슨 모드", "en": "Gallantmon Crimson Mode", "ja": "デュークモン クリムゾンモード"],
+              types: ["fire", "steel"], stats: [100, 135, 108, 105, 92, 95], ability: "blaze",
+              moves: [("flare-blitz", 1), ("iron-head", 1), ("flash-cannon", 34), ("fire-blast", 46)]),
 
         // Not a Digimon: the unlock-gated `SecretMonster`, kept here to reuse bundled data and sprites.
         Entry(id: 9101, names: ["ko": "무쇠깨비", "en": "Musoekkaebi", "ja": "ムセッケビ"], types: ["steel", "dark"],
@@ -145,6 +152,27 @@ enum DigimonCatalog {
         9084: [Skill("망치 휘두르기", "fighting", true), Skill("바다 해머", "water", true), Skill("벽력 해머", "electric", true), Skill("바다의 노여움", "water", false)],
         9101: [Skill("도깨비 방망이", "steel", true), Skill("도깨비불", "fire", false),
                Skill("씨름 메치기", "fighting", true), Skill("금 나와라 뚝딱", "ghost", false)],
+        9111: [Skill("몸통박치기", "normal", true), Skill("냥냥 박치기", "normal", true), Skill("거품 공격", "water", false), Skill("꼬마 반짝", "psychic", false)],
+        9112: [Skill("몸통박치기", "normal", true), Skill("플롯 돌진", "normal", true), Skill("신비한 빛", "psychic", false), Skill("스피닝 테일", "normal", true)],
+        9113: [Skill("네코 펀치", "normal", true), Skill("네코 킥", "fighting", true), Skill("캣츠 아이 최면", "psychic", false), Skill("라이트닝 포", "electric", false)],
+        9114: [Skill("천사의 일격", "flying", true), Skill("천사의 날개", "flying", false), Skill("헤븐즈 차밍", "psychic", false), Skill("천상의 화살", "psychic", false)],
+        9115: [Skill("성스러운 창", "psychic", true), Skill("오파니 방패", "steel", true), Skill("프로미넌스 빔", "psychic", false), Skill("성스러운 심판", "psychic", false)],
+        9121: [Skill("몸통박치기", "normal", true), Skill("꼬마 불꽃", "fire", false), Skill("꼬리 흔들기", "normal", true), Skill("쪼끔 바람", "flying", false)],
+        9122: [Skill("발톱 할퀴기", "normal", true), Skill("나선 킥", "fighting", true), Skill("환영의 장막", "psychic", false), Skill("다이아몬드 스톰", "rock", false)],
+        9123: [Skill("꼬리 후리기", "normal", true), Skill("여우불 돌진", "fire", true), Skill("용염 윤무", "fire", false), Skill("구미호 화염진", "fire", false)],
+        9124: [Skill("붓 후리기", "psychic", true), Skill("부적 결계", "psychic", false), Skill("천지개벽 부적", "ghost", false), Skill("오행 봉인술", "psychic", false)],
+        9125: [Skill("금강장 일격", "fighting", true), Skill("무녀의 기도", "psychic", false), Skill("수호의 파문", "fire", false), Skill("아메시스트 만다라", "psychic", false)],
+        9131: [Skill("몸통박치기", "normal", true), Skill("초코 박치기", "normal", true), Skill("거품 공격", "water", false), Skill("꼬마 번개", "electric", false)],
+        9132: [Skill("귀 후려치기", "normal", true), Skill("뿔 박치기", "normal", true), Skill("미니 토네이도", "flying", false), Skill("블레이징 아이스", "ice", false)],
+        9133: [Skill("쌍권 연타", "fighting", true), Skill("철선 후리기", "steel", true), Skill("파이널 킥", "fighting", true), Skill("용권 선풍", "flying", true)],
+        9134: [Skill("도끼날 손", "steel", true), Skill("귀 칼날", "steel", true), Skill("천공 참격", "flying", true), Skill("골드 크러시", "steel", true)],
+        9135: [Skill("날개 치기", "flying", true), Skill("귀 번개", "electric", false), Skill("성스러운 폭풍", "psychic", false), Skill("신성한 천둥", "electric", false)],
+        9141: [Skill("몸통박치기", "normal", true), Skill("기기 박치기", "normal", true), Skill("거품 공격", "water", false), Skill("꼬마 불꽃", "fire", false)],
+        9142: [Skill("빅 클로", "normal", true), Skill("록 브레이커", "normal", true), Skill("화염 발톱", "fire", true), Skill("파이로 스피어", "fire", false)],
+        9143: [Skill("꼬리 후리기", "normal", true), Skill("화염 클로", "fire", true), Skill("파이로 블래스터", "fire", false), Skill("인페르노 블래스트", "fire", false)],
+        9144: [Skill("강철 발톱", "steel", true), Skill("아토믹 블래스터", "fire", false), Skill("용 파괴포", "dragon", false), Skill("건틀릿 크러시", "steel", true)],
+        9145: [Skill("로얄 창격", "steel", true), Skill("이지스 방패 돌진", "steel", true), Skill("크림슨 라이트", "fire", false), Skill("파이널 엘리시온", "steel", false)],
+        9146: [Skill("글로리 랜스", "steel", true), Skill("그라니 플레임", "fire", true), Skill("크림슨 베일", "fire", false), Skill("얼티밋 라이트", "steel", false)],
         9085: [Skill("꼬리 휘두르기", "normal", true), Skill("해일", "water", false), Skill("심해 레이저", "water", false), Skill("해룡의 포효", "dragon", false)],
     ]
 
@@ -154,7 +182,7 @@ enum DigimonCatalog {
         [65, 80, 95, 110], [80, 95, 110, 125], [95, 110, 125, 140]]
     private static let slotAccuracy = [100, 100, 95, 90]
     /// Shiny-only branch members and Omegamon sit at other tiers than their id suggests.
-    private static let tierOverrides: [Int: Int] = [9006: 1, 9007: 2, 9008: 3, 9021: 5, 9101: 5]
+    private static let tierOverrides: [Int: Int] = [9006: 1, 9007: 2, 9008: 3, 9021: 5, 9101: 5, 9146: 4]
 
     private static func tier(of id: Int) -> Int {
         tierOverrides[id] ?? max(0, min(4, id - ((id / 10) * 10 + 1)))
@@ -231,6 +259,30 @@ enum DigimonCatalog {
             Stage(ko: "이가몬", en: "Ikkakumon", ja: "イッカクモン", types: ["water", "ice"], moves: [("water-gun", 1), ("horn-attack", 1), ("ice-beam", 24), ("horn-drill", 32)]),
             Stage(ko: "주드몬", en: "Zudomon", ja: "ズドモン", types: ["water", "fighting"], moves: [("hammer-arm", 1), ("waterfall", 1), ("surf", 30), ("close-combat", 40)]),
             Stage(ko: "플레시오몬", en: "Plesiomon", ja: "プレシオモン", types: ["water", "dragon"], moves: [("hydro-pump", 1), ("dragon-pulse", 1), ("surf", 34), ("hyper-beam", 46)])]),
+        LineSpec(base: 9111, ability: "cute-charm", stages: [
+            Stage(ko: "야옹몬", en: "Nyaromon", ja: "ニャロモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("charm", 10)]),
+            Stage(ko: "플롯트몬", en: "Salamon", ja: "プロットモン", types: ["normal"], moves: [("tackle", 1), ("charm", 1), ("bite", 14), ("play-rough", 22)]),
+            Stage(ko: "가트몬", en: "Tailmon", ja: "テイルモン", types: ["normal"], moves: [("scratch", 1), ("mach-punch", 1), ("hypnosis", 24), ("thunderbolt", 32)]),
+            Stage(ko: "엔젤우몬", en: "Angewomon", ja: "エンジェウーモン", types: ["flying", "psychic"], moves: [("aerial-ace", 1), ("psychic", 1), ("air-slash", 30), ("hyper-beam", 40)]),
+            Stage(ko: "오파니몬", en: "Ophanimon", ja: "オファニモン", types: ["psychic", "steel"], moves: [("psychic", 1), ("flash-cannon", 1), ("hyper-beam", 34), ("sacred-sword", 46)])]),
+        LineSpec(base: 9121, ability: "magic-guard", stages: [
+            Stage(ko: "포코몬", en: "Viximon", ja: "ポコモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("ember", 10)]),
+            Stage(ko: "레나몬", en: "Renamon", ja: "レナモン", types: ["fighting"], moves: [("scratch", 1), ("double-kick", 1), ("confusion", 14), ("power-gem", 22)]),
+            Stage(ko: "구미호몬", en: "Kyubimon", ja: "キュウビモン", types: ["fire"], moves: [("ember", 1), ("fire-fang", 1), ("flamethrower", 24), ("fire-blast", 32)]),
+            Stage(ko: "도사몬", en: "Taomon", ja: "タオモン", types: ["psychic", "ghost"], moves: [("confusion", 1), ("shadow-ball", 1), ("psychic", 30), ("hex", 40)]),
+            Stage(ko: "샤크라몬", en: "Sakuyamon", ja: "サクヤモン", types: ["psychic", "fighting"], moves: [("psychic", 1), ("close-combat", 1), ("fire-blast", 34), ("psyshock", 46)])]),
+        LineSpec(base: 9131, ability: "technician", stages: [
+            Stage(ko: "초코몬", en: "Chocomon", ja: "チョコモン", types: ["normal"], moves: [("tackle", 1), ("growl", 5), ("headbutt", 10)]),
+            Stage(ko: "로프몬", en: "Lopmon", ja: "ロップモン", types: ["normal"], moves: [("tackle", 1), ("headbutt", 1), ("gust", 14), ("icy-wind", 22)]),
+            Stage(ko: "토리에몬", en: "Turuiemon", ja: "トゥルイエモン", types: ["fighting"], moves: [("double-kick", 1), ("metal-claw", 1), ("brick-break", 24), ("high-jump-kick", 32)]),
+            Stage(ko: "안티라몬", en: "Antylamon", ja: "アンティラモン", types: ["steel", "fighting"], moves: [("metal-claw", 1), ("x-scissor", 1), ("close-combat", 30), ("iron-head", 40)]),
+            Stage(ko: "케루비몬", en: "Cherubimon", ja: "ケルビモン", types: ["electric", "psychic"], moves: [("thunderbolt", 1), ("psychic", 1), ("hurricane", 34), ("thunder", 46)])]),
+        LineSpec(base: 9141, ability: "blaze", stages: [
+            Stage(ko: "기기몬", en: "Gigimon", ja: "ギギモン", types: ["fire"], moves: [("tackle", 1), ("growl", 5), ("ember", 10)]),
+            Stage(ko: "길몬", en: "Guilmon", ja: "ギルモン", types: ["fire"], moves: [("scratch", 1), ("ember", 1), ("fire-fang", 14), ("flame-burst", 22)]),
+            Stage(ko: "그라우몬", en: "Growlmon", ja: "グラウモン", types: ["fire", "dragon"], moves: [("ember", 1), ("headbutt", 1), ("flamethrower", 24), ("dragon-claw", 32)]),
+            Stage(ko: "메가로그라우몬", en: "WarGrowlmon", ja: "メガログラウモン", types: ["fire", "steel"], moves: [("flamethrower", 1), ("metal-claw", 1), ("flash-cannon", 30), ("fire-blast", 40)]),
+            Stage(ko: "듀크몬", en: "Gallantmon", ja: "デュークモン", types: ["steel", "dragon"], moves: [("flare-blitz", 1), ("dragon-claw", 1), ("flash-cannon", 34), ("fire-blast", 46)])]),
     ]
 
     private static func chain(_ ids: [Int]) -> EvoNode {
@@ -252,6 +304,14 @@ enum DigimonCatalog {
                                children: [chain(agumonLine).children[0], chain(blackAgumonLine)])
             return EvoLine(baseID: baseSpeciesID, tree: tree, rarity: .rare,
                            names: names(agumonLine + blackAgumonLine))
+        }
+        if baseSpeciesID == crimsonLineBase, let ids = extraLines.first(where: { $0.first == baseSpeciesID }) {
+            // Warrior stage forks into Gallantmon (normal) or Crimson Mode (shiny only).
+            let war = EvoNode(speciesID: ids[3], children: [EvoNode(speciesID: ids[4], children: []),
+                                                            EvoNode(speciesID: crimsonID, children: [])])
+            let tree = EvoNode(speciesID: ids[0], children: [EvoNode(speciesID: ids[1], children: [
+                EvoNode(speciesID: ids[2], children: [war])])])
+            return EvoLine(baseID: baseSpeciesID, tree: tree, rarity: .rare, names: names(ids + [crimsonID]))
         }
         guard let ids = ([gabumonLine] + extraLines).first(where: { $0.first == baseSpeciesID }) else { return nil }
         return EvoLine(baseID: baseSpeciesID, tree: chain(ids), rarity: .rare, names: names(ids))

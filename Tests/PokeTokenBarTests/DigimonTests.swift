@@ -11,7 +11,7 @@ final class DigimonTests: XCTestCase {
             XCTAssertEqual(line.totalForms, 5)
             XCTAssertEqual(line.rarity, .rare)
             // Agumon also carries the shiny-only Black line, ending at SkullGreymon.
-            XCTAssertEqual(line.tree.finalIDs, base == 9001 ? [9005, 9008] : [base + 4])
+            XCTAssertEqual(line.tree.finalIDs, base == 9001 ? [9005, 9008] : base == 9141 ? [9145, 9146] : [base + 4])
             XCTAssertNotEqual(line.localizedName(base, .en), "#\(base)")
         }
     }
@@ -32,7 +32,7 @@ final class DigimonTests: XCTestCase {
 
     func testIndexAddsDigimonBasesAndDelegatesPokemon() async throws {
         let ids = try await provider.baseSpeciesIndex().map(\.id)
-        XCTAssertEqual(Set(ids), [1, 9001, 9011, 9031, 9041, 9051, 9061, 9071, 9081])
+        XCTAssertEqual(Set(ids), [1, 9001, 9011, 9031, 9041, 9051, 9061, 9071, 9081, 9111, 9121, 9131, 9141])
         let digimon = try await provider.baseSpecies(id: 9001)
         XCTAssertEqual(digimon?.captureRate, DigimonCatalog.captureRate)
         let poke = try await provider.baseSpecies(id: 1)
@@ -40,7 +40,7 @@ final class DigimonTests: XCTestCase {
     }
 
     func testDetailsCoverEveryStageWithAllSixStats() throws {
-        for id in DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.omegamonID] {
+        for id in DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.crimsonID, DigimonCatalog.omegamonID] {
             let d = try XCTUnwrap(DigimonCatalog.details(speciesID: id))
             XCTAssertEqual(Set(d.baseStats.keys), Set(PokemonStatCalculator.order))
             XCTAssertFalse(d.moves.isEmpty)
@@ -52,7 +52,7 @@ final class DigimonTests: XCTestCase {
 final class DigimonSkillTests: XCTestCase {
     private var allIDs: [Int] {
         DigimonCatalog.agumonLine + DigimonCatalog.blackAgumonLine + DigimonCatalog.gabumonLine
-            + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.omegamonID]
+            + DigimonCatalog.extraLines.flatMap { $0 } + [DigimonCatalog.crimsonID, DigimonCatalog.omegamonID]
     }
 
     func testEveryDigimonHasFourOwnSkillsWithRisingPower() throws {
