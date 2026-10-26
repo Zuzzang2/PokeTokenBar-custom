@@ -22,6 +22,10 @@ enum KartArt {
         KartPaint(body: rgb(58, 110, 226), dark: rgb(28, 56, 140), light: rgb(150, 186, 255)),
         KartPaint(body: rgb(56, 176, 88), dark: rgb(26, 104, 48), light: rgb(150, 230, 160)),
         KartPaint(body: rgb(240, 186, 40), dark: rgb(160, 110, 18), light: rgb(255, 232, 140)),
+        KartPaint(body: rgb(150, 80, 210), dark: rgb(90, 40, 140), light: rgb(210, 170, 255)),
+        KartPaint(body: rgb(40, 190, 200), dark: rgb(20, 116, 126), light: rgb(160, 240, 245)),
+        KartPaint(body: rgb(240, 110, 170), dark: rgb(160, 50, 100), light: rgb(255, 190, 220)),
+        KartPaint(body: rgb(220, 220, 228), dark: rgb(120, 120, 132), light: rgb(255, 255, 255)),
     ]
 
     /// RGBA bitmap context. `flipped` puts the origin top-left with y down, like the game world.

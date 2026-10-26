@@ -1,16 +1,27 @@
 import AppKit
 import QuartzCore
 
-// SPIKE: single-player kart race against three CPU karts, top-down. The world is simulated and drawn in
-// low-res pixels (one frame bitmap per tick) and scaled up with nearest-neighbour; the HUD is drawn on
-// top at full resolution. Controls: arrows/WASD, Space or Shift to drift (release to boost), R restart.
+// SPIKE: top-down kart race, solo against CPUs or with trainers nearby. The world is simulated and drawn
+// in low-res pixels (one frame bitmap per tick) and scaled up with nearest-neighbour; the HUD is drawn on
+// top at full resolution. Controls: arrows/WASD, Space or Shift to drift (release to boost).
+//
+// Each kart has one owner. `.local` (my kart) and `.ai` (CPUs this machine simulates: solo, or the host
+// in a lobby race) run the physics here and are broadcast ~30 times a second. `.remote` karts are only
+// drawn: dead-reckoned from their last snapshot and eased toward it, so they glide between packets.
 
-struct KartEntrant {
-    let name: String
+enum KartRole { case local, ai, remote }
+
+struct KartRacerSpec {
+    let id: String
+    let trainer: String
+    let pokemonName: String
     let speciesID: Int?
     let isShiny: Bool
-    let isPlayer: Bool
     let level: Int
+    let isCPU: Bool
+    let role: KartRole
+    /// CPU top-speed factor; ignored for trainers.
+    let skill: Double
 }
 
 @MainActor
@@ -19,10 +30,20 @@ final class KartGameView: NSView {
     private static let countdown: TimeInterval = 3
     private static let baseMaxSpeed: CGFloat = 118
     private static let accel: CGFloat = 92
+    private static let sendInterval: TimeInterval = 1.0 / 30
+
+    private struct NetSnap {
+        var pos: CGPoint
+        var vel: CGPoint
+        var heading: CGFloat
+        var receivedAt: TimeInterval
+    }
 
     private struct Racer {
+        let id: String
         let name: String
-        let isPlayer: Bool
+        let isCPU: Bool
+        let role: KartRole
         let paint: KartPaint
         var rider: CGImage?
         var maxSpeed: CGFloat
@@ -48,6 +69,11 @@ final class KartGameView: NSView {
         var rubber: CGFloat = 1
         /// Highest whole lap already counted, so reversing over the line can't count a lap twice.
         var lapsCounted = -1
+        var net: NetSnap?
+        var lastSeq: UInt32 = 0
+        var left = false
+
+        var isMine: Bool { role == .local }
     }
 
     private struct Input {
@@ -66,25 +92,38 @@ final class KartGameView: NSView {
 
     private enum Phase { case countdown, racing, finished }
 
+    /// Called when the player leaves the race (Esc); the window goes back to the lobby.
+    var onExit: (() -> Void)?
+
     private let track: KartTrack
     private let trackImage: CGImage?
-    private let entrants: [KartEntrant]
+    private let specs: [KartRacerSpec]
+    private let raceID: String?
+    private weak var session: KartSession?
     private var racers: [Racer] = []
     private var particles: [Particle] = []
     private var phase = Phase.countdown
     private var clock: TimeInterval = 0
     private var raceStart: TimeInterval = 0
+    private var sendClock: TimeInterval = 0
+    private var seq: UInt32 = 0
     private var keys = Set<UInt16>()
     private var shiftHeld = false
     private var link: CADisplayLink?
     private var lastTick: CFTimeInterval = 0
     private var rng = KartRNG(seed: UInt64.random(in: 1...UInt64.max))
     private var frameContext: CGContext?
+    private var riderImages: [Int: CGImage] = [:]
+    // Camera of the last frame, to pin name tags over karts in the full-res HUD layer.
+    private var lastOrigin = CGPoint.zero
+    private var lastScale: CGFloat = 3
 
-    init(frame: NSRect, track: KartTrack, entrants: [KartEntrant]) {
+    init(frame: NSRect, track: KartTrack, specs: [KartRacerSpec], raceID: String? = nil, session: KartSession? = nil) {
         self.track = track
         self.trackImage = KartArt.renderTrack(track)
-        self.entrants = entrants
+        self.specs = specs
+        self.raceID = raceID
+        self.session = session
         super.init(frame: frame)
         resetRace()
     }
@@ -96,9 +135,12 @@ final class KartGameView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
 
+    private var isOnline: Bool { session != nil && raceID != nil }
+
     func setRider(_ image: NSImage, at index: Int) {
-        guard racers.indices.contains(index) else { return }
-        racers[index].rider = KartArt.rider(from: image, height: 18)
+        guard racers.indices.contains(index), let img = KartArt.rider(from: image, height: 18) else { return }
+        riderImages[index] = img
+        racers[index].rider = img
     }
 
     func stop() {
@@ -109,23 +151,17 @@ final class KartGameView: NSView {
     // MARK: race setup
 
     private func resetRace() {
-        let n = track.count
-        // Grid behind the start line: CPUs in front, the player at the back for a chase.
-        let order = entrants.indices.sorted { a, b in (entrants[a].isPlayer ? 1 : 0) < (entrants[b].isPlayer ? 1 : 0) }
-        let skills: [CGFloat] = [0.95, 0.92, 0.89, 0.86].shuffled()
-        let previousRiders = racers.map(\.rider)
         racers = []
-        // Racers stay in entrant order so `setRider(_:at:)` indexes stay valid; `slot` is the grid spot.
-        for (i, e) in entrants.enumerated() {
-            let slot = order.firstIndex(of: i) ?? i
+        for (slot, s) in specs.enumerated() {
+            // Grid behind the start line in roster order, two abreast. Every machine gets the same grid.
             let back = 8 + (slot / 2) * 14
             let side: CGFloat = slot % 2 == 0 ? -10 : 10
             let idx = track.wrap(-back)
-            let levelBonus = 1 + CGFloat(min(max(e.level, 1), 100)) / 100 * 0.06
+            let levelBonus = 1 + CGFloat(min(max(s.level, 1), 100)) / 100 * 0.06
+            let speed = s.isCPU ? Self.baseMaxSpeed * CGFloat(s.skill) : Self.baseMaxSpeed * levelBonus
             racers.append(Racer(
-                name: e.name, isPlayer: e.isPlayer, paint: KartArt.paints[min(i, KartArt.paints.count - 1)],
-                rider: previousRiders.indices.contains(i) ? previousRiders[i] : nil,
-                maxSpeed: e.isPlayer ? Self.baseMaxSpeed * levelBonus : Self.baseMaxSpeed * skills[slot % skills.count],
+                id: s.id, name: s.isCPU ? "\(s.pokemonName) (CPU)" : s.trainer, isCPU: s.isCPU, role: s.role,
+                paint: KartArt.paints[slot % KartArt.paints.count], rider: riderImages[slot], maxSpeed: speed,
                 pos: track.point(at: idx, offset: side), heading: track.angles[idx], idx: idx, progress: -back,
                 laneOffset: CGFloat(rng.int(21)) - 10, lanePhase: CGFloat(rng.int(628)) / 100))
         }
@@ -135,7 +171,44 @@ final class KartGameView: NSView {
         raceStart = Self.countdown
     }
 
-    private var playerIndex: Int { racers.firstIndex(where: \.isPlayer) ?? 0 }
+    private var playerIndex: Int { racers.firstIndex(where: \.isMine) ?? 0 }
+
+    // MARK: network in
+
+    func receive(raceID: String, karts: [KartNetKart]) {
+        guard raceID == self.raceID else { return }
+        for k in karts {
+            guard let i = racers.firstIndex(where: { $0.id == k.id }), racers[i].role == .remote else { continue }
+            // Unreliable packets can arrive out of order; keep only the newest.
+            guard k.seq > racers[i].lastSeq || racers[i].net == nil else { continue }
+            var r = racers[i]
+            r.lastSeq = k.seq
+            let snap = NetSnap(pos: CGPoint(x: CGFloat(k.x), y: CGFloat(k.y)),
+                               vel: CGPoint(x: CGFloat(k.vx), y: CGFloat(k.vy)),
+                               heading: CGFloat(k.heading), receivedAt: clock)
+            if r.net == nil { r.pos = snap.pos; r.heading = snap.heading }
+            r.net = snap
+            r.vel = snap.vel
+            r.speed = CGFloat(k.speed)
+            r.drifting = k.drift >= 0
+            r.driftCharge = k.drift >= 2 ? 1.5 : (k.drift == 1 ? 0.8 : 0.3)
+            r.boost = k.boost ? 0.1 : 0
+            r.hop = k.hop ? 0.05 : 0
+            r.progress = Int(k.progress)
+            if let f = k.finish, r.finishTime == nil { r.finishTime = f }
+            racers[i] = r
+        }
+    }
+
+    func receiveFinished(raceID: String, id: String, time: Double) {
+        guard raceID == self.raceID, let i = racers.firstIndex(where: { $0.id == id }) else { return }
+        racers[i].finishTime = time
+    }
+
+    func markLeft(_ id: String) {
+        guard let i = racers.firstIndex(where: { $0.id == id }) else { return }
+        racers[i].left = true
+    }
 
     // MARK: loop
 
@@ -166,28 +239,78 @@ final class KartGameView: NSView {
             for i in racers.indices { racers[i].lapStart = clock }
         }
         if phase != .countdown {
-            let lead = racers[playerIndex].progress
+            // CPUs rubber-band against the leading trainer so the pack stays in sight.
+            let lead = racers.filter { !$0.isCPU }.map(\.progress).max() ?? 0
             for i in racers.indices {
-                if !racers[i].isPlayer {
-                    // Light rubber band so the pack stays in sight without being unbeatable.
-                    let gap = racers[i].progress - lead
-                    let third = track.count / 3
-                    racers[i].rubber = gap > third ? 0.9 : (gap < -third ? 1.08 : 1)
+                switch racers[i].role {
+                case .remote:
+                    follow(i, dt: CGFloat(dt))
+                case .local, .ai:
+                    if racers[i].isCPU {
+                        let gap = racers[i].progress - lead
+                        let third = track.count / 3
+                        racers[i].rubber = gap > third ? 0.9 : (gap < -third ? 1.08 : 1)
+                    }
+                    let human = racers[i].role == .local && racers[i].finishTime == nil
+                    drive(i, human ? playerInput() : aiInput(i, dt: dt), dt: CGFloat(dt))
                 }
-                let input = racers[i].isPlayer && racers[i].finishTime == nil ? playerInput() : aiInput(i, dt: dt)
-                drive(i, input, dt: CGFloat(dt))
             }
             collide()
+            broadcastIfDue(dt)
         }
         updateParticles(dt)
+    }
+
+    /// Remote kart: keep gliding on its last velocity, then ease toward where the snapshot says it is now.
+    private func follow(_ i: Int, dt: CGFloat) {
+        var r = racers[i]
+        guard let n = r.net, !r.left else { return }
+        let age = CGFloat(min(0.25, clock - n.receivedAt))
+        let target = CGPoint(x: n.pos.x + n.vel.x * age, y: n.pos.y + n.vel.y * age)
+        r.pos.x += r.vel.x * dt
+        r.pos.y += r.vel.y * dt
+        let ex = target.x - r.pos.x, ey = target.y - r.pos.y
+        if hypot(ex, ey) > 40 {
+            r.pos = target
+        } else {
+            let k = min(1, 12 * dt)
+            r.pos.x += ex * k
+            r.pos.y += ey * k
+        }
+        r.heading += Self.wrapAngle(n.heading - r.heading) * min(1, 16 * dt)
+        let dir = CGPoint(x: cos(r.heading), y: sin(r.heading))
+        if abs(dir.x) > 0.25 { r.facingRight = dir.x > 0 }
+        let near = track.nearest(to: r.pos, near: r.idx)
+        r.idx = near.index
+        r.offRoad = near.distance > track.halfWidth + 2
+        r.hop = max(0, r.hop - Double(dt))
+        racers[i] = r
+        emitParticles(for: r, dt: dt)
+    }
+
+    private func broadcastIfDue(_ dt: TimeInterval) {
+        guard isOnline, let raceID, let session else { return }
+        sendClock += dt
+        guard sendClock >= Self.sendInterval else { return }
+        sendClock = 0
+        seq &+= 1
+        let mine = racers.filter { $0.role != .remote }.map { r in
+            KartNetKart(id: r.id, seq: seq, x: Float(r.pos.x), y: Float(r.pos.y), vx: Float(r.vel.x), vy: Float(r.vel.y),
+                        heading: Float(r.heading), speed: Float(r.speed),
+                        drift: r.drifting ? Int8(Self.driftTier(r.driftCharge)) : -1,
+                        boost: r.boost > 0, hop: r.hop > 0, progress: Int32(r.progress), finish: r.finishTime)
+        }
+        session.sendState(raceID: raceID, karts: mine)
     }
 
     // MARK: input
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53: window?.performClose(nil)
-        case 15: if !event.isARepeat { resetRace() }
+        case 53: onExit?()
+        case 15:
+            // Restart is a solo thing; online races restart from the lobby.
+            if !event.isARepeat, !isOnline { resetRace() }
         default: keys.insert(event.keyCode)
         }
     }
@@ -213,9 +336,8 @@ final class KartGameView: NSView {
     }
 
     private func aiInput(_ i: Int, dt: TimeInterval) -> Input {
-        var r = racers[i]
-        r.lanePhase += CGFloat(dt) * 0.5
-        racers[i].lanePhase = r.lanePhase
+        racers[i].lanePhase += CGFloat(dt) * 0.5
+        let r = racers[i]
         let look = 10 + Int(max(0, r.speed) * 0.12)
         let target = track.point(at: r.idx + look, offset: r.laneOffset + sin(r.lanePhase) * 6)
         let desired = atan2(target.y - r.pos.y, target.x - r.pos.x)
@@ -310,8 +432,10 @@ final class KartGameView: NSView {
             }
             r.lapStart = clock
             if lapsDone >= Self.totalLaps, r.finishTime == nil {
-                r.finishTime = clock - raceStart
-                if r.isPlayer { phase = .finished }
+                let time = clock - raceStart
+                r.finishTime = time
+                if r.isMine { phase = .finished }
+                if isOnline, let raceID { session?.sendFinished(raceID: raceID, id: r.id, time: time) }
             }
         }
         racers[i] = r
@@ -320,17 +444,23 @@ final class KartGameView: NSView {
 
     static func driftTier(_ charge: TimeInterval) -> Int { charge >= 1.3 ? 2 : (charge >= 0.55 ? 1 : 0) }
 
+    /// Karts bump apart. A remote kart is placed by its owner, so only the locally simulated side moves.
     private func collide() {
         for a in racers.indices {
             for b in racers.indices where b > a {
+                guard !racers[a].left, !racers[b].left else { continue }
+                let aMoves = racers[a].role != .remote, bMoves = racers[b].role != .remote
+                guard aMoves || bMoves else { continue }
                 let dx = racers[b].pos.x - racers[a].pos.x, dy = racers[b].pos.y - racers[a].pos.y
                 let d = hypot(dx, dy)
                 guard d < 9, d > 0.01 else { continue }
-                let push = (9 - d) / 2, nx = dx / d, ny = dy / d
-                racers[a].pos.x -= nx * push; racers[a].pos.y -= ny * push
-                racers[b].pos.x += nx * push; racers[b].pos.y += ny * push
-                racers[a].speed *= 0.94
-                racers[b].speed *= 0.94
+                let overlap = 9 - d, nx = dx / d, ny = dy / d
+                let shareA: CGFloat = aMoves ? (bMoves ? 0.5 : 1) : 0
+                let shareB: CGFloat = bMoves ? (aMoves ? 0.5 : 1) : 0
+                racers[a].pos.x -= nx * overlap * shareA; racers[a].pos.y -= ny * overlap * shareA
+                racers[b].pos.x += nx * overlap * shareB; racers[b].pos.y += ny * overlap * shareB
+                if aMoves { racers[a].speed *= 0.94 }
+                if bMoves { racers[b].speed *= 0.94 }
             }
         }
     }
@@ -338,7 +468,7 @@ final class KartGameView: NSView {
     // MARK: particles
 
     private func emitParticles(for r: Racer, dt: CGFloat) {
-        guard particles.count < 700 else { return }
+        guard particles.count < 900 else { return }
         let dir = CGPoint(x: cos(r.heading), y: sin(r.heading))
         let nrm = CGPoint(x: -dir.y, y: dir.x)
         func jitter(_ s: CGFloat) -> CGFloat { (CGFloat(rng.int(1000)) / 500 - 1) * s }
@@ -384,7 +514,7 @@ final class KartGameView: NSView {
     private var pixelScale: CGFloat { max(2, (bounds.height / 210).rounded()) }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        guard let ctx = NSGraphicsContext.current?.cgContext, !racers.isEmpty else { return }
         let scale = pixelScale
         let vw = Int((bounds.width / scale).rounded(.up)), vh = Int((bounds.height / scale).rounded(.up))
         if frameContext?.width != vw || frameContext?.height != vh {
@@ -400,13 +530,15 @@ final class KartGameView: NSView {
         let cam = CGPoint(x: center(me.pos.x + me.vel.x * 0.3, view: vw, size: world.width),
                           y: center(me.pos.y + me.vel.y * 0.3, view: vh, size: world.height))
         let origin = CGPoint(x: (cam.x - CGFloat(vw) / 2).rounded(), y: (cam.y - CGFloat(vh) / 2).rounded())
+        lastOrigin = origin
+        lastScale = scale
 
         KartArt.fill(f, KartArt.rgb(52, 110, 48), 0, 0, CGFloat(vw), CGFloat(vh))
         f.saveGState()
         f.translateBy(x: -origin.x, y: -origin.y)
         if let trackImage { KartArt.draw(trackImage, in: f, rect: CGRect(origin: .zero, size: world)) }
         for p in particles where p.size > 1 { drawParticle(p, in: f) }
-        for r in racers.sorted(by: { $0.pos.y < $1.pos.y }) { drawRacer(r, in: f) }
+        for r in racers.sorted(by: { $0.pos.y < $1.pos.y }) where !r.left || r.net != nil { drawRacer(r, in: f) }
         for p in particles where p.size <= 1 { drawParticle(p, in: f) }
         f.restoreGState()
 
@@ -414,6 +546,7 @@ final class KartGameView: NSView {
             ctx.interpolationQuality = .none
             KartArt.draw(frame, in: ctx, rect: CGRect(x: 0, y: 0, width: CGFloat(vw) * scale, height: CGFloat(vh) * scale))
         }
+        drawNameTags()
         drawHUD(ctx)
     }
 
@@ -426,6 +559,7 @@ final class KartGameView: NSView {
     private func drawRacer(_ r: Racer, in f: CGContext) {
         let p = CGPoint(x: r.pos.x.rounded(), y: r.pos.y.rounded())
         let lift: CGFloat = r.hop > 0 ? 2 : 0
+        if r.left { f.setAlpha(0.35) }
         f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
         f.fillEllipse(in: CGRect(x: p.x - 7, y: p.y - 3, width: 14, height: 8))
         KartArt.local(f, at: CGPoint(x: p.x, y: p.y - lift), angle: r.heading) { KartArt.kart($0, paint: r.paint) }
@@ -437,7 +571,7 @@ final class KartGameView: NSView {
             KartArt.draw(rider, in: f, rect: rect, flipX: r.facingRight)
             top = rect.minY
         }
-        if r.isPlayer {
+        if r.isMine {
             // Little yellow arrow over the player's head.
             let y = top - 5
             KartArt.fill(f, KartArt.rgb(30, 30, 30), p.x - 3, y - 1, 7, 2)
@@ -445,12 +579,25 @@ final class KartGameView: NSView {
             KartArt.fill(f, KartArt.rgb(255, 220, 50), p.x - 1, y, 3, 1)
             KartArt.fill(f, KartArt.rgb(255, 220, 50), p.x, y + 1, 1, 1)
         }
+        f.setAlpha(1)
+    }
+
+    /// Other trainers' names floating over their karts, drawn crisp at full resolution.
+    private func drawNameTags() {
+        for r in racers where !r.isMine && !r.isCPU {
+            let x = (r.pos.x - lastOrigin.x) * lastScale
+            let y = (r.pos.y - lastOrigin.y - 30) * lastScale
+            guard x > -50, x < bounds.width + 50, y > -20, y < bounds.height + 20 else { continue }
+            text(r.left ? "\(r.name) (나감)" : r.name, at: CGPoint(x: x, y: y), size: 12,
+                 color: NSColor(cgColor: r.paint.light) ?? .white, weight: .bold, align: .center)
+        }
     }
 
     // MARK: HUD
 
     private func standings() -> [Int] {
         racers.indices.sorted { a, b in
+            if racers[a].left != racers[b].left { return !racers[a].left }
             switch (racers[a].finishTime, racers[b].finishTime) {
             case let (x?, y?): return x < y
             case (_?, nil): return true
@@ -506,8 +653,9 @@ final class KartGameView: NSView {
         drawMinimap(ctx)
         drawGauges(ctx, me)
 
-        text("←→ 조향   ↑ 가속   ↓ 브레이크   Space 드리프트(떼면 부스트)   R 재시작   Esc 닫기",
-             at: CGPoint(x: bounds.midX, y: bounds.height - 24), size: 11, color: NSColor(white: 1, alpha: 0.75),
+        let help = isOnline ? "←→ 조향   ↑ 가속   ↓ 브레이크   Space 드리프트(떼면 부스트)   Esc 대기방으로"
+            : "←→ 조향   ↑ 가속   ↓ 브레이크   Space 드리프트(떼면 부스트)   R 재시작   Esc 대기방으로"
+        text(help, at: CGPoint(x: bounds.midX, y: bounds.height - 24), size: 11, color: NSColor(white: 1, alpha: 0.75),
              weight: .semibold, align: .center)
 
         switch phase {
@@ -542,9 +690,9 @@ final class KartGameView: NSView {
         ctx.setStrokeColor(NSColor(white: 0.3, alpha: 1).cgColor)
         ctx.setLineWidth(3)
         ctx.strokePath()
-        for r in racers.sorted(by: { !$0.isPlayer && $1.isPlayer }) {
-            let p = map(r.pos), rad: CGFloat = r.isPlayer ? 5 : 3.5
-            if r.isPlayer {
+        for r in racers.sorted(by: { !$0.isMine && $1.isMine }) where !r.left {
+            let p = map(r.pos), rad: CGFloat = r.isMine ? 5 : 3.5
+            if r.isMine {
                 ctx.setFillColor(.white)
                 ctx.fillEllipse(in: CGRect(x: p.x - rad - 1.5, y: p.y - rad - 1.5, width: rad * 2 + 3, height: rad * 2 + 3))
             }
@@ -570,21 +718,22 @@ final class KartGameView: NSView {
     }
 
     private func drawResults(_ ctx: CGContext, _ order: [Int]) {
-        let rowH: CGFloat = 32
-        let rect = CGRect(x: bounds.midX - 200, y: bounds.midY - 120, width: 400, height: 110 + rowH * CGFloat(order.count))
+        let rowH: CGFloat = 30
+        let rect = CGRect(x: bounds.midX - 220, y: max(20, bounds.midY - 60 - rowH * CGFloat(order.count) / 2),
+                          width: 440, height: 110 + rowH * CGFloat(order.count))
         panel(ctx, rect)
         text("FINISH!", at: CGPoint(x: rect.midX, y: rect.minY + 14), size: 34,
              color: NSColor(red: 1, green: 0.84, blue: 0.2, alpha: 1), align: .center)
         for (place, i) in order.enumerated() {
             let r = racers[i]
             let y = rect.minY + 62 + rowH * CGFloat(place)
-            let color: NSColor = r.isPlayer ? NSColor(red: 1, green: 0.84, blue: 0.2, alpha: 1) : .white
-            text("\(place + 1)위", at: CGPoint(x: rect.minX + 24, y: y), size: 18, color: color)
-            text(r.name + (r.isPlayer ? " (나)" : ""), at: CGPoint(x: rect.minX + 80, y: y), size: 18, color: color, weight: .bold)
-            text(r.finishTime.map(Self.format) ?? "주행 중…", at: CGPoint(x: rect.maxX - 24, y: y), size: 18,
-                 color: color, align: .right, mono: true)
+            let color: NSColor = r.isMine ? NSColor(red: 1, green: 0.84, blue: 0.2, alpha: 1) : .white
+            text("\(place + 1)위", at: CGPoint(x: rect.minX + 24, y: y), size: 17, color: color)
+            text(r.name + (r.isMine ? " (나)" : ""), at: CGPoint(x: rect.minX + 80, y: y), size: 17, color: color, weight: .bold)
+            let time = r.finishTime.map(Self.format) ?? (r.left ? "나감" : "주행 중…")
+            text(time, at: CGPoint(x: rect.maxX - 24, y: y), size: 17, color: color, align: .right, mono: true)
         }
-        text("R 다시 하기   ·   Esc 닫기", at: CGPoint(x: rect.midX, y: rect.maxY - 36), size: 13,
-             color: NSColor(white: 1, alpha: 0.8), weight: .semibold, align: .center)
+        text(isOnline ? "Esc 대기방으로" : "R 다시 하기   ·   Esc 대기방으로", at: CGPoint(x: rect.midX, y: rect.maxY - 36),
+             size: 13, color: NSColor(white: 1, alpha: 0.8), weight: .semibold, align: .center)
     }
 }
