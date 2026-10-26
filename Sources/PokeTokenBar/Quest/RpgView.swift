@@ -400,6 +400,15 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if d.gold > 0 { RpgArt.coin(f, at: d.pos, time: t) }
             if let id = d.item, let item = RpgItems.item(id), let icon = RpgArt.icon(item) {
                 let bob = CGFloat((sin(t * 4 + Double(d.id)) * 1.5).rounded())
+                if item.rarity >= 3 {
+                    // A light column so epic and mythic drops are easy to spot from afar.
+                    let beam = item.rarity == 4 ? KartArt.rgb(255, 90, 140) : KartArt.rgb(255, 215, 90)
+                    let pulse = 0.5 + 0.5 * CGFloat(sin(t * 3 + Double(d.id)))
+                    for k in 0..<12 {
+                        f.setFillColor(beam.copy(alpha: (0.34 - CGFloat(k) * 0.026) * (0.6 + 0.4 * pulse)) ?? beam)
+                        f.fill(CGRect(x: d.pos.x - 2, y: d.pos.y - 16 - CGFloat(k) * 4, width: 4, height: 4))
+                    }
+                }
                 if item.rarity >= 2 {
                     let c = item.rarity == 4 ? KartArt.rgb(255, 90, 140) : RpgArt.elem(item.element == .base ? .holy : item.element).mid
                     f.setFillColor(c.copy(alpha: 0.35) ?? c)
@@ -516,6 +525,10 @@ final class RpgView: NSView, NSTextFieldDelegate {
         let fly: CGFloat = m.flies ? CGFloat(6 + sin(t * 8 + Double(m.id)) * 2).rounded() : 0
         f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
         f.fillEllipse(in: CGRect(x: feet.x - w * 0.35, y: feet.y - 2, width: w * 0.7, height: boss ? 8 : 4))
+        if m.elite, !m.dead {
+            f.setFillColor(KartArt.rgb(255, 215, 80, 0.30 + 0.12 * CGFloat(sin(t * 5))))
+            f.fillEllipse(in: CGRect(x: feet.x - w * 0.6, y: feet.y - h * 0.9, width: w * 1.2, height: h))
+        }
         if m.dead { f.setAlpha(CGFloat(max(0, 1 - (t - m.diedAt) / 0.4))) }
         if m.hurtFlash > 0 { f.setAlpha(0.5) }
         let symmetric = slime || m.def.sprite.contains("bat")
@@ -523,6 +536,12 @@ final class RpgView: NSView, NSTextFieldDelegate {
         let rect = CGRect(x: (feet.x - w / 2).rounded(), y: (feet.y - h + 1 - hop - fly - lift).rounded(), width: w, height: h)
         KartArt.draw(img, in: f, rect: rect, flipX: flip && !symmetric)
         f.setAlpha(1)
+        if m.elite, !m.dead {
+            for k in 0..<3 {
+                let a = t * 3 + Double(k) * 2.1
+                KartArt.fill(f, KartArt.rgb(255, 245, 160), (feet.x + CGFloat(cos(a) * w * 0.5)).rounded(), (rect.minY + h * 0.5 + CGFloat(sin(a * 1.3) * h * 0.4)).rounded(), 1, 1)
+            }
+        }
         if m.windup != nil { KartArt.fill(f, KartArt.rgb(255, 80, 80), feet.x - 1, rect.minY - 5, 2, 3) }
         if t < m.stunUntil {
             for k in 0..<3 {
@@ -538,7 +557,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if !m.dead, !boss, m.hp < Double(m.def.hp) * m.hpScale {
             let bw: CGFloat = 14, x = (feet.x - bw / 2).rounded(), y = rect.minY - 4
             KartArt.fill(f, KartArt.rgb(20, 20, 24), x - 1, y - 1, bw + 2, 4)
-            KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / Double(m.def.hp))).rounded(), 2)
+            KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / (Double(m.def.hp) * m.hpScale))).rounded(), 2)
         }
     }
 
@@ -685,6 +704,10 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let s = screen(CGPoint(x: b.door.x, y: b.door.y - (b.place == .board ? 34 : 22)))
                 text(b.place.title, at: CGPoint(x: s.x, y: s.y - 12), size: 12, color: NSColor(red: 1, green: 0.92, blue: 0.6, alpha: 1), weight: .bold, align: .center)
             }
+        }
+        for m in world.mobs[me.map] ?? [] where m.elite && !m.dead {
+            let s = screen(CGPoint(x: m.pos.x, y: m.pos.y - 24))
+            text("★ 황금 \(m.def.name)", at: CGPoint(x: s.x, y: s.y - 12), size: 11, color: NSColor(red: 1, green: 0.88, blue: 0.35, alpha: 1), weight: .bold, align: .center)
         }
         for portal in map.def.portals where !portal.hidden || hypot(RpgMap.center(portal.at).x - me.pos.x, RpgMap.center(portal.at).y - me.pos.y) < 40 {
             let s = screen(CGPoint(x: RpgMap.center(portal.at).x, y: RpgMap.center(portal.at).y - 20))

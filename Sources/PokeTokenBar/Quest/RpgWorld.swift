@@ -185,6 +185,8 @@ struct RpgMob {
     var summoned = false
     /// Bosses grow with the raid: HP x(1 + 0.75 per extra player in the room).
     var hpScale = 1.0
+    /// A rare golden variant: 3× HP, 1.5× attack, 4× XP and gold, better drops (see `RpgWorld.eliteChance`).
+    var elite = false
     /// Bosses: everyone who landed a hit gets credit and loot, even if they fell before the end.
     var contributors: Set<Int> = []
     /// When the first hit landed (0 = not engaged); drives the berserk timer.
@@ -279,6 +281,10 @@ final class RpgWorld {
     static let berserkAfter = 480.0
     /// Seconds between kills that keep a combo alive, and the XP / gold bonus it earns (+5% per 10 kills, max +50%).
     static let comboWindow = 4.0
+    /// Chance (percent) that a normal monster spawns as a golden elite, and what it is worth.
+    static let eliteChance = 3
+    static let eliteHP = 3.0
+    static let eliteAttack = 1.5
     static func comboBonus(_ combo: Int) -> Double { min(0.5, Double(combo / 10) * 0.05) }
     static let bossLootLockout = 1800.0
 
@@ -353,10 +359,18 @@ final class RpgWorld {
             for _ in 0..<spawn.count {
                 let def = RpgMonsters.def(spawn.monster)
                 let p = def.behavior == .boss ? CGPoint(x: m.pixelSize.width / 2, y: m.pixelSize.height / 2 - 24) : randomSpawn(m)
-                list.append(RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp)))
+                list.append(newMob(id: newID(), def: def, at: p))
             }
         }
         mobs[id] = list
+    }
+
+    /// A fresh monster; ordinary ones have a small chance to be a golden elite.
+    private func newMob(id: Int, def: RpgMonsterDef, at p: CGPoint, canBeElite: Bool = true) -> RpgMob {
+        let elite = canBeElite && def.behavior != .boss && rng.int(100) < Self.eliteChance
+        var mob = RpgMob(id: id, def: def, pos: p, home: p, hp: Double(def.hp) * (elite ? Self.eliteHP : 1))
+        if elite { mob.elite = true; mob.hpScale = Self.eliteHP }
+        return mob
     }
 
     private func randomSpawn(_ m: RpgMap) -> CGPoint {
@@ -630,6 +644,7 @@ final class RpgWorld {
         for k in list.indices {
             list[k].targetID = nil
             if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].hpScale = 1; list[k].contributors = []; list[k].engagedAt = 0; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
+            if list[k].elite, !list[k].dead { list[k].hpScale = Self.eliteHP; list[k].hp = Double(list[k].def.hp) * Self.eliteHP }
         }
         mobs[id] = list
         pending.removeAll { $0.map == id }
@@ -1150,7 +1165,8 @@ final class RpgWorld {
             players[ki].comboUntil = time + Self.comboWindow
             if [5, 10, 25, 50, 100].contains(players[ki].combo) { toast("콤보 ×\(players[ki].combo)!", to: playerID) }
         }
-        let comboGold = 1 + Self.comboBonus(player(playerID)?.combo ?? 0)
+        let eliteMul: Double = m.elite ? 4 : 1
+        let comboGold = (1 + Self.comboBonus(player(playerID)?.combo ?? 0)) * eliteMul
         if !m.summoned || rng.int(3) == 0 {
             let gold = Int(Double(Int.random(in: m.def.gold) / (m.summoned ? 3 : 1) * (boss ? shared.count : 1)) * comboGold)
             drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(9) - 4), y: m.pos.y + CGFloat(rng.int(5) - 2)),
@@ -1189,11 +1205,16 @@ final class RpgWorld {
                 }
             }
             for owner in rolls {
-                for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
+                for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance * (m.elite ? 3 : 1) {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
                                             gold: 0, item: d.item, at: time, owner: shared.count > 1 ? owner : nil))
                 }
             }
+        }
+        if m.elite {
+            drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(15) - 7), y: m.pos.y + CGFloat(rng.int(9) - 4)),
+                                    gold: 0, item: "stone", at: time, owner: shared.count > 1 ? playerID : nil))
+            toast("★ 황금 \(m.def.name)을(를) 쓰러뜨렸다!", to: nil)
         }
         for id in shared {
             guard let pi = pIndex(id) else { continue }
@@ -1209,7 +1230,7 @@ final class RpgWorld {
             // Farming far below your level barely pays: move on to the next zone.
             let gap = (player(id)?.level ?? 1) - m.def.level
             let base = Double(m.summoned ? m.def.xp / 3 : m.def.xp) * (shared.count > 1 ? share : 1)
-            let bonus = 1 + Self.comboBonus(player(id)?.combo ?? 0)
+            let bonus = (1 + Self.comboBonus(player(id)?.combo ?? 0)) * eliteMul
             grantXP(id, max(1, Int((gap > 5 ? base / 5 : base) * bonus)))
         }
     }
@@ -1299,7 +1320,7 @@ final class RpgWorld {
             if mob.dead {
                 if time >= mob.respawnAt {
                     let p = mob.def.behavior == .boss ? mob.home : randomSpawn(m)
-                    mob = RpgMob(id: mob.id, def: mob.def, pos: p, home: p, hp: Double(mob.def.hp))
+                    mob = newMob(id: mob.id, def: mob.def, at: p, canBeElite: !mob.summoned)
                 }
                 list[k] = mob
                 continue
@@ -1375,7 +1396,7 @@ final class RpgWorld {
                         let dx = Double(players[t].pos.x - mob.pos.x), dy = Double(players[t].pos.y - mob.pos.y), l = max(1, hypot(dx, dy))
                         let magic = mob.def.id == "shadowmage"
                         shots.append(RpgShot(pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 6), vel: CGVector(dx: dx / l * 150, dy: dy / l * 150), map: mapID,
-                                             fromPlayer: false, ownerID: mob.id, damage: Double(mob.def.attack), element: magic ? .cosmic : .base,
+                                             fromPlayer: false, ownerID: mob.id, damage: Double(mob.def.attack) * (mob.elite ? Self.eliteAttack : 1), element: magic ? .cosmic : .base,
                                              kind: magic ? .bossOrb : .mobArrow, life: 1.4))
                     }
                 } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
@@ -1388,7 +1409,7 @@ final class RpgWorld {
                         if w - dt <= 0 {
                             mob.windup = nil
                             mob.attackTimer = 1.1
-                            if dist(players[t].pos, mob.pos) < 20 { hurtPlayer(t, Double(mob.def.attack), from: mob.pos) }
+                            if dist(players[t].pos, mob.pos) < 20 { hurtPlayer(t, Double(mob.def.attack) * (mob.elite ? Self.eliteAttack : 1), from: mob.pos) }
                         }
                     } else if d < 15, mob.attackTimer <= 0 {
                         mob.windup = 0.35
@@ -1403,7 +1424,7 @@ final class RpgWorld {
             // keeps standing in a crowd from melting you instantly.
             if mob.def.attack > 0, mob.def.behavior != .boss, !mob.airborne {
                 for i in here where dist(players[i].pos, mob.pos) < Double(mob.radius) + 7 {
-                    hurtPlayer(i, Double(mob.def.attack) * 0.7, from: mob.pos)
+                    hurtPlayer(i, Double(mob.def.attack) * 0.7 * (mob.elite ? Self.eliteAttack : 1), from: mob.pos)
                 }
             }
             list[k] = mob
@@ -1755,7 +1776,7 @@ extension RpgWorld {
                                          jy: m.jumpTarget.map { Double($0.y) }, phaseLeft: m.phaseUntil - time, hurt: m.hurtFlash > 0,
                                          stunLeft: max(0, m.stunUntil - time), slowLeft: max(0, m.slowUntil - time),
                                          dot: m.dotTicks > 0 ? m.dotElement : nil, windup: m.windup != nil, facingRight: m.facingRight,
-                                         summoned: m.summoned, hpScale: m.hpScale, berserkIn: m.engagedAt > 0 ? Self.berserkAfter - (time - m.engagedAt) : nil))
+                                         summoned: m.summoned, hpScale: m.hpScale, berserkIn: m.engagedAt > 0 ? Self.berserkAfter - (time - m.engagedAt) : nil, elite: m.elite ? true : nil))
             }
         }
         return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
@@ -1836,6 +1857,7 @@ extension RpgWorld {
             m.facingRight = mp.facingRight
             m.summoned = mp.summoned
             m.hpScale = mp.hpScale
+            m.elite = mp.elite ?? false
             m.engagedAt = mp.berserkIn.map { time - (Self.berserkAfter - $0) } ?? 0
             if hypot(target.x - m.pos.x, target.y - m.pos.y) > 60 { m.pos = target }
             netTargets["m\(mp.id)"] = target

@@ -51,6 +51,22 @@ func hunt(_ w: RpgWorld, id: Int, seconds: Double) -> Int {
     return best
 }
 
+/// Attacks one specific monster until it dies (or `seconds` pass).
+func kill(_ w: RpgWorld, id: Int, mob mobID: Int, seconds: Double = 20) {
+    var t = 0.0
+    while t < seconds {
+        guard let me = w.player(id), let target = (w.mobs[me.map] ?? []).first(where: { $0.id == mobID }), !target.dead else { return }
+        let dx = target.pos.x - me.pos.x, dy = target.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
+        var input = RpgInput()
+        let go = d > 80 ? min(d, 80) : max(0, d - 10)
+        input.pos = CGPoint(x: me.pos.x + dx / d * go, y: me.pos.y + dy / d * go)
+        input.facing = CGVector(dx: dx / d, dy: dy / d)
+        input.attack = true
+        w.step(1.0 / 30, inputs: [id: input])
+        t += 1.0 / 30
+    }
+}
+
 func idle(_ w: RpgWorld, seconds: Double) {
     var t = 0.0
     while t < seconds { w.step(1.0 / 30, inputs: [:]); t += 1.0 / 30 }
@@ -79,6 +95,28 @@ do {
     idle(w, seconds: RpgWorld.comboWindow + 1)
     check(w.player(id)?.combo == 0, "combo resets after the window")
     check(RpgWorld.comboBonus(9) == 0 && RpgWorld.comboBonus(10) == 0.05 && RpgWorld.comboBonus(500) == 0.5, "combo bonus steps by 5% per 10 and caps at 50%")
+}
+
+// MARK: elite
+do {
+    // 3% per monster: build fields until one has a golden elite.
+    var found: (RpgWorld, Int, RpgMob)?
+    for _ in 0..<60 {
+        let (w, id) = fieldWorld(level: 40)
+        if let e = (w.mobs[.field] ?? []).first(where: { $0.elite }) { found = (w, id, e); break }
+    }
+    check(found != nil, "elite monsters spawn")
+    if let (w, id, e) = found {
+        check(e.hp == Double(e.def.hp) * RpgWorld.eliteHP && e.hpScale == RpgWorld.eliteHP, "elite has 3x HP")
+        let before = w.player(id)!.xp
+        kill(w, id: id, mob: e.id)
+        let after = w.player(id)!
+        let dead = w.mobs[.field]?.first { $0.id == e.id }?.dead ?? false
+        check(dead, "elite can be killed")
+        // Level 40 vs a Lv1-3 monster: the over-level penalty divides XP by 5; elite pays 4x.
+        check(after.xp - before >= max(1, e.def.xp * 4 / 5) || after.level > 40, "elite pays 4x XP (\(after.xp - before) vs \(e.def.xp * 4 / 5))")
+        check(w.drops.contains { $0.item == "stone" }, "elite drops a guaranteed enhancement stone")
+    }
 }
 
 if failures > 0 { print("\(failures) failed"); exit(1) }

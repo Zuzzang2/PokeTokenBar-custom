@@ -52,6 +52,7 @@ struct RpgMobPub: Codable, Sendable {
     let summoned: Bool
     var hpScale: Double = 1
     var berserkIn: Double? = nil
+    var elite: Bool? = nil
 }
 
 struct RpgSnapshot: Codable, Sendable {
