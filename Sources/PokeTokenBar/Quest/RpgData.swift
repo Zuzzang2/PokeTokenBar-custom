@@ -379,6 +379,7 @@ enum RpgMapID: String, Codable, CaseIterable, Sendable {
     case town, field, forest, cave1, cave2, boss, pond
     case desert, desertBoss, snow, snowBoss, volcano, volcanoBoss, castle, castleBoss
     case swamp, ruins, crypt
+    case tower
 }
 
 enum RpgMapKind: Sendable { case town, field, forest, cave, boss, pond, desert, snow, volcano, castle }
@@ -429,7 +430,7 @@ enum RpgMaps {
         town.waypoint = true
         var maps: [RpgMapDef] = [
             RpgMapDef(id: .town, name: "마을", levelText: "안전지대", width: 32, height: 24, kind: .town, seed: 1,
-                      portals: [p(30, 11, .field, 4, 14), town], monsters: []),
+                      portals: [p(30, 11, .field, 4, 14), p(28, 7, .tower, 14, 17, minLevel: 10), town], monsters: []),
             RpgMapDef(id: .field, name: "초원", levelText: "Lv1~4", width: 46, height: 28, kind: .field, seed: 11,
                       portals: [p(1, 14, .town, 28, 11), p(44, 14, .forest, 4, 15)],
                       monsters: sp([("slime", 10), ("blueslime", 5), ("brownshroom", 6)])),
@@ -447,6 +448,9 @@ enum RpgMaps {
                       monsters: sp([("slimeking", 1)]), zone: .cave),
             RpgMapDef(id: .pond, name: "비밀 연못", levelText: "보너스", width: 24, height: 16, kind: .pond, seed: 61,
                       portals: [p(11, 14, .forest, 6, 6)], monsters: sp([("goldslime", 3)])),
+            // 무한의 탑: no fixed monsters, `RpgWorld` fills each floor (see `towerWave`).
+            RpgMapDef(id: .tower, name: "무한의 탑", levelText: "도전", width: 28, height: 22, kind: .boss, seed: 131,
+                      portals: [p(14, 20, .town, 27, 7)], monsters: [], zone: .castle),
 
             RpgMapDef(id: .desert, name: "작열의 사막", levelText: "Lv15~22", width: 50, height: 30, kind: .desert, seed: 71,
                       portals: [p(1, 15, .boss, 23, 10), p(48, 15, .snow, 4, 15, minLevel: 22), p(25, 1, .desertBoss, 14, 17, minLevel: 20), p(25, 28, .swamp, 4, 15, minLevel: 16)],

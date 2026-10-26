@@ -130,6 +130,7 @@ struct RpgPlayer {
     var kills: [String: Int] = [:]
     var eliteKills = 0
     var bestCombo = 0
+    var bestFloor = 0
     var achievements: Set<String> = []
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
@@ -316,6 +317,9 @@ final class RpgWorld {
     private(set) var offers: [RpgQuest] = []
     private(set) var time = 0.0
     private(set) var shake = 0.0
+    /// 무한의 탑: the floor everyone inside is on (0 when nobody is), and when it was cleared.
+    private(set) var towerFloor = 0
+    private var towerClearedAt: Double?
     private var offersAt = -1000.0
     private var nextID = 1
     private var rng = KartRNG(seed: UInt64.random(in: 1...UInt64.max))
@@ -657,6 +661,7 @@ final class RpgWorld {
 
     /// Nobody left on a map: bosses heal, monsters forget their targets.
     private func leaveMapIfEmpty(_ id: RpgMapID) {
+        if id == .tower, !players.contains(where: { $0.map == id }) { mobs[id] = nil; towerFloor = 0; towerClearedAt = nil }
         guard !players.contains(where: { $0.map == id }), var list = mobs[id] else { return }
         list.removeAll { $0.summoned }
         for k in list.indices {
@@ -703,6 +708,7 @@ final class RpgWorld {
         for i in players.indices { stepPlayer(i, dt, inputs[players[i].id] ?? RpgInput()) }
         for mapID in Set(players.map(\.map)) { stepMobs(mapID, dt) }
         stepPets(dt)
+        stepTower()
         stepShots(dt)
         stepPending()
         stepTraps()
@@ -1160,7 +1166,7 @@ final class RpgWorld {
         m.dead = true
         m.diedAt = time
         m.dotTicks = 0
-        m.respawnAt = m.summoned ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : 10))
+        m.respawnAt = m.summoned || map == .tower ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : 10))
         list[k] = m
         mobs[map] = list
         if m.def.behavior == .boss {
@@ -1674,6 +1680,81 @@ final class RpgWorld {
     }
 }
 
+// MARK: - 무한의 탑
+
+extension RpgWorld {
+    /// The monsters of tower floor `n`: levels climb two per floor (capped at 58), every 5th floor is all golden
+    /// elites, every 10th is a boss with escorts.
+    static func towerWave(floor n: Int) -> (defs: [RpgMonsterDef], elite: Bool, boss: Bool) {
+        let normal = RpgMonsters.all.filter { $0.behavior != .boss }
+        let bosses = RpgMonsters.all.filter { $0.behavior == .boss }.sorted { $0.level < $1.level }
+        let target = min(58, 3 + n * 2)
+        var pool = normal.filter { abs($0.level - target) <= 5 }
+        if pool.isEmpty { pool = Array(normal.sorted { abs($0.level - target) < abs($1.level - target) }.prefix(3)) }
+        let count = min(16, 5 + n / 2)
+        let isBoss = n % 10 == 0 && !bosses.isEmpty
+        var defs: [RpgMonsterDef] = []
+        for k in 0..<(isBoss ? 4 : count) { defs.append(pool[(k * 7 + n) % pool.count]) }
+        if isBoss { defs.insert(bosses[min(bosses.count - 1, n / 10 - 1)], at: 0) }
+        return (defs, n % 5 == 0 && !isBoss, isBoss)
+    }
+
+    fileprivate func stepTower() {
+        guard !isMirror, players.contains(where: { $0.map == .tower && !$0.dead }) else { return }
+        if towerFloor == 0 { startTowerFloor(1); return }
+        guard !(mobs[.tower] ?? []).contains(where: { !$0.dead }) else { return }
+        guard let cleared = towerClearedAt else { clearTowerFloor(); return }
+        if time - cleared >= 3 { startTowerFloor(towerFloor + 1) }
+    }
+
+    private func startTowerFloor(_ n: Int) {
+        towerFloor = n
+        towerClearedAt = nil
+        let m = map(.tower)
+        let wave = Self.towerWave(floor: n)
+        // Past floor 25 the monster levels stop climbing, so their HP keeps growing instead.
+        let growth = 1 + 0.1 * Double(max(0, n - 25))
+        var list: [RpgMob] = []
+        for def in wave.defs {
+            let boss = def.behavior == .boss
+            let p = boss ? CGPoint(x: m.pixelSize.width / 2, y: m.pixelSize.height / 2 - 24) : randomSpawn(m)
+            var mob = RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp))
+            var scale = growth
+            if wave.elite, !boss { mob.elite = true; scale *= Self.eliteHP }
+            mob.hpScale = scale
+            mob.hp = Double(def.hp) * scale
+            list.append(mob)
+        }
+        mobs[.tower] = list
+        let label = "무한의 탑 \(n)층" + (wave.boss ? " — 보스!" : wave.elite ? " — 황금 엘리트 웨이브!" : "")
+        for pl in players where pl.map == .tower { toast(label, to: pl.id) }
+    }
+
+    /// Floor cleared: record it, and every 5th floor drops stones (plus gear every 10th) for each climber.
+    private func clearTowerFloor() {
+        towerClearedAt = time
+        let floor = towerFloor
+        let center = CGPoint(x: map(.tower).pixelSize.width / 2, y: map(.tower).pixelSize.height / 2)
+        for i in players.indices where players[i].map == .tower && !players[i].dead {
+            players[i].bestFloor = max(players[i].bestFloor, floor)
+            toast("\(floor)층 클리어!", to: players[i].id)
+            var rewards: [String] = []
+            if floor % 5 == 0 { rewards += Array(repeating: "stone", count: 1 + floor / 10) }
+            if floor % 10 == 0 {
+                let tier = floor >= 30 ? 7 : 6
+                let weapon = (players[i].cls == .warrior ? "sword" : players[i].cls == .archer ? "bow" : "staff") + "\(tier)"
+                rewards.append(floor % 20 == 10 ? weapon : "armor\(tier)")
+            }
+            for (k, item) in rewards.enumerated() where RpgItems.item(item) != nil {
+                drops.append(RpgDropped(id: newID(), map: .tower, pos: CGPoint(x: center.x + CGFloat(k * 9 - rewards.count * 4), y: center.y + 12),
+                                        gold: 0, item: item, at: time, owner: players[i].id))
+            }
+            if !rewards.isEmpty { toast("층 보상이 바닥에 떨어졌어요!", to: players[i].id) }
+            checkAchievements(i)
+        }
+    }
+}
+
 // MARK: - pets
 
 extension RpgWorld {
@@ -1932,6 +2013,7 @@ extension RpgWorld {
         toasts = s.toasts
         chatLog = s.chat
         shake = max(shake, s.shake)
+        towerFloor = s.towerFloor ?? 0
     }
 
     func applyPrivate(_ s: RpgPrivate, localID: Int) {
@@ -1955,6 +2037,7 @@ extension RpgWorld {
         players[i].kills = RpgAchievements.cleanKills(d.kills)
         players[i].eliteKills = min(max(d.eliteKills ?? 0, 0), 10_000_000)
         players[i].bestCombo = min(max(d.bestCombo ?? 0, 0), 10_000)
+        players[i].bestFloor = min(max(d.bestFloor ?? 0, 0), 1000)
         players[i].achievements = Set((d.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         players[i].hp = s.hp
         players[i].mp = s.mp

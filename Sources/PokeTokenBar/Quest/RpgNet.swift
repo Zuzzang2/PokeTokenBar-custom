@@ -68,6 +68,7 @@ struct RpgSnapshot: Codable, Sendable {
     let chat: [RpgChat]
     let shake: Double
     var pets: [RpgPetPub]? = nil
+    var towerFloor: Int? = nil
 }
 
 struct RpgPrivate: Codable, Sendable {

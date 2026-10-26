@@ -827,7 +827,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         // Map name and quest tracker.
         let def = world.map(me.map).def
         box(ctx, CGRect(x: bounds.width - 200, y: 10, width: 190, height: 42))
-        text(def.name, at: CGPoint(x: bounds.width - 105, y: 12), size: 15, align: .center)
+        text(me.map == .tower ? "\(def.name) \(world.towerFloor)층" : def.name, at: CGPoint(x: bounds.width - 105, y: 12), size: 15, align: .center)
         text(def.levelText, at: CGPoint(x: bounds.width - 105, y: 32), size: 10, color: Self.dim, weight: .semibold, align: .center)
         if !me.quests.isEmpty {
             box(ctx, CGRect(x: bounds.width - 200, y: 58, width: 190, height: 14 + CGFloat(me.quests.count) * 18))

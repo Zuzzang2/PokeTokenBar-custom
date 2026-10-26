@@ -32,6 +32,7 @@ struct RpgSaveData: Codable, Sendable {
     var eliteKills: Int?
     var bestCombo: Int?
     var achievements: [String]?
+    var bestFloor: Int?
 }
 
 enum RpgSaveStore {
@@ -77,7 +78,7 @@ enum RpgSaveStore {
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
                            plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, job: p.job, kills: p.kills, eliteKills: p.eliteKills,
-                           bestCombo: p.bestCombo, achievements: p.achievements.sorted())
+                           bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor)
     }
 
     static func player(from s: RpgSaveData, id: Int) -> RpgPlayer {
@@ -102,6 +103,7 @@ enum RpgSaveStore {
         p.eliteKills = min(max(s.eliteKills ?? 0, 0), 10_000_000)
         p.bestCombo = min(max(s.bestCombo ?? 0, 0), 10_000)
         p.achievements = Set((s.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
+        p.bestFloor = min(max(s.bestFloor ?? 0, 0), 1000)
         p.hp = p.maxHP
         p.mp = p.maxMP
         // A position from an older map layout might now be inside a wall.

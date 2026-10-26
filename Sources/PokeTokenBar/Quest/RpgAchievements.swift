@@ -4,7 +4,7 @@ import Foundation
 // best combo, level, maps visited, job). Each pays gold and enhancement stones once when it is reached.
 
 struct RpgAchievement: Sendable {
-    enum Metric: Sendable { case kills, bossKills, eliteKills, bestCombo, level, mapsVisited, jobAdvanced }
+    enum Metric: Sendable { case kills, bossKills, eliteKills, bestCombo, level, mapsVisited, jobAdvanced, towerFloor }
 
     let id: String
     let name: String
@@ -36,6 +36,9 @@ enum RpgAchievements {
         a("lv50", "고수", "Lv50 달성", .level, 50, 8000, 12),
         a("lv60", "만렙의 영광", "Lv60 달성", .level, 60, 20000, 25),
         a("job", "새로운 길", "2차 전직하기", .jobAdvanced, 1, 1000, 5),
+        a("floor10", "탑의 도전자", "무한의 탑 10층 클리어", .towerFloor, 10, 1500, 6),
+        a("floor30", "탑의 정복자", "무한의 탑 30층 클리어", .towerFloor, 30, 8000, 15),
+        a("floor50", "탑의 지배자", "무한의 탑 50층 클리어", .towerFloor, 50, 20000, 30),
         a("maps5", "탐험가", "5개 지역 방문", .mapsVisited, 5, 800, 3),
         a("maps12", "대륙의 여행자", "12개 지역 방문", .mapsVisited, 12, 5000, 10),
     ]
@@ -53,6 +56,7 @@ enum RpgAchievements {
         case .level: return p.level
         case .mapsVisited: return p.visited.count
         case .jobAdvanced: return p.job > 0 ? 1 : 0
+        case .towerFloor: return p.bestFloor
         }
     }
 

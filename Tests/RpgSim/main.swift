@@ -164,5 +164,34 @@ do {
     check(after.kills.values.reduce(0, +) > 0 && after.bestCombo > 0, "hunting records kills and best combo (\(after.kills.values.reduce(0, +)) kills)")
 }
 
+// MARK: tower
+do {
+    let w10 = RpgWorld.towerWave(floor: 10), w5 = RpgWorld.towerWave(floor: 5), w1 = RpgWorld.towerWave(floor: 1)
+    check(w10.boss && w10.defs.first?.behavior == .boss, "floor 10 is a boss floor")
+    check(w5.elite && !w5.boss, "floor 5 is an elite wave")
+    check(!w1.elite && !w1.boss && w1.defs.count >= 5 && w1.defs.allSatisfy { $0.behavior != .boss }, "floor 1 is a plain wave")
+    check((1...80).allSatisfy { !RpgWorld.towerWave(floor: $0).defs.isEmpty }, "every floor up to 80 has monsters")
+
+    var p = RpgSaveStore.newPlayer(name: "climber", cls: .warrior, id: 1)
+    p.level = 60
+    p.visited.insert(.tower)
+    let w = RpgWorld(player: p)
+    w.perform(.warp(.tower), for: 1)
+    w.step(1.0 / 30, inputs: [:])
+    check(w.player(1)?.map == .tower && w.towerFloor == 1, "entering the tower starts floor 1")
+    check((w.mobs[.tower] ?? []).count == w1.defs.count, "floor 1 spawned its wave (\(w.mobs[.tower]?.count ?? 0) monsters)")
+    hunt(w, id: 1, seconds: 25)
+    check(w.towerFloor >= 2, "clearing a floor opens the next (now floor \(w.towerFloor))")
+    check((w.player(1)?.bestFloor ?? 0) >= 1, "best floor is recorded")
+    let back = RpgSaveStore.player(from: RpgSaveStore.snapshot(w.player(1)!), id: 1)
+    check(back.bestFloor == w.player(1)?.bestFloor && back.map == .town, "best floor saves and a tower save resumes in town")
+
+    // Leaving the tower resets it.
+    w.perform(.interact, for: 1)
+    w.perform(.warp(.town), for: 1)
+    w.step(1.0 / 30, inputs: [:])
+    check(w.player(1)?.map == .town && w.towerFloor == 0, "leaving empties the tower")
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")
