@@ -55,6 +55,14 @@ enum RpgAction: Codable, Sendable {
     case advance(Int)
     /// The player's raised companion, sent by its owner so the host can run it as their pet.
     case pet(RpgPetInfo?)
+    // 거래 (see RpgTrade.swift)
+    case tradeRequest(Int)
+    case tradeAccept
+    case tradeDecline
+    case tradeCancel
+    case tradeOffer(item: String, count: Int)
+    case tradeGold(Int)
+    case tradeConfirm(Bool)
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -116,6 +124,8 @@ struct RpgPlayer {
     /// Party = the founder's player id; nil when solo.
     var partyID: Int?
     var inviteFrom: Int?
+    /// Pending trade request from this player id.
+    var tradeFrom: Int?
     /// Boss id → when this player last received its personal loot (seconds since 1970, survives restarts).
     var bossLoot: [String: Double] = [:]
     /// Hardcore: one life. `fallen` once that life is spent.
@@ -311,6 +321,10 @@ final class RpgWorld {
     private(set) var drops: [RpgDropped] = []
     /// Raised companions following their owners (host simulates; a client mirrors the host's).
     private(set) var pets: [Int: RpgPetState] = [:]
+    /// Active trades (host only) and, on a client, the view of its own trade from the last private state.
+    private var trades: [RpgTrade] = []
+    var mirrorTrade: RpgTradeView?
+    private var nextPartyID = 10_000
     private(set) var toasts: [RpgToast] = []
     private(set) var chatLog: [RpgChat] = []
     private(set) var graves: [RpgGrave] = []
@@ -463,7 +477,7 @@ final class RpgWorld {
             if players[i].slots.indices.contains(slot), let s = players[i].slots[slot] { castSkill(i, s) }
         case .invite(let target):
             guard target != id, let t = pIndex(target) else { return }
-            if players[i].partyID == nil { players[i].partyID = id }
+            if players[i].partyID == nil { nextPartyID += 1; players[i].partyID = nextPartyID }
             guard partyMembers(of: id).count < 8 else { toast("파티는 8명까지예요"); return }
             guard players[t].partyID == nil || players[t].partyID != players[i].partyID else { toast("이미 같은 파티예요"); return }
             players[t].inviteFrom = id
@@ -487,6 +501,10 @@ final class RpgWorld {
             toast("파티를 나왔어요")
         case .warpToMember(let member):
             guard let m = player(member), m.partyID != nil, m.partyID == players[i].partyID, !m.dead else { return }
+            // The UI only offers this in town; the host enforces it, and the level a portal into that map would need.
+            guard players[i].map == .town else { toast("파티원 곁으로는 마을에서 이동할 수 있어요"); return }
+            let needed = RpgMaps.all.flatMap(\.portals).filter { $0.to == m.map }.map(\.minLevel).min() ?? 1
+            guard players[i].level >= needed else { toast("Lv\(needed) 이상만 갈 수 있는 곳이에요"); return }
             let from = players[i].map
             players[i].map = m.map
             players[i].pos = m.pos
@@ -505,6 +523,8 @@ final class RpgWorld {
             let clean = info?.sanitized
             if let clean, clean.speciesID != players[i].petInfo?.speciesID { toast("\(clean.name)이(가) 함께 모험해요!") }
             players[i].petInfo = clean
+        case .tradeRequest, .tradeAccept, .tradeDecline, .tradeCancel, .tradeOffer, .tradeGold, .tradeConfirm:
+            handleTrade(action, i)
         }
     }
 
@@ -718,6 +738,7 @@ final class RpgWorld {
         for mapID in Set(players.map(\.map)) { stepMobs(mapID, dt) }
         stepPets(dt)
         stepTower()
+        stepTrades()
         stepShots(dt)
         stepPending()
         stepTraps()
@@ -1711,6 +1732,130 @@ final class RpgWorld {
     }
 }
 
+// MARK: - 거래
+
+extension RpgWorld {
+    private func tradeIndex(of id: Int) -> Int? { trades.firstIndex { $0.a == id || $0.b == id } }
+
+    private func canTrade(_ x: Int, _ y: Int) -> Bool {
+        guard let a = player(x), let b = player(y), a.id != b.id, !a.dead, !b.dead, a.map == b.map else { return false }
+        return dist(a.pos, b.pos) < RpgTrades.range
+    }
+
+    /// The trade `id` is in, seen from their side (a client reads the copy the host sent).
+    func tradeView(for id: Int) -> RpgTradeView? {
+        if isMirror { return mirrorTrade }
+        guard let k = tradeIndex(of: id) else { return nil }
+        let t = trades[k], other = t.partner(of: id)
+        guard let name = player(other)?.name else { return nil }
+        return RpgTradeView(partnerID: other, partnerName: name, mine: t.offers[id] ?? RpgTradeOffer(), theirs: t.offers[other] ?? RpgTradeOffer())
+    }
+
+    /// True while `id` is in a trade, so the host can send their view every tick.
+    func tradeActive(for id: Int) -> Bool { tradeIndex(of: id) != nil }
+
+    fileprivate func stepTrades() {
+        guard !isMirror else { return }
+        for k in trades.indices.reversed() where k < trades.count && !canTrade(trades[k].a, trades[k].b) {
+            cancelTrade(k, "거래 상대가 멀어져서 거래가 취소됐어요")
+        }
+        for i in players.indices {
+            if let from = players[i].tradeFrom, player(from) == nil { players[i].tradeFrom = nil }
+        }
+    }
+
+    private func cancelTrade(_ k: Int, _ message: String) {
+        let t = trades.remove(at: k)
+        toast(message, to: t.a)
+        toast(message, to: t.b)
+    }
+
+    fileprivate func handleTrade(_ action: RpgAction, _ i: Int) {
+        let id = players[i].id
+        switch action {
+        case .tradeRequest(let target):
+            guard let t = pIndex(target), tradeIndex(of: id) == nil, tradeIndex(of: target) == nil, canTrade(id, target) else {
+                toast("거래할 수 없어요 (같은 맵에서 가까이 있어야 해요)")
+                return
+            }
+            players[t].tradeFrom = id
+            toast("\(players[t].name) 님에게 거래를 요청했어요")
+            toast("\(players[i].name) 님의 거래 요청! 거래창(T)에서 수락하세요", to: target)
+        case .tradeAccept:
+            guard let from = players[i].tradeFrom, tradeIndex(of: id) == nil, tradeIndex(of: from) == nil, canTrade(id, from) else {
+                players[i].tradeFrom = nil
+                toast("거래 요청이 사라졌어요")
+                return
+            }
+            players[i].tradeFrom = nil
+            trades.append(RpgTrade(a: from, b: id, offers: [from: RpgTradeOffer(), id: RpgTradeOffer()]))
+            toast("거래를 시작했어요", to: id)
+            toast("거래를 시작했어요", to: from)
+        case .tradeDecline:
+            players[i].tradeFrom = nil
+        case .tradeCancel:
+            if let k = tradeIndex(of: id) { cancelTrade(k, "거래를 취소했어요") }
+        case .tradeOffer(let item, let count):
+            guard let k = tradeIndex(of: id) else { return }
+            guard RpgTrades.tradable(item, players[i]) else { toast("이 아이템은 거래할 수 없어요 (강화한 장비)"); return }
+            var offer = trades[k].offers[id] ?? RpgTradeOffer()
+            let n = min(max(count, 0), players[i].inventory[item] ?? 0)
+            if n == 0 {
+                offer.items[item] = nil
+            } else {
+                if offer.items[item] == nil, offer.items.count >= RpgTrades.maxDistinct { toast("한 번에 \(RpgTrades.maxDistinct)종류까지 올릴 수 있어요"); return }
+                offer.items[item] = n
+            }
+            setOffer(k, id, offer)
+        case .tradeGold(let gold):
+            guard let k = tradeIndex(of: id) else { return }
+            var offer = trades[k].offers[id] ?? RpgTradeOffer()
+            offer.gold = min(max(gold, 0), players[i].gold)
+            setOffer(k, id, offer)
+        case .tradeConfirm(let ok):
+            guard let k = tradeIndex(of: id) else { return }
+            trades[k].offers[id, default: RpgTradeOffer()].ok = ok
+            let other = trades[k].partner(of: id)
+            if ok, trades[k].offers[other]?.ok == true { commitTrade(k) }
+        default:
+            break
+        }
+    }
+
+    /// Replaces one side's offer; any change clears both confirmations.
+    private func setOffer(_ k: Int, _ id: Int, _ offer: RpgTradeOffer) {
+        var o = offer
+        o.ok = false
+        trades[k].offers[id] = o
+        for key in trades[k].offers.keys { trades[k].offers[key]?.ok = false }
+    }
+
+    /// Swaps both offers in one step, after checking again that each side still owns what it offered.
+    private func commitTrade(_ k: Int) {
+        let t = trades[k]
+        guard let ai = pIndex(t.a), let bi = pIndex(t.b), canTrade(t.a, t.b) else { cancelTrade(k, "거래가 취소됐어요"); return }
+        let offerA = t.offers[t.a] ?? RpgTradeOffer(), offerB = t.offers[t.b] ?? RpgTradeOffer()
+        func valid(_ p: RpgPlayer, _ o: RpgTradeOffer) -> Bool {
+            o.gold >= 0 && o.gold <= p.gold && o.items.allSatisfy { $0.value > 0 && (p.inventory[$0.key] ?? 0) >= $0.value && RpgTrades.tradable($0.key, p) }
+        }
+        guard valid(players[ai], offerA), valid(players[bi], offerB) else { cancelTrade(k, "보유량이 바뀌어서 거래가 취소됐어요"); return }
+        func move(_ offer: RpgTradeOffer, from f: Int, to g: Int) {
+            for (item, n) in offer.items {
+                let left = (players[f].inventory[item] ?? 0) - n
+                players[f].inventory[item] = left > 0 ? left : nil
+                players[g].inventory[item, default: 0] += n
+            }
+            players[f].gold -= offer.gold
+            players[g].gold += offer.gold
+        }
+        move(offerA, from: ai, to: bi)
+        move(offerB, from: bi, to: ai)
+        trades.remove(at: k)
+        toast("거래 완료!", to: t.a)
+        toast("거래 완료!", to: t.b)
+    }
+}
+
 // MARK: - 무한의 탑
 
 extension RpgWorld {
@@ -1898,6 +2043,7 @@ extension RpgWorld {
     func removePlayer(_ id: Int) {
         guard let i = pIndex(id) else { return }
         leaveParty(i)
+        while let k = trades.firstIndex(where: { $0.a == id || $0.b == id }) { cancelTrade(k, "상대가 나가서 거래가 취소됐어요") }
         let p = players.remove(at: i)
         leaveMapIfEmpty(p.map)
         toast("\(p.name) 님이 나갔어요", to: nil)
@@ -1952,7 +2098,7 @@ extension RpgWorld {
     func privateState(for id: Int) -> RpgPrivate? {
         guard let p = player(id) else { return nil }
         return RpgPrivate(save: RpgSaveStore.snapshot(p), hp: p.hp, mp: p.mp, cooldowns: p.cooldowns, offers: boardOffers(for: id),
-                          respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom)
+                          respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom, trade: tradeView(for: id), tradeFrom: p.tradeFrom)
     }
 
     // MARK: client mirror
@@ -2071,6 +2217,8 @@ extension RpgWorld {
         if d.fallen == true { players[i].fallen = true }
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
+        mirrorTrade = s.trade
+        players[i].tradeFrom = s.tradeFrom
         players[i].job = d.job ?? 0
         players[i].kills = RpgAchievements.cleanKills(d.kills)
         players[i].eliteKills = min(max(d.eliteKills ?? 0, 0), 10_000_000)

@@ -193,5 +193,102 @@ do {
     check(w.player(1)?.map == .town && w.towerFloor == 0, "leaving empties the tower")
 }
 
+// MARK: trade
+func tradeWorld() -> RpgWorld {
+    let w = world(level: 10)
+    var p2 = RpgSaveStore.newPlayer(name: "friend", cls: .mage, id: 2)
+    p2.level = 10
+    w.addPlayer(p2)
+    return w
+}
+do {
+    let w = tradeWorld()
+    w.perform(.tradeRequest(2), for: 1)
+    check(w.tradeView(for: 1) == nil, "a request alone does not start a trade")
+    w.perform(.tradeAccept, for: 2)
+    check(w.tradeView(for: 1)?.partnerID == 2 && w.tradeView(for: 2)?.partnerID == 1, "accepting starts the trade for both")
+
+    w.perform(.tradeOffer(item: "hp0", count: 3), for: 1)
+    w.perform(.tradeGold(100), for: 1)
+    w.perform(.tradeOffer(item: "mp0", count: 2), for: 2)
+    check(w.tradeView(for: 2)?.theirs.items["hp0"] == 3 && w.tradeView(for: 2)?.theirs.gold == 100, "each side sees the other's offer")
+    w.perform(.tradeConfirm(true), for: 1)
+    check(w.player(1)?.inventory["hp0"] == 6, "one confirmation does not swap")
+    w.perform(.tradeOffer(item: "mp0", count: 1), for: 2)
+    check(w.tradeView(for: 1)?.mine.ok == false, "changing an offer clears confirmations")
+    w.perform(.tradeConfirm(true), for: 1)
+    w.perform(.tradeConfirm(true), for: 2)
+    let a = w.player(1)!, b = w.player(2)!
+    check(a.inventory["hp0"] == 3 && b.inventory["hp0"] == 9 && a.inventory["mp0"] == 5 && b.inventory["mp0"] == 3, "both confirmed: items swap")
+    check(a.gold == 50 && b.gold == 250, "gold swaps")
+    check(w.tradeView(for: 1) == nil && w.tradeView(for: 2) == nil, "the trade closes after the swap")
+}
+do {
+    // Enhanced items cannot be offered.
+    var p1 = RpgSaveStore.newPlayer(name: "smith", cls: .warrior, id: 1)
+    p1.level = 10
+    p1.inventory["sword1"] = 2
+    p1.plus["sword1"] = 3
+    let w = RpgWorld(player: p1)
+    var p2 = RpgSaveStore.newPlayer(name: "friend", cls: .mage, id: 2)
+    p2.level = 10
+    w.addPlayer(p2)
+    w.perform(.tradeRequest(2), for: 1)
+    w.perform(.tradeAccept, for: 2)
+    w.perform(.tradeOffer(item: "sword1", count: 1), for: 1)
+    check(w.tradeView(for: 1)?.mine.items.isEmpty == true, "an enhanced item id cannot be offered")
+    w.perform(.tradeOffer(item: "hp0", count: 99), for: 1)
+    check(w.tradeView(for: 1)?.mine.items["hp0"] == 6, "an offer is capped at what you own")
+}
+do {
+    // Stock that disappears after offering cancels the trade without moving anything.
+    let w = tradeWorld()
+    w.perform(.tradeRequest(2), for: 1)
+    w.perform(.tradeAccept, for: 2)
+    w.perform(.tradeOffer(item: "hp0", count: 5), for: 1)
+    for _ in 0..<4 { w.perform(.sell("hp0"), for: 1) }
+    w.perform(.tradeConfirm(true), for: 1)
+    w.perform(.tradeConfirm(true), for: 2)
+    check(w.tradeView(for: 1) == nil && w.player(2)?.inventory["hp0"] == 6, "stale offer cancels the trade and moves nothing")
+}
+do {
+    // Walking away cancels.
+    let w = tradeWorld()
+    w.perform(.tradeRequest(2), for: 1)
+    w.perform(.tradeAccept, for: 2)
+    var far = RpgSaveStore.newPlayer(name: "friend", cls: .mage, id: 2)
+    far.level = 10
+    far.pos = CGPoint(x: far.pos.x + 400, y: far.pos.y)
+    w.addPlayer(far)
+    w.step(1.0 / 30, inputs: [:])
+    check(w.tradeView(for: 1) == nil, "traders who move apart lose the trade")
+}
+
+// MARK: party fixes
+do {
+    let w = tradeWorld()
+    var p3 = RpgSaveStore.newPlayer(name: "third", cls: .archer, id: 3)
+    p3.level = 10
+    w.addPlayer(p3)
+    w.perform(.invite(2), for: 1)
+    w.perform(.acceptInvite, for: 2)
+    let oldParty = w.player(2)?.partyID
+    w.perform(.leaveParty, for: 1)
+    w.perform(.invite(3), for: 1)
+    w.perform(.acceptInvite, for: 3)
+    check(w.player(1)?.partyID != oldParty || oldParty == nil, "a founder who left forms a new party instead of rejoining the old one")
+
+    var p4 = RpgSaveStore.newPlayer(name: "deep", cls: .warrior, id: 4)
+    p4.level = 60
+    p4.map = .crypt
+    p4.pos = RpgMap.center(RpgMaps.def(.crypt).portals.first!.arrive)
+    p4.visited.insert(.crypt)
+    w.addPlayer(p4)
+    w.perform(.invite(1), for: 4)
+    w.perform(.acceptInvite, for: 1)
+    w.perform(.warpToMember(4), for: 1)
+    check(w.player(1)?.map == .town, "warping to a party member checks the level a portal there would need")
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

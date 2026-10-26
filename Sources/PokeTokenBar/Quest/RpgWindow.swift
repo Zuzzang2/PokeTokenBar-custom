@@ -273,10 +273,9 @@ final class RpgWindowController: RpgDriver {
         guard let session, let w = world, mode == .host, !hostPeers.isEmpty else { return }
         tick += 1
         session.broadcast(.snapshot(w.snapshot()), reliable: false)
-        if tick % 5 == 0 {
-            for (peer, id) in hostPeers {
-                if let s = w.privateState(for: id) { session.send(.privateState(peer: peer, state: s), to: peer, reliable: true) }
-            }
+        // Private state goes out every 5th tick, and every tick while the player is in a trade so the offers stay live.
+        for (peer, id) in hostPeers where tick % 5 == 0 || w.tradeActive(for: id) {
+            if let s = w.privateState(for: id) { session.send(.privateState(peer: peer, state: s), to: peer, reliable: true) }
         }
     }
 

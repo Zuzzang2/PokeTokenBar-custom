@@ -82,6 +82,8 @@ struct RpgPrivate: Codable, Sendable {
     let offers: [RpgQuest]
     let respawnIn: Double
     var inviteFrom: Int? = nil
+    var trade: RpgTradeView? = nil
+    var tradeFrom: Int? = nil
 }
 
 enum RpgNetMessage: Codable, Sendable {

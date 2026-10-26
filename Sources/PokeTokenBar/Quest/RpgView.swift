@@ -13,7 +13,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex }
+    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade }
 
     private let world: RpgWorld
     private let localID: Int
@@ -166,6 +166,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .waypoint: return waypoints(p).count
         case .quests: return p.quests.count
         case .codex: return tab == 0 ? Self.codexMonsters.count : RpgAchievements.all.count
+        case .trade: return world.tradeView(for: localID) != nil ? tradeBag(p).count : tradeRows(p).count
         case .party: return tab == 0 ? partyRows(p).count : inviteCandidates(p).count
         }
     }
@@ -199,7 +200,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             return
         }
         // The key that opened a window also closes it.
-        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex)]
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
         if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.skillList[min(selection, p.skillList.count - 1)]
@@ -211,6 +212,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
             return
         }
+        if panel == .trade, handleTradeKey(code, repeatKey: repeatKey, p) { return }
         let count = panelCount()
         switch code {
         case 53: if !repeatKey { close() }
@@ -224,6 +226,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case 51:
             guard !repeatKey else { return }
             switch panel {
+            case .trade:
+                let rows = tradeRows(p)
+                if rows.indices.contains(selection), rows[selection] == -1 { act(.tradeDecline) }
             case .party where tab == 0:
                 let rows = partyRows(p)
                 if rows.indices.contains(selection) {
@@ -291,6 +296,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let list = inviteCandidates(p)
                 if list.indices.contains(selection) { act(.invite(list[selection].id)) }
             }
+        case .trade:
+            // An open trade handles its own keys (`handleTradeKey`); here: pick someone, or answer a request.
+            let rows = tradeRows(p)
+            guard world.tradeView(for: localID) == nil, rows.indices.contains(selection) else { return }
+            if rows[selection] == -1 { act(.tradeAccept) } else { act(.tradeRequest(rows[selection])) }
         case .quests, .codex, .none:
             break
         }
@@ -328,6 +338,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
             if tapped(.codex) { open(.codex) }
+            if tapped(.trade) { open(.trade) }
             if tapped(.keys) { open(.keys) }
             if tapped(.minimap) { showMinimap.toggle(); UserDefaults.standard.set(showMinimap, forKey: "rpgMinimap") }
             if tapped(.party) { open(.party) }
@@ -921,7 +932,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
         drawHotbar(ctx, me)
         let b = bindings
-        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   도감 \(b.label(.codex))   나가기 Esc",
+        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   도감 \(b.label(.codex))   거래 \(b.label(.trade))   나가기 Esc",
              at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
 
         if me.fallen {
@@ -1110,6 +1121,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let ids = sortedInventory(p)
                 list(ctx, count: ids.count, in: area) { i, r in itemRow(ctx, ids[i], r, p, right: "+\(RpgItems.item(ids[i])?.sellPrice ?? 0) G") }
             }
+        case .trade:
+            drawTrade(ctx, p)
         case .codex:
             let area = frame(ctx, title: "도감 · 업적", hint: "↑↓ 선택   ←→ 탭   \(bindings.label(.codex))/Esc 닫기", tabs: ["몬스터 도감", "업적"])
             let green = NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1)
@@ -1243,6 +1256,80 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 text(def.name, at: CGPoint(x: r.minX + 12, y: r.minY + 6), size: 14, weight: .bold)
                 text(def.levelText, at: CGPoint(x: r.maxX - 12, y: r.minY + 6), size: 12, color: Self.dim, align: .right)
             }
+        }
+    }
+
+    // MARK: trade
+
+    /// Players to trade with (same map), headed by a pending request (-1) if there is one.
+    private func tradeRows(_ p: RpgPlayer) -> [Int] {
+        (p.tradeFrom != nil ? [-1] : []) + world.players.filter { $0.id != p.id && $0.map == p.map }.map(\.id)
+    }
+
+    /// Bag items that may be offered (not enhanced ids).
+    private func tradeBag(_ p: RpgPlayer) -> [String] { sortedInventory(p).filter { RpgTrades.tradable($0, p) } }
+
+    /// Keys of an open trade: ↑↓ item, Enter +1, Delete -1, ←→ gold, Tab confirm, C cancel. Returns false when there is no trade.
+    private func handleTradeKey(_ code: UInt16, repeatKey: Bool, _ p: RpgPlayer) -> Bool {
+        guard let view = world.tradeView(for: localID) else { return false }
+        let bag = tradeBag(p)
+        let chosen = bag.indices.contains(selection) ? bag[selection] : nil
+        switch code {
+        case 126: selection = max(0, selection - 1)
+        case 125: selection = min(max(0, bag.count - 1), selection + 1)
+        case 36:
+            if let item = chosen { act(.tradeOffer(item: item, count: (view.mine.items[item] ?? 0) + 1)) }
+        case 51:
+            if let item = chosen { act(.tradeOffer(item: item, count: (view.mine.items[item] ?? 0) - 1)) }
+        case 123, 124:
+            let step = NSEvent.modifierFlags.contains(.shift) ? 1000 : 100
+            act(.tradeGold(view.mine.gold + (code == 124 ? step : -step)))
+        case 48:
+            if !repeatKey { act(.tradeConfirm(!view.mine.ok)) }
+        case 8:
+            if !repeatKey { act(.tradeCancel) }
+        case 53:
+            if !repeatKey { close() }
+        default:
+            break
+        }
+        return true
+    }
+
+    private func drawTrade(_ ctx: CGContext, _ p: RpgPlayer) {
+        let green = NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1)
+        guard let v = world.tradeView(for: localID) else {
+            let rows = tradeRows(p)
+            let area = frame(ctx, title: "거래", hint: "↑↓ 선택   Enter 거래 요청 · 수락   Delete 거절   \(bindings.label(.trade))/Esc 닫기")
+            list(ctx, count: rows.count, in: area, rowH: 44) { i, r in
+                if rows[i] == -1 {
+                    let from = p.tradeFrom.flatMap { world.player($0) }?.name ?? "누군가"
+                    text("\(from) 님의 거래 요청 — Enter 수락 · Delete 거절", at: CGPoint(x: r.minX + 12, y: r.minY + 12), size: 14, color: Self.gold)
+                } else if let m = world.player(rows[i]) {
+                    memberRow(ctx, m, r, me: false)
+                }
+            }
+            if rows.isEmpty {
+                text("같은 맵에 거래할 동료가 없어요 (가까이 가야 해요)", at: CGPoint(x: area.midX, y: area.minY + 20), size: 13, color: Self.dim, align: .center)
+            }
+            return
+        }
+        let area = frame(ctx, title: "\(v.partnerName) 님과 거래",
+                         hint: "↑↓ 아이템   Enter +1   Delete -1   ←→ 골드 ±100 (Shift ±1000)   Tab 확정   C 취소   Esc 닫기")
+        func column(_ offer: RpgTradeOffer, _ title: String, x: CGFloat) {
+            text(title + (offer.ok ? "  ✓ 확정" : ""), at: CGPoint(x: x + 8, y: area.minY), size: 14, color: offer.ok ? green : Self.gold)
+            text("골드 \(offer.gold) G", at: CGPoint(x: x + 8, y: area.minY + 22), size: 13)
+            for (k, e) in offer.items.sorted(by: { $0.key < $1.key }).enumerated() {
+                text("\(RpgItems.item(e.key)?.name ?? e.key) ×\(e.value)", at: CGPoint(x: x + 8, y: area.minY + 44 + CGFloat(k) * 16), size: 11, weight: .semibold)
+            }
+        }
+        column(v.mine, "내 제안", x: area.minX)
+        column(v.theirs, "상대 제안", x: area.minX + area.width / 2)
+        let bag = tradeBag(p)
+        let bagRect = CGRect(x: area.minX, y: area.minY + 180, width: area.width, height: max(40, area.height - 180))
+        list(ctx, count: bag.count, in: bagRect, rowH: 46) { i, r in
+            let n = v.mine.items[bag[i]] ?? 0
+            itemRow(ctx, bag[i], r, p, right: n > 0 ? "제안 \(n)" : nil)
         }
     }
 
