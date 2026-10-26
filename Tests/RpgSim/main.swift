@@ -138,5 +138,31 @@ do {
     check((w.player(id)?.gold ?? 0) > 150, "gold collected while hunting with a pet")
 }
 
+// MARK: achievements and codex
+do {
+    let w = world(level: 20)
+    let goldBefore = w.player(1)!.gold, stonesBefore = w.player(1)!.inventory["stone"] ?? 0
+    w.perform(.advance(1), for: 1)
+    let p = w.player(1)!
+    check(p.achievements.contains("job") && p.achievements.contains("lv20"), "advancing unlocks the job and Lv20 achievements")
+    check(p.gold == goldBefore + 1500 && (p.inventory["stone"] ?? 0) == stonesBefore + 8, "achievement rewards are paid once")
+
+    var hunter = RpgSaveStore.newPlayer(name: "t", cls: .archer, id: 1)
+    hunter.kills = ["slime": 42]
+    hunter.eliteKills = 3
+    hunter.bestCombo = 31
+    hunter.achievements = ["kill100"]
+    let back = RpgSaveStore.player(from: RpgSaveStore.snapshot(hunter), id: 1)
+    check(back.kills["slime"] == 42 && back.eliteKills == 3 && back.bestCombo == 31 && back.achievements == ["kill100"], "counters and achievements survive a save round trip")
+
+    let cleaned = RpgAchievements.cleanKills(["slime": 99_999_999_999, "not-a-monster": 5, "bat": -4])
+    check(cleaned["slime"] == 10_000_000 && cleaned["not-a-monster"] == nil && cleaned["bat"] == 0, "save counters are clamped and unknown monsters dropped")
+
+    let (fw, fid) = fieldWorld(level: 30)
+    hunt(fw, id: fid, seconds: 20)
+    let after = fw.player(fid)!
+    check(after.kills.values.reduce(0, +) > 0 && after.bestCombo > 0, "hunting records kills and best combo (\(after.kills.values.reduce(0, +)) kills)")
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

@@ -126,6 +126,11 @@ struct RpgPlayer {
     /// Kills in a row; resets when `comboUntil` passes. Not saved.
     var combo = 0
     var comboUntil = 0.0
+    /// Lifetime counters (saved): kills per monster id, golden elites, best combo, unlocked achievements.
+    var kills: [String: Int] = [:]
+    var eliteKills = 0
+    var bestCombo = 0
+    var achievements: Set<String> = []
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -503,6 +508,18 @@ final class RpgWorld {
         effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.4)
         shake = max(shake, 1)
         toast("2차 전직! \(def.name)이(가) 되었어요", to: nil)
+        checkAchievements(i)
+    }
+
+    /// Pays out every achievement whose goal has just been reached (once each).
+    private func checkAchievements(_ i: Int) {
+        for a in RpgAchievements.all where !players[i].achievements.contains(a.id) && RpgAchievements.value(a.metric, players[i]) >= a.goal {
+            players[i].achievements.insert(a.id)
+            players[i].gold += a.gold
+            if a.stones > 0 { players[i].inventory["stone", default: 0] += a.stones }
+            toast("업적 달성: \(a.name)  (+\(a.gold)G, 강화석 \(a.stones)개)", to: players[i].id)
+            effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.2)
+        }
     }
 
     /// Teaches the job skills the character's level allows (the second at Lv30) and puts new ones on a free slot.
@@ -621,6 +638,7 @@ final class RpgWorld {
         players[i].dash = nil
         players[i].posLockUntil = time + 0.6
         let first = players[i].visited.insert(target).inserted
+        if first { checkAchievements(i) }
         spawnMobsIfNeeded(target)
         leaveMapIfEmpty(from)
         let def = RpgMaps.def(target)
@@ -1163,6 +1181,7 @@ final class RpgWorld {
         if !m.summoned, let ki = pIndex(playerID) {
             players[ki].combo += 1
             players[ki].comboUntil = time + Self.comboWindow
+            players[ki].bestCombo = max(players[ki].bestCombo, players[ki].combo)
             if [5, 10, 25, 50, 100].contains(players[ki].combo) { toast("콤보 ×\(players[ki].combo)!", to: playerID) }
         }
         let eliteMul: Double = m.elite ? 4 : 1
@@ -1218,6 +1237,9 @@ final class RpgWorld {
         }
         for id in shared {
             guard let pi = pIndex(id) else { continue }
+            if !m.summoned { players[pi].kills[m.def.id, default: 0] += 1 }
+            if m.elite { players[pi].eliteKills += 1 }
+            checkAchievements(pi)
             for q in players[pi].quests.indices where players[pi].quests[q].monster == m.def.id && !players[pi].quests[q].done {
                 players[pi].quests[q].progress += 1
                 if players[pi].quests[q].done { toast("의뢰 달성! 의뢰소에서 보상을 받으세요", to: id) }
@@ -1267,6 +1289,7 @@ final class RpgWorld {
             for s in unlock { toast("\(s.name) 스킬북을 쓸 수 있는 레벨이 됐어요") }
             if players[i].level == RpgJobs.advanceLevel, players[i].job == 0 { toast("마을의 전직관을 찾아가 2차 전직을 하세요!") }
             learnJobSkills(i)
+            checkAchievements(i)
         }
     }
 
@@ -1929,6 +1952,10 @@ extension RpgWorld {
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
         players[i].job = d.job ?? 0
+        players[i].kills = RpgAchievements.cleanKills(d.kills)
+        players[i].eliteKills = min(max(d.eliteKills ?? 0, 0), 10_000_000)
+        players[i].bestCombo = min(max(d.bestCombo ?? 0, 0), 10_000)
+        players[i].achievements = Set((d.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         players[i].hp = s.hp
         players[i].mp = s.mp
         players[i].cooldowns = s.cooldowns

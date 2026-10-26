@@ -13,7 +13,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job }
+    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex }
 
     private let world: RpgWorld
     private let localID: Int
@@ -28,6 +28,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var origin = CGPoint.zero
     private var scale: CGFloat = 3
     private var panel = Panel.none
+    private static let codexMonsters = RpgMonsters.all.sorted { $0.level < $1.level }
     private var showMinimap = UserDefaults.standard.object(forKey: "rpgMinimap") as? Bool ?? true
     private var selection = 0
     private var tab = 0
@@ -163,6 +164,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .keys: return RpgKeyAction.allCases.count
         case .waypoint: return waypoints(p).count
         case .quests: return p.quests.count
+        case .codex: return tab == 0 ? Self.codexMonsters.count : RpgAchievements.all.count
         case .party: return tab == 0 ? partyRows(p).count : inviteCandidates(p).count
         }
     }
@@ -196,7 +198,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             return
         }
         // The key that opened a window also closes it.
-        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party)]
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
         if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.skillList[min(selection, p.skillList.count - 1)]
@@ -288,7 +290,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let list = inviteCandidates(p)
                 if list.indices.contains(selection) { act(.invite(list[selection].id)) }
             }
-        case .quests, .none:
+        case .quests, .codex, .none:
             break
         }
     }
@@ -324,6 +326,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if tapped(.inventory) { open(.inventory) }
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
+            if tapped(.codex) { open(.codex) }
             if tapped(.keys) { open(.keys) }
             if tapped(.minimap) { showMinimap.toggle(); UserDefaults.standard.set(showMinimap, forKey: "rpgMinimap") }
             if tapped(.party) { open(.party) }
@@ -902,7 +905,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
         drawHotbar(ctx, me)
         let b = bindings
-        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   나가기 Esc",
+        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   도감 \(b.label(.codex))   나가기 Esc",
              at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
 
         if me.dead {
@@ -1085,6 +1088,39 @@ final class RpgView: NSView, NSTextFieldDelegate {
             } else {
                 let ids = sortedInventory(p)
                 list(ctx, count: ids.count, in: area) { i, r in itemRow(ctx, ids[i], r, p, right: "+\(RpgItems.item(ids[i])?.sellPrice ?? 0) G") }
+            }
+        case .codex:
+            let area = frame(ctx, title: "도감 · 업적", hint: "↑↓ 선택   ←→ 탭   \(bindings.label(.codex))/Esc 닫기", tabs: ["몬스터 도감", "업적"])
+            let green = NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1)
+            if tab == 0 {
+                let met = Self.codexMonsters.filter { (p.kills[$0.id] ?? 0) > 0 }.count
+                text("발견 \(met) / \(Self.codexMonsters.count)", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 13, color: Self.gold, align: .right)
+                list(ctx, count: Self.codexMonsters.count, in: area, rowH: 44) { i, r in
+                    let def = Self.codexMonsters[i]
+                    let n = p.kills[def.id] ?? 0
+                    if let img = RpgArt.sprite(def.sprite) {
+                        ctx.interpolationQuality = .none
+                        ctx.setAlpha(n > 0 ? 1 : 0.25)
+                        let h: CGFloat = 32
+                        KartArt.draw(img, in: ctx, rect: CGRect(x: r.minX + 6, y: r.minY + 4, width: h * CGFloat(img.width) / CGFloat(img.height), height: h))
+                        ctx.setAlpha(1)
+                    }
+                    text(n > 0 ? "\(def.name)  Lv\(def.level)" + (def.behavior == .boss ? "  [보스]" : "") : "???", at: CGPoint(x: r.minX + 56, y: r.minY + 4),
+                         size: 14, color: n > 0 ? .white : Self.dim, weight: .bold)
+                    text(n > 0 ? "처치 \(n)마리 · HP \(def.hp) · 경험치 \(def.xp)" : "아직 만나지 못했어요", at: CGPoint(x: r.minX + 56, y: r.minY + 24), size: 10,
+                         color: Self.dim, weight: .semibold)
+                }
+            } else {
+                text("달성 \(p.achievements.count) / \(RpgAchievements.all.count)", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 13, color: Self.gold, align: .right)
+                list(ctx, count: RpgAchievements.all.count, in: area, rowH: 50) { i, r in
+                    let a = RpgAchievements.all[i]
+                    let have = p.achievements.contains(a.id)
+                    let value = min(a.goal, RpgAchievements.value(a.metric, p))
+                    text(a.name + (have ? "  ✓ 달성" : ""), at: CGPoint(x: r.minX + 12, y: r.minY + 4), size: 14, color: have ? green : .white, weight: .bold)
+                    text("\(a.desc)  ·  보상 \(a.gold)G · 강화석 \(a.stones)개", at: CGPoint(x: r.minX + 12, y: r.minY + 25), size: 10, color: Self.dim, weight: .semibold)
+                    bar(ctx, CGRect(x: r.maxX - 150, y: r.minY + 12, width: 140, height: 8), Double(value) / Double(a.goal), have ? green : Self.gold,
+                        label: "\(value)/\(a.goal)")
+                }
             }
         case .job:
             let area = frame(ctx, title: "전직관 — 2차 전직", hint: p.job == 0 && p.level >= RpgJobs.advanceLevel
