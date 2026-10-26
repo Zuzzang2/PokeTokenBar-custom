@@ -44,7 +44,14 @@ struct RpgSaveData: Codable, Sendable {
 enum RpgSaveStore {
     enum LoadResult { case none, ok(RpgSaveData), tampered }
 
-    private static var url: URL { AppStatePaths.directory().appendingPathComponent("rpg-save.json") }
+    /// Three character slots. Slot 1 keeps the original `rpg-save.json`, so saves from before slots just work.
+    static let slotCount = 3
+    /// The slot the running game saves to, chosen on the title screen.
+    nonisolated(unsafe) static var slot = 1
+
+    private static func url(_ slot: Int) -> URL {
+        AppStatePaths.directory().appendingPathComponent(slot == 1 ? "rpg-save.json" : "rpg-save-\(slot).json")
+    }
     private static let key = SymmetricKey(data: Data("ptb-pixel-adventure/v1/7f3a9c1e5b".utf8))
 
     private struct Envelope: Codable {
@@ -56,24 +63,31 @@ enum RpgSaveStore {
         HMAC<SHA256>.authenticationCode(for: body, using: key).map { String(format: "%02x", $0) }.joined()
     }
 
-    static func load() -> LoadResult {
-        guard let raw = try? Data(contentsOf: url) else { return .none }
+    static func load(slot: Int = RpgSaveStore.slot) -> LoadResult {
+        guard (1...slotCount).contains(slot), let raw = try? Data(contentsOf: url(slot)) else { return .none }
         guard let env = try? JSONDecoder().decode(Envelope.self, from: raw), mac(env.body) == env.mac,
               let data = try? JSONDecoder().decode(RpgSaveData.self, from: env.body) else { return .tampered }
         return .ok(data)
     }
 
-    static func save(_ data: RpgSaveData) {
-        guard let body = try? JSONEncoder().encode(data),
+    static func save(_ data: RpgSaveData, slot: Int = RpgSaveStore.slot) {
+        guard (1...slotCount).contains(slot), let body = try? JSONEncoder().encode(data),
               let raw = try? JSONEncoder().encode(Envelope(body: body, mac: mac(body))) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? raw.write(to: url, options: .atomic)
+        try? FileManager.default.createDirectory(at: url(slot).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? raw.write(to: url(slot), options: .atomic)
+    }
+
+    /// Removes one character slot (other slots are untouched).
+    static func delete(slot: Int) {
+        guard (1...slotCount).contains(slot) else { return }
+        try? FileManager.default.removeItem(at: url(slot))
     }
 
     /// Keeps a rejected file next to the new save instead of silently overwriting it.
-    static func quarantine() {
-        let dest = url.deletingLastPathComponent().appendingPathComponent("rpg-save.rejected-\(Int(Date().timeIntervalSince1970)).json")
-        try? FileManager.default.moveItem(at: url, to: dest)
+    static func quarantine(slot: Int = RpgSaveStore.slot) {
+        guard (1...slotCount).contains(slot) else { return }
+        let dest = url(slot).deletingLastPathComponent().appendingPathComponent("rpg-save\(slot == 1 ? "" : "-\(slot)").rejected-\(Int(Date().timeIntervalSince1970)).json")
+        try? FileManager.default.moveItem(at: url(slot), to: dest)
     }
 
     static func snapshot(_ p: RpgPlayer) -> RpgSaveData {
