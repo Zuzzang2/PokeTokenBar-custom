@@ -51,15 +51,23 @@ func hunt(_ w: RpgWorld, id: Int, seconds: Double) -> Int {
     return best
 }
 
-/// Attacks one specific monster until it dies (or `seconds` pass).
-func kill(_ w: RpgWorld, id: Int, mob mobID: Int, seconds: Double = 20) {
-    var t = 0.0
+/// Attacks one specific monster until it dies (or `seconds` pass). When the walk is blocked by scenery it hops sideways.
+func kill(_ w: RpgWorld, id: Int, mob mobID: Int, seconds: Double = 25) {
+    var t = 0.0, lastPos = CGPoint.zero, stuck = 0
     while t < seconds {
         guard let me = w.player(id), let target = (w.mobs[me.map] ?? []).first(where: { $0.id == mobID }), !target.dead else { return }
+        stuck = hypot(me.pos.x - lastPos.x, me.pos.y - lastPos.y) < 0.5 ? stuck + 1 : 0
+        lastPos = me.pos
         let dx = target.pos.x - me.pos.x, dy = target.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
         var input = RpgInput()
-        let go = d > 80 ? min(d, 80) : max(0, d - 10)
-        input.pos = CGPoint(x: me.pos.x + dx / d * go, y: me.pos.y + dy / d * go)
+        var go = d > 80 ? min(d, 80) : max(0, d - 10)
+        var ux = dx / d, uy = dy / d
+        if stuck >= 3 {
+            // Blocked: try a random direction for a few steps.
+            let a = Double.random(in: 0..<(2 * .pi))
+            ux = CGFloat(cos(a)); uy = CGFloat(sin(a)); go = 40
+        }
+        input.pos = CGPoint(x: me.pos.x + ux * go, y: me.pos.y + uy * go)
         input.facing = CGVector(dx: dx / d, dy: dy / d)
         input.attack = true
         w.step(1.0 / 30, inputs: [id: input])
@@ -103,7 +111,8 @@ do {
     var found: (RpgWorld, Int, RpgMob)?
     for _ in 0..<60 {
         let (w, id) = fieldWorld(level: 40)
-        if let e = (w.mobs[.field] ?? []).first(where: { $0.elite }) { found = (w, id, e); break }
+        // Bombs may blow themselves up before they can be killed for XP, so test an ordinary elite.
+        if let e = (w.mobs[.field] ?? []).first(where: { $0.elite && $0.def.behavior != .exploder }) { found = (w, id, e); break }
     }
     check(found != nil, "elite monsters spawn")
     if let (w, id, e) = found {
@@ -350,17 +359,20 @@ do {
     } else { check(false, "found a spot next to a charger") }
 }
 do {
-    // Exploder: runs in, detonates, hurts, and pays no XP.
-    if let (w, a) = parkedWorld(on: .volcano, level: 40, near: { $0.mobs[.volcano]?.first { $0.def.id == "volcanoexploder" } }) {
+    // Exploder: runs in, detonates, hurts, and pays no XP. A bomb stuck behind scenery does not count against it:
+    // try a few worlds, each parked next to a different bomb.
+    var blew = false, hurt = false, noXP = false
+    for _ in 0..<8 where !blew {
+        guard let (w, a) = parkedWorld(on: .volcano, level: 40, near: { world in world.mobs[.volcano]?.filter { $0.def.id == "volcanoexploder" }.randomElement() }) else { continue }
         let hpBefore = w.player(2)!.hp, xpBefore = w.player(2)!.xp
-        var blew = false
         for _ in 0..<240 {
             w.step(1.0 / 30, inputs: [:])
             if w.mobs[.volcano]?.first(where: { $0.id == a.id })?.dead == true { blew = true; break }
         }
-        check(blew, "an exploder detonates next to the player")
-        check(w.player(2)!.hp < hpBefore && w.player(2)!.xp == xpBefore, "the blast hurts and gives no XP")
-    } else { check(false, "found a spot next to an exploder") }
+        if blew { hurt = w.player(2)!.hp < hpBefore; noXP = w.player(2)!.xp == xpBefore }
+    }
+    check(blew, "an exploder detonates next to the player")
+    check(hurt && noXP, "the blast hurts and gives no XP")
 }
 do {
     // The densest map still steps quickly.
@@ -375,6 +387,122 @@ do {
     for _ in 0..<600 { w.step(1.0 / 30, inputs: [:]) }
     let perStep = Date().timeIntervalSince(start) / 600 * 1000
     check(perStep < 4, "desert with \(count) monsters steps in \(String(format: "%.2f", perStep)) ms (budget 4 ms)")
+}
+
+// MARK: items: accessories, crafting, buffs, materials
+do {
+    check(RpgItems.all.count >= 105, "the item table has \(RpgItems.all.count) items")
+    check((0..<8).allSatisfy { RpgItems.item("ring\($0)")?.kind == .ring && RpgItems.item("amulet\($0)")?.kind == .amulet && RpgItems.item("helmet\($0)")?.kind == .helmet && RpgItems.item("boots\($0)")?.kind == .boots }, "8 tiers each of rings, amulets, helmets and boots exist")
+    check(RpgMaterials.bands.allSatisfy { RpgItems.item($0.item)?.kind == .material }, "every material band points at a material")
+    check(RpgRecipes.all.allSatisfy { r in RpgItems.item(r.output) != nil && r.materials.keys.allSatisfy { RpgItems.item($0) != nil } }, "every recipe uses real items (\(RpgRecipes.all.count) recipes)")
+
+    var p = RpgSaveStore.newPlayer(name: "jeweller", cls: .warrior, id: 1)
+    p.level = 20
+    p.inventory["ring2"] = 1
+    p.inventory["ring1"] = 1
+    p.inventory["amulet3"] = 1
+    let w = RpgWorld(player: p)
+    let before = w.player(1)!
+    w.perform(.equip("ring2"), for: 1)
+    w.perform(.equip("amulet3"), for: 1)
+    let after = w.player(1)!
+    check(after.maxHP == before.maxHP + 110 + 380 && after.maxMP == before.maxMP + 80, "ring and amulet add HP and MP (\(Int(before.maxHP)) -> \(Int(after.maxHP)))")
+    check(after.attack(at: 0) > before.attack(at: 0) && after.critChance(at: 0) > before.critChance(at: 0), "a ring raises attack and crit")
+    check(after.defense == before.defense + 12, "an amulet adds defense")
+    check(after.inventory["ring2"] == nil && after.ring == "ring2", "the equipped ring leaves the bag")
+    w.perform(.equip("ring1"), for: 1)
+    check(w.player(1)?.ring == "ring1" && w.player(1)?.inventory["ring2"] == 1, "swapping rings returns the old one to the bag")
+
+    var bad = RpgSaveStore.snapshot(w.player(1)!)
+    check(RpgSaveStore.player(from: bad, id: 1).ring == "ring1" && RpgSaveStore.player(from: bad, id: 1).amulet == "amulet3", "equipped accessories survive a save round trip")
+    bad.ring = "sword1"
+    bad.amulet = "nonsense"
+    check(RpgSaveStore.player(from: bad, id: 1).ring == nil && RpgSaveStore.player(from: bad, id: 1).amulet == nil, "a save cannot put the wrong item in an accessory slot")
+}
+do {
+    // Crafting at the smith.
+    let smithDoor = RpgWorld.townSpawn
+    _ = smithDoor
+    var p = RpgSaveStore.newPlayer(name: "crafter", cls: .mage, id: 1)
+    p.level = 20
+    p.gold = 5000
+    p.inventory["mat_jelly"] = 5
+    p.inventory["mat_hide"] = 3
+    let town = RpgMap(RpgMaps.def(.town))
+    let door = town.buildings.first { $0.place == .smith }!.door
+    p.pos = door
+    let w = RpgWorld(player: p)
+    w.perform(.craft("ring0"), for: 1)
+    let r = w.player(1)!
+    check(r.inventory["ring0"] == 1 && r.inventory["mat_jelly"] == nil && r.inventory["mat_hide"] == nil && r.gold == 4800, "crafting a ring spends the materials and gold")
+    w.perform(.craft("ring0"), for: 1)
+    check(w.player(1)?.inventory["ring0"] == 1, "crafting without materials does nothing")
+
+    var far = RpgSaveStore.newPlayer(name: "away", cls: .mage, id: 1)
+    far.gold = 5000
+    far.inventory["mat_jelly"] = 5
+    far.inventory["mat_hide"] = 3
+    let w2 = RpgWorld(player: far)
+    w2.perform(.craft("ring0"), for: 1)
+    check(w2.player(1)?.inventory["ring0"] == nil, "crafting only works at the smith")
+}
+do {
+    // Buff items.
+    var p = RpgSaveStore.newPlayer(name: "buffed", cls: .archer, id: 1)
+    p.inventory["buff_atk"] = 1
+    p.inventory["buff_speed"] = 1
+    p.inventory["buff_xp"] = 1
+    p.inventory["buff_luck"] = 1
+    let w = RpgWorld(player: p)
+    let t0 = w.time
+    let atk0 = w.player(1)!.attack(at: t0), spd0 = w.player(1)!.speed(at: t0)
+    for id in ["buff_atk", "buff_speed", "buff_xp", "buff_luck"] { w.perform(.equip(id), for: 1) }
+    let q = w.player(1)!
+    check(abs(q.attack(at: w.time) / atk0 - 1.3) < 0.001, "attack elixir gives +30% attack")
+    check(abs(q.speed(at: w.time) / spd0 - 1.25) < 0.001, "speed elixir gives +25% speed")
+    check(q.buffActive("xp", w.time) && q.buffActive("luck", w.time) && q.inventory["buff_atk"] == nil, "buffs start and the item is consumed")
+    var t = 0.0
+    while t < 61 { w.step(1.0 / 30, inputs: [:]); t += 1.0 / 30 }
+    check(!w.player(1)!.buffActive("atk", w.time) && w.player(1)!.buffActive("xp", w.time), "the 60 s buffs end, the 10 min ones last")
+}
+do {
+    // Monsters drop crafting materials as you hunt.
+    let (w, id) = fieldWorld(level: 30)
+    hunt(w, id: id, seconds: 60)
+    let bag = w.player(id)!.inventory
+    check((bag["mat_jelly"] ?? 0) + (bag["mat_hide"] ?? 0) > 0, "hunting in the field yields crafting materials (jelly \(bag["mat_jelly"] ?? 0), hide \(bag["mat_hide"] ?? 0))")
+}
+
+do {
+    // Helmet and boots.
+    var p = RpgSaveStore.newPlayer(name: "knight", cls: .warrior, id: 1)
+    p.inventory["helmet3"] = 1
+    p.inventory["boots3"] = 1
+    let w = RpgWorld(player: p)
+    let before = w.player(1)!
+    w.perform(.equip("helmet3"), for: 1)
+    w.perform(.equip("boots3"), for: 1)
+    let after = w.player(1)!
+    check(after.maxHP == before.maxHP + 280 && after.defense == before.defense + 9 + 7, "helmet and boots add HP and defense")
+    check(abs(after.speed(at: 0) / before.speed(at: 0) - 1.05) < 0.001, "boots add walking speed")
+    check(RpgSaveStore.player(from: RpgSaveStore.snapshot(after), id: 1).helmet == "helmet3" && RpgSaveStore.player(from: RpgSaveStore.snapshot(after), id: 1).boots == "boots3", "helmet and boots save")
+}
+do {
+    // A protection scroll keeps the enhancement level when a +7 or higher upgrade fails.
+    var p = RpgSaveStore.newPlayer(name: "smith", cls: .warrior, id: 1)
+    p.level = 30
+    p.gold = 100_000_000
+    p.inventory["stone"] = 500
+    p.inventory["scroll_protect"] = 30
+    p.plus[p.weapon] = 8
+    let w = RpgWorld(player: p)
+    var lowest = 99, spent = 0
+    for _ in 0..<40 {
+        w.perform(.enhance(weapon: true), for: 1)
+        lowest = min(lowest, w.player(1)!.plus[w.player(1)!.weapon] ?? 0)
+    }
+    spent = 30 - (w.player(1)!.inventory["scroll_protect"] ?? 0)
+    check(lowest >= 8 && spent > 0, "protection scrolls stop +8 gear from dropping (used \(spent))")
 }
 
 if failures > 0 { print("\(failures) failed"); exit(1) }

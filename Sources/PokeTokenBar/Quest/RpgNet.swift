@@ -84,6 +84,8 @@ struct RpgPrivate: Codable, Sendable {
     var inviteFrom: Int? = nil
     var trade: RpgTradeView? = nil
     var tradeFrom: Int? = nil
+    /// Seconds left on each buff item, so a client can show and apply them.
+    var buffLeft: [String: Double]? = nil
 }
 
 enum RpgNetMessage: Codable, Sendable {

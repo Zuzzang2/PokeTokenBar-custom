@@ -35,6 +35,10 @@ struct RpgSaveData: Codable, Sendable {
     var bestCombo: Int?
     var achievements: [String]?
     var bestFloor: Int?
+    var ring: String?
+    var amulet: String?
+    var helmet: String?
+    var boots: String?
 }
 
 enum RpgSaveStore {
@@ -80,7 +84,8 @@ enum RpgSaveStore {
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
                            plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
-                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor)
+                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor,
+                           ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots)
     }
 
     static func player(from s: RpgSaveData, id: Int) -> RpgPlayer {
@@ -108,6 +113,10 @@ enum RpgSaveStore {
         p.bestCombo = min(max(s.bestCombo ?? 0, 0), 10_000)
         p.achievements = Set((s.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         p.bestFloor = min(max(s.bestFloor ?? 0, 0), 1000)
+        p.ring = s.ring.flatMap { RpgItems.item($0)?.kind == .ring ? $0 : nil }
+        p.amulet = s.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
+        p.helmet = s.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
+        p.boots = s.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
         p.hp = p.maxHP
         p.mp = p.maxMP
         // A position from an older map layout might now be inside a wall.

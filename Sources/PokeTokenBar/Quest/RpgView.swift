@@ -159,7 +159,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .none: return 0
         case .inventory: return sortedInventory(p).count
         case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
-        case .smith, .job: return 2
+        case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
+        case .job: return 2
         case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
         case .skills: return p.skillList.count
         case .keys: return RpgKeyAction.allCases.count
@@ -264,7 +265,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 if ids.indices.contains(selection) { act(.sell(ids[selection])) }
             }
         case .smith:
-            act(.enhance(weapon: selection == 0))
+            if tab == 0 { act(.enhance(weapon: selection == 0)) }
+            else if RpgRecipes.all.indices.contains(selection) { act(.craft(RpgRecipes.all[selection].id)) }
         case .job:
             act(.advance(selection + 1))
         case .board:
@@ -847,6 +849,10 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if t < me.focusUntil { buffs.append(("집중", me.focusUntil - t, NSColor(red: 0.55, green: 1, blue: 0.6, alpha: 1))) }
         if t < me.shieldUntil { buffs.append(("실드", me.shieldUntil - t, NSColor(red: 0.55, green: 0.75, blue: 1, alpha: 1))) }
         if t < me.cycloneUntil { buffs.append(("회오리", me.cycloneUntil - t, NSColor(red: 0.9, green: 0.9, blue: 0.5, alpha: 1))) }
+
+        for b in RpgBuffs.all where me.buffActive(b.id, t) {
+            buffs.append((b.name, me.buffUntil[b.id]! - t, NSColor(red: 1, green: 0.85, blue: 0.4, alpha: 1)))
+        }
         for (k, b) in buffs.enumerated() {
             text("\(b.0) \(Int(b.1.rounded(.up)))s", at: CGPoint(x: 14 + CGFloat(k) * 66, y: 110), size: 11, color: b.2, weight: .bold)
         }
@@ -1007,11 +1013,17 @@ final class RpgView: NSView, NSTextFieldDelegate {
             switch i.kind {
             case .weapon: return 0
             case .armor: return 1
-            case .book: return 2
-            case .stone: return 3
-            case .potionHP: return 4
-            case .potionMP: return 5
-            case .scroll: return 6
+            case .ring: return 2
+            case .amulet: return 3
+            case .helmet: return 4
+            case .boots: return 5
+            case .book: return 6
+            case .stone: return 7
+            case .buff: return 8
+            case .potionHP: return 9
+            case .potionMP: return 10
+            case .scroll: return 11
+            case .material: return 12
             }
         }
         return p.inventory.keys.sorted { a, b in
@@ -1035,8 +1047,15 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .book(let id):
             if let s = RpgSkills.def(id) { parts.append("\(s.cls.name) · Lv\(s.minLevel)+ · \(s.desc)") }
         case .weapon(let cls): parts.append("\(cls.name) 전용")
+        case .material: parts.append("제작 재료 (대장간)")
+        case .buff(let id): if let b = RpgBuffs.def(id) { parts.append(b.desc) }
         default: break
         }
+        if item.bonusHP > 0 { parts.append("HP +\(item.bonusHP)") }
+        if item.bonusMP > 0 { parts.append("MP +\(item.bonusMP)") }
+        if item.bonusCrit > 0 { parts.append("치명 +\(Int((item.bonusCrit * 100).rounded()))%") }
+        if item.bonusAttack > 0 { parts.append("공격 +\(Int((item.bonusAttack * 100).rounded()))%") }
+        if item.bonusSpeed > 0 { parts.append("이동속도 +\(Int((item.bonusSpeed * 100).rounded()))%") }
         if item.element != .base, item.isEquipment { parts.append(item.element.effectName) }
         return parts.joined(separator: " · ")
     }
@@ -1077,7 +1096,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.draw(icon, in: ctx, rect: CGRect(x: r.minX + 4, y: r.minY + 3, width: 36, height: 36))
         }
         let plus = p.plus[id] ?? 0
-        let equipped = id == p.weapon || id == p.armor
+        let equipped = id == p.weapon || id == p.armor || id == p.ring || id == p.amulet || id == p.helmet || id == p.boots
         text((plus > 0 ? "+\(plus) " : "") + item.name + (equipped ? "  [장착 중]" : ""), at: CGPoint(x: r.minX + 48, y: r.minY + 4), size: 13,
              color: RpgArt.rarityColors[item.rarity], weight: .bold)
         text(itemLine(item, p), at: CGPoint(x: r.minX + 48, y: r.minY + 22), size: 10, color: Self.dim, weight: .semibold)
@@ -1101,6 +1120,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 ("속성", p.element == .base ? "없음" : p.element.effectName),
                 ("무기", (p.weaponItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
                 ("갑옷", (p.armorItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
+                ("투구", p.helmetItem?.name ?? "-"), ("신발", p.bootsItem?.name ?? "-"), ("반지", p.ringItem?.name ?? "-"), ("목걸이", p.amuletItem?.name ?? "-"),
                 ("골드", "\(p.gold) G"), ("강화석", "\(p.inventory["stone"] ?? 0)"), ("스킬 포인트", "\(p.sp)"),
                 ("플레이", "\(Int(p.playTime / 60))분"),
             ]
@@ -1173,8 +1193,19 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 let names = o.skills.compactMap(RpgSkills.def).enumerated().map { "\($1.name) (Lv\($0 == 0 ? RpgJobs.advanceLevel : RpgJobs.secondSkillLevel))" }
                 text("스킬: " + names.joined(separator: "  ·  "), at: CGPoint(x: r.minX + 16, y: r.minY + 80), size: 12, color: .white)
             }
+        case .smith where tab == 1:
+            let area = frame(ctx, title: "대장간 — 제작", hint: "↑↓ 선택   ←→ 탭   Enter 제작   Esc 나가기", tabs: ["강화", "제작"])
+            text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)
+            list(ctx, count: RpgRecipes.all.count, in: area, rowH: 54) { i, r in
+                let rec = RpgRecipes.all[i]
+                let can = p.gold >= rec.gold && rec.materials.allSatisfy { (p.inventory[$0.key] ?? 0) >= $0.value }
+                itemRow(ctx, rec.output, r, p, right: "\(rec.gold) G", color: p.gold >= rec.gold ? Self.gold : NSColor(red: 1, green: 0.4, blue: 0.4, alpha: 1))
+                let needs = rec.materials.sorted { $0.key < $1.key }.map { "\(RpgItems.item($0.key)?.name ?? $0.key) \(p.inventory[$0.key] ?? 0)/\($0.value)" }.joined(separator: "  ")
+                text((rec.count > 1 ? "×\(rec.count)  " : "") + needs, at: CGPoint(x: r.minX + 48, y: r.minY + 36), size: 10,
+                     color: can ? NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1) : Self.dim, weight: .semibold)
+            }
         case .smith:
-            let area = frame(ctx, title: "대장간 — 장비 강화", hint: "↑↓ 선택   Enter 강화   Esc 나가기")
+            let area = frame(ctx, title: "대장간 — 장비 강화", hint: "↑↓ 선택   ←→ 탭   Enter 강화   Esc 나가기", tabs: ["강화", "제작"])
             let rows: [String?] = [p.weapon, p.armor]
             list(ctx, count: 2, in: area, rowH: 90) { i, r in
                 guard let id = rows[i], let item = RpgItems.item(id) else {

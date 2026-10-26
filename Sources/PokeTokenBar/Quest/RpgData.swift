@@ -119,6 +119,14 @@ enum RpgItemKind: Sendable, Equatable {
     case scroll
     case book(String)
     case stone
+    case ring
+    case amulet
+    case helmet
+    case boots
+    /// Crafting ingredient (dropped by monsters, used at the smith).
+    case material
+    /// Timed buff; the payload is the `RpgBuffs` id.
+    case buff(String)
 }
 
 struct RpgItem: Sendable {
@@ -134,11 +142,18 @@ struct RpgItem: Sendable {
     let element: RpgElement
     /// Sold in a town shop; the best gear only drops.
     let inShop: Bool
+    /// Accessory bonuses: flat HP / MP, crit chance and attack percent (0.1 = +10%).
+    var bonusHP = 0
+    var bonusMP = 0
+    var bonusCrit = 0.0
+    var bonusAttack = 0.0
+    /// Boots: walking speed (0.05 = +5%).
+    var bonusSpeed = 0.0
 
     var sellPrice: Int { max(1, price / 3) }
     var isEquipment: Bool {
         switch kind {
-        case .weapon, .armor: return true
+        case .weapon, .armor, .ring, .amulet, .helmet, .boots: return true
         default: return false
         }
     }
@@ -184,6 +199,56 @@ enum RpgItems {
             RpgItem(id: "scroll", name: "귀환 주문서", kind: .scroll, rarity: 0, attack: 0, defense: 0, heal: 0, price: 40, element: .base, inShop: true),
             RpgItem(id: "stone", name: "강화석", kind: .stone, rarity: 1, attack: 0, defense: 0, heal: 0, price: 300, element: .base, inShop: false),
         ]
+        // Rings: HP, crit and attack. Amulets: HP, MP and defense. The lower tiers are sold, the rest drops or is crafted.
+        let rings: [(String, Int, Int, Double, Double, Int, Bool)] = [
+            ("구리 반지", 0, 20, 0.01, 0.02, 200, true), ("은 반지", 1, 50, 0.02, 0.04, 900, true), ("루비 반지", 2, 110, 0.03, 0.07, 3500, true),
+            ("사파이어 반지", 2, 200, 0.04, 0.09, 8000, true), ("용의 반지", 3, 360, 0.06, 0.13, 24000, false), ("서리의 반지", 3, 600, 0.07, 0.16, 50000, false),
+            ("마왕의 반지", 4, 950, 0.10, 0.22, 120000, false), ("별빛 반지", 4, 1400, 0.12, 0.28, 250000, false),
+        ]
+        items += rings.enumerated().map { i, r in
+            RpgItem(id: "ring\(i)", name: r.0, kind: .ring, rarity: r.1, attack: 0, defense: 0, heal: 0, price: r.5, element: .base, inShop: r.6,
+                    bonusHP: r.2, bonusCrit: r.3, bonusAttack: r.4)
+        }
+        let amulets: [(String, Int, Int, Int, Int, Int, Bool)] = [
+            ("나무 목걸이", 0, 40, 10, 1, 200, true), ("은 목걸이", 1, 90, 20, 3, 900, true), ("호박 목걸이", 2, 200, 45, 7, 3500, true),
+            ("청옥 목걸이", 2, 380, 80, 12, 8000, true), ("용의 목걸이", 3, 650, 130, 20, 24000, false), ("서리의 목걸이", 3, 1000, 200, 32, 50000, false),
+            ("마왕의 목걸이", 4, 1600, 320, 50, 120000, false), ("별빛 목걸이", 4, 2400, 480, 75, 250000, false),
+        ]
+        items += amulets.enumerated().map { i, a in
+            RpgItem(id: "amulet\(i)", name: a.0, kind: .amulet, rarity: a.1, attack: 0, defense: a.4, heal: 0, price: a.5, element: .base, inShop: a.6,
+                    bonusHP: a.2, bonusMP: a.3)
+        }
+        let helmets: [(String, Int, Int, Int, Int, Bool)] = [
+            ("가죽 모자", 0, 30, 1, 150, true), ("철 투구", 1, 70, 2, 800, true), ("은빛 투구", 2, 150, 5, 3200, true), ("미스릴 투구", 2, 280, 9, 7500, true),
+            ("용의 투구", 3, 480, 15, 22000, false), ("서리 투구", 3, 780, 24, 48000, false), ("마왕의 투구", 4, 1200, 38, 115000, false), ("별빛 투구", 4, 1800, 56, 240000, false),
+        ]
+        items += helmets.enumerated().map { i, h in
+            RpgItem(id: "helmet\(i)", name: h.0, kind: .helmet, rarity: h.1, attack: 0, defense: h.3, heal: 0, price: h.4, element: .base, inShop: h.5, bonusHP: h.2)
+        }
+        let boots: [(String, Int, Double, Int, Int, Bool)] = [
+            ("천 신발", 0, 0.02, 1, 150, true), ("가죽 장화", 1, 0.03, 2, 800, true), ("사슬 장화", 2, 0.04, 4, 3200, true), ("미스릴 장화", 2, 0.05, 7, 7500, true),
+            ("용의 장화", 3, 0.06, 11, 22000, false), ("서리 장화", 3, 0.07, 17, 48000, false), ("마왕의 장화", 4, 0.08, 26, 115000, false), ("별빛 장화", 4, 0.10, 40, 240000, false),
+        ]
+        items += boots.enumerated().map { i, b in
+            RpgItem(id: "boots\(i)", name: b.0, kind: .boots, rarity: b.1, attack: 0, defense: b.3, heal: 0, price: b.4, element: .base, inShop: b.5, bonusSpeed: b.2)
+        }
+        items += [
+            RpgItem(id: "hp4", name: "신의 물약", kind: .potionHP, rarity: 3, attack: 0, defense: 0, heal: 4000, price: 2800, element: .base, inShop: true),
+            RpgItem(id: "mp2", name: "마나 에센스", kind: .potionMP, rarity: 3, attack: 0, defense: 0, heal: 600, price: 800, element: .base, inShop: true),
+            RpgItem(id: "scroll_protect", name: "강화 보호 주문서", kind: .material, rarity: 3, attack: 0, defense: 0, heal: 0, price: 2500, element: .base, inShop: false),
+        ]
+        let materials: [(String, String, Int, Int)] = [
+            ("mat_jelly", "슬라임 젤리", 0, 8), ("mat_hide", "늑대 가죽", 0, 20), ("mat_bone", "해골 뼛조각", 1, 60), ("mat_sting", "전갈 독침", 1, 120),
+            ("mat_ice", "얼음 조각", 2, 250), ("mat_magma", "용암 핵", 2, 500), ("mat_dark", "암흑 파편", 3, 900), ("mat_wraith", "망령의 잔재", 3, 1600),
+        ]
+        items += materials.map { m in
+            RpgItem(id: m.0, name: m.1, kind: .material, rarity: m.2, attack: 0, defense: 0, heal: 0, price: m.3 * 3, element: .base, inShop: false)
+        }
+        let buffPrices = ["atk": 600, "xp": 1500, "luck": 1200, "speed": 400, "pet": 500]
+        items += RpgBuffs.all.map { b in
+            RpgItem(id: "buff_\(b.id)", name: b.name, kind: .buff(b.id), rarity: b.id == "xp" || b.id == "luck" ? 2 : 1, attack: 0, defense: 0, heal: 0,
+                    price: buffPrices[b.id] ?? 500, element: .base, inShop: true)
+        }
         items += RpgSkills.all.filter { !$0.starter }.map { s in
             RpgItem(id: "book_\(s.id)", name: "스킬북: \(s.name)", kind: .book(s.id), rarity: s.isUltimate ? 3 : (s.price > 0 ? 1 : 2),
                     attack: 0, defense: 0, heal: 0, price: s.price > 0 ? s.price : (s.isUltimate ? 30000 : 6000), element: .base, inShop: s.price > 0)
@@ -226,8 +291,8 @@ enum RpgShop: String, Sendable, CaseIterable {
         RpgItems.all.filter { item in
             guard item.inShop else { return false }
             switch (self, item.kind) {
-            case (.weapon, .weapon), (.armor, .armor), (.skill, .book): return true
-            case (.potion, .potionHP), (.potion, .potionMP), (.potion, .scroll): return true
+            case (.weapon, .weapon), (.armor, .armor), (.armor, .ring), (.armor, .amulet), (.armor, .helmet), (.armor, .boots), (.skill, .book): return true
+            case (.potion, .potionHP), (.potion, .potionMP), (.potion, .scroll), (.potion, .buff): return true
             default: return false
             }
         }

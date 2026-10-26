@@ -63,6 +63,8 @@ enum RpgAction: Codable, Sendable {
     case tradeOffer(item: String, count: Int)
     case tradeGold(Int)
     case tradeConfirm(Bool)
+    /// Smith: turn materials and gold into an item (`RpgRecipes`).
+    case craft(String)
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -90,6 +92,12 @@ struct RpgPlayer {
     var inventory: [String: Int] = [:]
     var weapon: String
     var armor: String?
+    var ring: String?
+    var amulet: String?
+    var helmet: String?
+    var boots: String?
+    /// Timed buff items: buff id -> world time when it ends. Not saved.
+    var buffUntil: [String: Double] = [:]
     var plus: [String: Int] = [:]
     var skills: [String: Int] = [:]
     var sp = 0
@@ -148,27 +156,35 @@ struct RpgPlayer {
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
+    var ringItem: RpgItem? { ring.flatMap(RpgItems.item) }
+    var amuletItem: RpgItem? { amulet.flatMap(RpgItems.item) }
+    var helmetItem: RpgItem? { helmet.flatMap(RpgItems.item) }
+    var bootsItem: RpgItem? { boots.flatMap(RpgItems.item) }
+    func buffActive(_ id: String, _ time: Double) -> Bool { time < (buffUntil[id] ?? 0) }
+    /// Walking speed in pixels per second, with the speed potion.
+    func speed(at time: Double) -> Double { cls.speed * (buffActive("speed", time) ? 1.25 : 1) * (1 + (bootsItem?.bonusSpeed ?? 0)) }
     var element: RpgElement { weaponItem?.element ?? .base }
     var jobDef: RpgJobDef? { RpgJobs.def(cls, job) }
     /// Class name, or the advanced job's name once advanced.
     var title: String { jobDef?.name ?? cls.name }
     /// The skills shown in the skills window: the class's 8 plus the advanced job's 2.
     var skillList: [RpgSkillDef] { cls.skills + (jobDef?.skills.compactMap(RpgSkills.def) ?? []) }
-    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) }
-    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) }
+    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) + Double((ringItem?.bonusHP ?? 0) + (amuletItem?.bonusHP ?? 0) + (helmetItem?.bonusHP ?? 0)) }
+    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) + Double((ringItem?.bonusMP ?? 0) + (amuletItem?.bonusMP ?? 0)) }
     func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
     func armorDefense() -> Double { armorItem.map { RpgItems.boosted($0.defense, plus: plus[$0.id] ?? 0) } ?? 0 }
     func attack(at time: Double) -> Double {
-        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1)
+        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1) * (1 + (ringItem?.bonusAttack ?? 0))
         var buff = time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1
         if time < frenzyUntil { buff = max(buff, 1.4) }
+        if buffActive("atk", time) { buff *= 1.3 }
         return base * buff
     }
-    var defense: Double { (Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense()) * (jobDef?.defense ?? 1) }
+    var defense: Double { (Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense()) * (jobDef?.defense ?? 1) + Double((amuletItem?.defense ?? 0) + (helmetItem?.defense ?? 0) + (bootsItem?.defense ?? 0)) }
     func attackInterval(at time: Double) -> Double {
         cls.attackInterval * (jobDef?.interval ?? 1) * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
     }
-    func critChance(at time: Double) -> Double { cls.critChance + (jobDef?.crit ?? 0) + (time < focusUntil ? 0.4 : 0) }
+    func critChance(at time: Double) -> Double { cls.critChance + (jobDef?.crit ?? 0) + (ringItem?.bonusCrit ?? 0) + (time < focusUntil ? 0.4 : 0) }
 }
 
 struct RpgMob {
@@ -462,6 +478,8 @@ final class RpgWorld {
             players[i].slots[slot] = skill
         case .enhance(let weapon):
             enhance(i, weapon: weapon)
+        case .craft(let recipeID):
+            craft(i, recipeID)
         case .acceptQuest(let qid):
             guard let k = offers.firstIndex(where: { $0.id == qid }) else { return }
             guard players[i].quests.count < 3 else { toast("의뢰는 3개까지 받을 수 있어요"); return }
@@ -599,9 +617,17 @@ final class RpgWorld {
             if let free = players[i].slots.firstIndex(where: { $0 == nil }) { players[i].slots[free] = skill }
             effect(.levelUp, players[i].map, players[i].pos, .cosmic, duration: 1.0)
             toast("새 스킬 습득: \(def.name)!")
-        case .weapon, .armor, .stone:
+        case .weapon, .armor, .ring, .amulet, .helmet, .boots, .stone:
             equip(item, i)
             return
+        case .material:
+            toast("제작 재료예요 (대장간에서 제작)")
+            return
+        case .buff(let id):
+            guard let buff = RpgBuffs.def(id) else { return }
+            players[i].buffUntil[id] = time + buff.seconds
+            effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 0.8)
+            toast("\(buff.name) 사용! \(buff.desc)")
         }
         consume(item, i)
     }
@@ -626,11 +652,47 @@ final class RpgWorld {
             consume(item, i)
             players[i].armor = item
             toast("\(it.name) 장착!")
+        case .ring:
+            if let old = players[i].ring { players[i].inventory[old, default: 0] += 1 }
+            consume(item, i)
+            players[i].ring = item
+            toast("\(it.name) 장착!")
+        case .amulet:
+            if let old = players[i].amulet { players[i].inventory[old, default: 0] += 1 }
+            consume(item, i)
+            players[i].amulet = item
+            toast("\(it.name) 장착!")
+        case .helmet:
+            if let old = players[i].helmet { players[i].inventory[old, default: 0] += 1 }
+            consume(item, i)
+            players[i].helmet = item
+            toast("\(it.name) 장착!")
+        case .boots:
+            if let old = players[i].boots { players[i].inventory[old, default: 0] += 1 }
+            consume(item, i)
+            players[i].boots = item
+            toast("\(it.name) 장착!")
         case .stone:
             toast("강화석은 대장간에서 써요")
         default:
             use(item, i)
         }
+    }
+
+    /// Smith crafting: the host checks the recipe, the materials and gold, then swaps them for the product.
+    private func craft(_ i: Int, _ recipeID: String) {
+        guard let r = RpgRecipes.def(recipeID), RpgItems.item(r.output) != nil else { return }
+        guard nearbyPlace(for: players[i].id) == .smith else { toast("대장간 앞에서만 제작할 수 있어요"); return }
+        guard players[i].gold >= r.gold else { toast("골드가 부족해요"); return }
+        for (item, n) in r.materials where (players[i].inventory[item] ?? 0) < n {
+            toast("재료가 부족해요: \(RpgItems.item(item)?.name ?? item) \(players[i].inventory[item] ?? 0)/\(n)")
+            return
+        }
+        for (item, n) in r.materials { consume(item, i, n) }
+        players[i].gold -= r.gold
+        players[i].inventory[r.output, default: 0] += r.count
+        effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 0.8)
+        toast("제작 완료: \(RpgItems.item(r.output)?.name ?? r.output)" + (r.count > 1 ? " ×\(r.count)" : ""))
     }
 
     private func enhance(_ i: Int, weapon: Bool) {
@@ -646,6 +708,9 @@ final class RpgWorld {
             players[i].plus[id] = plus + 1
             toast("강화 성공! \(item.name) +\(plus + 1)")
             effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1)
+        } else if plus >= 7, (players[i].inventory["scroll_protect"] ?? 0) > 0 {
+            consume("scroll_protect", i)
+            toast("강화 실패… 보호 주문서가 단계를 지켜 줬어요 (+\(plus) 유지)")
         } else if plus >= 7 {
             players[i].plus[id] = plus - 1
             toast("강화 실패… +\(plus - 1)로 떨어졌어요")
@@ -814,7 +879,7 @@ final class RpgWorld {
             let dir = CGVector(dx: mv.dx / len, dy: mv.dy / len)
             p.facing = dir
             if abs(dir.dx) > 0.2 { p.facingRight = dir.dx > 0 }
-            let step = CGFloat(p.cls.speed * dt)
+            let step = CGFloat(p.speed(at: time) * dt)
             let nx = CGPoint(x: p.pos.x + dir.dx * step, y: p.pos.y)
             if m.canStand(nx) { p.pos = nx }
             let ny = CGPoint(x: p.pos.x, y: p.pos.y + dir.dy * step)
@@ -1264,10 +1329,18 @@ final class RpgWorld {
                 }
             }
             for owner in rolls {
-                let luck = ((player(owner)?.hardcore ?? false) ? Self.hardcoreReward : 1) * (m.elite ? 3 : 1)
+                let luck = ((player(owner)?.hardcore ?? false) ? Self.hardcoreReward : 1) * (m.elite ? 3 : 1) * (player(owner)?.buffActive("luck", time) == true ? 1.3 : 1)
                 for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance * luck {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
                                             gold: 0, item: d.item, at: time, owner: shared.count > 1 ? owner : nil))
+                }
+                // Crafting materials by level band, and now and then a ring or amulet of the monster's tier.
+                var extra: [String] = []
+                if Double(rng.int(10_000)) / 10_000 < RpgMaterials.chance * luck, let mat = RpgMaterials.pick(level: m.def.level, roll: rng.int(1000)) { extra.append(mat) }
+                if Double(rng.int(10_000)) / 10_000 < 0.006 * luck { extra.append(["ring", "amulet", "helmet", "boots"][rng.int(4)] + "\(min(7, m.def.level / 7))") }
+                for item in extra {
+                    drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
+                                            gold: 0, item: item, at: time, owner: shared.count > 1 ? owner : nil))
                 }
             }
         }
@@ -1317,7 +1390,9 @@ final class RpgWorld {
         guard let i = pIndex(playerID) else { return }
         float("+\(amount) XP", players[i].map, CGPoint(x: players[i].pos.x, y: players[i].pos.y - 10), .xp)
         guard players[i].level < RpgMaps.maxLevel else { return }
-        players[i].xp += players[i].hardcore ? Int(Double(amount) * Self.hardcoreReward) : amount
+        var gain = players[i].hardcore ? Int(Double(amount) * Self.hardcoreReward) : amount
+        if players[i].buffActive("xp", time) { gain = Int(Double(gain) * 1.5) }
+        players[i].xp += gain
         while players[i].level < RpgMaps.maxLevel, players[i].xp >= RpgMaps.xpNeeded(players[i].level) {
             players[i].xp -= RpgMaps.xpNeeded(players[i].level)
             players[i].level += 1
@@ -2065,11 +2140,11 @@ extension RpgWorld {
                     s.facingRight = target.pos.x > s.pos.x
                     effect(.slash(angle: atan2(Double(target.pos.y - s.pos.y), Double(target.pos.x - s.pos.x)), radius: 9), p.map,
                            CGPoint(x: target.pos.x, y: target.pos.y - 6), info.element, duration: 0.25)
-                    damageMob(target.id, map: p.map, base: Double(info.power) * 0.4 + p.attack(at: time) * 0.35, by: p.id,
+                    damageMob(target.id, map: p.map, base: (Double(info.power) * 0.4 + p.attack(at: time) * 0.35) * (p.buffActive("pet", time) ? 1.5 : 1), by: p.id,
                               element: info.element, skill: false)
                 }
                 if time >= s.skillAt, dist(s.pos, target.pos) < 60 {
-                    s.skillAt = time + rand(6, 8)
+                    s.skillAt = time + rand(6, 8) * (p.buffActive("pet", time) ? 0.6 : 1)
                     petSpecial(info, owner: p, at: target.pos)
                 }
             } else if dist(s.pos, p.pos) > 34 {
@@ -2166,7 +2241,8 @@ extension RpgWorld {
     func privateState(for id: Int) -> RpgPrivate? {
         guard let p = player(id) else { return nil }
         return RpgPrivate(save: RpgSaveStore.snapshot(p), hp: p.hp, mp: p.mp, cooldowns: p.cooldowns, offers: boardOffers(for: id),
-                          respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom, trade: tradeView(for: id), tradeFrom: p.tradeFrom)
+                          respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom, trade: tradeView(for: id), tradeFrom: p.tradeFrom,
+                          buffLeft: p.buffUntil.mapValues { max(0, $0 - time) }.filter { $0.value > 0 })
     }
 
     // MARK: client mirror
@@ -2286,6 +2362,11 @@ extension RpgWorld {
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
         mirrorTrade = s.trade
+        players[i].buffUntil = (s.buffLeft ?? [:]).mapValues { time + $0 }
+        players[i].ring = d.ring.flatMap { RpgItems.item($0)?.kind == .ring ? $0 : nil }
+        players[i].amulet = d.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
+        players[i].helmet = d.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
+        players[i].boots = d.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
         players[i].tradeFrom = s.tradeFrom
         players[i].job = d.job ?? 0
         players[i].kills = RpgAchievements.cleanKills(d.kills)
@@ -2312,7 +2393,7 @@ extension RpgWorld {
         let dir = CGVector(dx: mv.dx / len, dy: mv.dy / len)
         players[i].facing = dir
         if abs(dir.dx) > 0.2 { players[i].facingRight = dir.dx > 0 }
-        let step = CGFloat(players[i].cls.speed * dt)
+        let step = CGFloat(players[i].speed(at: time) * dt)
         let nx = CGPoint(x: players[i].pos.x + dir.dx * step, y: players[i].pos.y)
         if m.canStand(nx) { players[i].pos = nx }
         let ny = CGPoint(x: players[i].pos.x, y: players[i].pos.y + dir.dy * step)

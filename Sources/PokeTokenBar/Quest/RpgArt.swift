@@ -254,6 +254,26 @@ enum RpgArt {
         "..KBEWJWWJWEBK..", "..KBEWJJJJWEBK..", "..KBEWWWWWWEBK..", "..KBEEEEEEEEBK..", "..KBBBBBBBBBBK..", "..KCCCCCCCCCCK..",
         "..KcccccccccccK.", "...KKKKKKKKKKK..", "................", "................",
     ]
+    private static let ringT: RpgGrid = [
+        "................", "......KKKK......", ".....KJWWJK.....", ".....KJJJJK.....", "......KKKK......", "....KKKBBKKK....",
+        "...KBBKKKKBBK...", "..KBBKK..KKBBK..", "..KBK......KBK..", "..KBK......KBK..", "..KBBK....KBBK..", "...KBBKKKKBBK...",
+        "....KKBBBBKK....", ".....KKKKKK.....", "................", "................",
+    ]
+    private static let helmetT: RpgGrid = [
+        "................", "................", ".....KKKKKK.....", "....KBBBBBBK....", "...KBBJBBJBBK...", "..KBBBBBBBBBBK..",
+        "..KBBBBBBBBBBK..", "..KBBKKKKKKBBK..", "..KBK......KBK..", "..KBK......KBK..", "..KKK......KKK..", "................",
+        "................", "................", "................", "................",
+    ]
+    private static let bootsT: RpgGrid = [
+        "................", "................", "................", "....KKKK........", "...KBBBBK.......", "...KBJBBK.......",
+        "...KBBBBK.......", "...KBBBBKKKK....", "...KBBBBBBBBK...", "..KBBBBBBBBBBK..", "..KKKKKKKKKKKK..", "................",
+        "................", "................", "................", "................",
+    ]
+    private static let amuletT: RpgGrid = [
+        "................", "..K..........K..", "..KB........BK..", "...KB......BK...", "....KB....BK....", ".....KB..BK.....",
+        "......KBBK......", ".....KKKKKK.....", "....KBBBBBBK....", "...KBBJWWJBBK...", "...KBBJJJJBBK...", "...KBBBBBBBBK...",
+        "....KBBBBBBK....", ".....KKKKKK.....", "................", "................",
+    ]
     private static let stoneT: RpgGrid = [
         "................", "................", "......KKKK......", ".....KBWBBK.....", "....KBWBBBEK....", "...KBBBBBBBEK...",
         "..KBBBBBBBBBEK..", "..KEBBBBBBBEEK..", "...KEBBBBBEEK...", "....KEEBBEEK....", ".....KEEEEK.....", "......KKKK......",
@@ -327,6 +347,28 @@ enum RpgArt {
             return ["B": cover.0, "E": cover.1, "J": rgb(240, 200, 70)]
         case .stone:
             return ["B": rgb(120, 220, 255), "E": rgb(50, 120, 200)]
+        case .ring, .amulet, .helmet, .boots:
+            // Metal by tier, with a gem.
+            let metals = [rgb(190, 120, 70), rgb(205, 210, 222), rgb(240, 200, 80), rgb(220, 230, 255), rgb(255, 150, 60), rgb(170, 225, 255), rgb(70, 40, 80), rgb(255, 240, 150)]
+            let gems = [rgb(120, 200, 110), rgb(120, 170, 255), rgb(235, 60, 70), rgb(60, 110, 235), rgb(255, 110, 40), rgb(120, 230, 255), rgb(255, 60, 150), rgb(255, 255, 255)]
+            let t = min(item.tier, 7)
+            return ["B": metals[t], "J": gems[t], "W": rgb(255, 255, 255)]
+        case .material:
+            let tones: [String: (CGColor, CGColor)] = [
+                "mat_jelly": (rgb(130, 230, 120), rgb(60, 160, 70)), "mat_hide": (rgb(176, 126, 80), rgb(110, 70, 40)),
+                "mat_bone": (rgb(236, 230, 210), rgb(170, 160, 140)), "mat_sting": (rgb(230, 190, 90), rgb(160, 110, 40)),
+                "mat_ice": (rgb(200, 240, 255), rgb(100, 170, 230)), "mat_magma": (rgb(255, 130, 50), rgb(170, 50, 20)),
+                "mat_dark": (rgb(150, 90, 200), rgb(70, 30, 110)), "mat_wraith": (rgb(150, 240, 240), rgb(60, 150, 170)),
+            ]
+            let tone = tones[item.id] ?? (rgb(200, 200, 200), rgb(120, 120, 120))
+            return ["B": tone.0, "E": tone.1]
+        case .buff(let id):
+            let tones: [String: (CGColor, CGColor)] = [
+                "atk": (rgb(255, 110, 80), rgb(170, 50, 40)), "xp": (rgb(255, 225, 110), rgb(200, 150, 40)),
+                "luck": (rgb(120, 230, 150), rgb(50, 150, 90)), "speed": (rgb(130, 200, 255), rgb(60, 120, 210)),
+            ]
+            let tone = tones[id] ?? (rgb(200, 200, 200), rgb(120, 120, 120))
+            return ["B": tone.0, "E": tone.1]
         }
     }
 
@@ -342,7 +384,12 @@ enum RpgArt {
         case .potionHP, .potionMP: template = potionT
         case .scroll: template = scrollT
         case .book: template = bookT
-        case .stone: template = stoneT
+        case .stone, .material: template = stoneT
+        case .ring: template = ringT
+        case .amulet: template = amuletT
+        case .buff: template = potionT
+        case .helmet: template = helmetT
+        case .boots: template = bootsT
         }
         let colors = palette.merging(itemColors(item)) { _, new in new }
         guard let ctx = KartArt.context(width: 18, height: 18) else { return nil }
