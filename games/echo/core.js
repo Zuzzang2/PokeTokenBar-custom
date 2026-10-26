@@ -63,7 +63,7 @@
   function createWorld(lvl, echoes) {
     return Object.freeze({
       lvl, echoes, frame: 0, player: spawnPlayer(lvl), status: 'play', cause: null,
-      solid: echoes.map(() => false), open: doorsOpen(lvl, new Set()), pressed: new Set(),
+      open: doorsOpen(lvl, new Set()), pressed: new Set(),
     });
   }
 
@@ -151,26 +151,20 @@
     const curG = ghostsAt(echoes, f);
     const prevP = world.player;
 
-    const solid = echoes.map((_, i) => world.solid[i]
-      || (curG[i] !== null && !overlap(boxOf(prevP), boxOf(curG[i]))));
-    const ghostRects = curG
-      .map((g, i) => (g && solid[i] ? { x: g.x, y: g.y, w: P.w, h: P.h, ghost: i } : null))
-      .filter(Boolean);
-
     const pressed = platesPressed(lvl, [prevP, ...curG]);
     const open = doorsOpen(lvl, pressed);
 
     // Ride: carried by the echo we stood on last frame.
     const ridden = prevP.ride >= 0 && prevG[prevP.ride] && curG[prevP.ride] ? prevP.ride : -1;
-    const others = (box) => solids(lvl, open, ghostRects.filter((r) => r.ghost !== ridden), box);
+    const terrain = (box) => solids(lvl, open, [], box);
     let p = { ...prevP };
     if (ridden >= 0) {
       const dx = curG[ridden].x - prevG[ridden].x;
       const dy = curG[ridden].y - prevG[ridden].y;
-      if (dx) p = { ...p, x: moveX(p, dx, others(boxOf(p))).x };
-      if (dy) p = { ...p, y: moveY(p, dy, others(boxOf(p))).y };
+      if (dx) p = { ...p, x: moveX(p, dx, terrain(boxOf(p))).x };
+      if (dy) p = { ...p, y: moveY(p, dy, terrain(boxOf(p))).y };
     }
-    p = pushOut(p, solids(lvl, open, ghostRects, boxOf(p)));
+    p = pushOut(p, terrain(boxOf(p)));
 
     const dir = (input.r ? 1 : 0) - (input.l ? 1 : 0);
     const accel = (p.ground ? P.accel : P.airAccel) * DT;
@@ -188,9 +182,14 @@
     if (!input.j && vy < 0 && !cut) { vy *= P.cut; cut = true; }
     vy = Math.min(vy + P.gravity * DT, P.maxFall);
 
-    const mx = moveX(p, vx * DT, solids(lvl, open, ghostRects, boxOf(p)));
+    const mx = moveX(p, vx * DT, terrain(boxOf(p)));
     p = { ...p, x: mx.x };
-    const my = moveY(p, vy * DT, solids(lvl, open, ghostRects, boxOf(p)));
+    // Echoes are one-way platforms: walk and jump through them, but land on their heads.
+    const feet = p.y + P.h;
+    const heads = vy > 0 ? curG
+      .map((g, i) => (g && feet <= g.y + 0.01 ? { x: g.x, y: g.y, w: P.w, h: P.h, ghost: i } : null))
+      .filter(Boolean) : [];
+    const my = moveY(p, vy * DT, solids(lvl, open, heads, boxOf(p)));
     const ground = my.hit === 'down';
     p = {
       ...p, y: my.y, vx: mx.hit ? 0 : vx, vy: my.hit ? 0 : vy,
@@ -199,14 +198,14 @@
     };
 
     const box = boxOf(p);
-    const crushed = solids(lvl, open, ghostRects, box).some((r) => overlap(box, r));
+    const crushed = terrain(box).some((r) => overlap(box, r));
     const spiked = lvl.spikes.some((s) => overlap(box, s)) || p.y > ROWS * TILE;
     const won = overlap(box, lvl.exit);
     const status = crushed || spiked ? 'dead' : won ? 'won' : f >= lvl.limit ? 'timeout' : 'play';
-    const cause = crushed ? 'paradox' : spiked ? 'spike' : null;
+    const cause = crushed ? 'crush' : spiked ? 'spike' : null;
     const player = Object.freeze(p);
     return Object.freeze({
-      ...world, frame: f, player, solid, pressed, open, status, cause, jumped,
+      ...world, frame: f, player, pressed, open, status, cause, jumped,
       landed: ground && !prevP.ground,
     });
   }
