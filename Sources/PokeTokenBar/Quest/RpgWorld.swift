@@ -1598,8 +1598,8 @@ final class RpgWorld {
         var m = list[k]
         let ambush = !splash && time < p.ambushUntil
         let crit = ambush || (!splash && Double(rng.int(1000)) / 1000 < p.critChance(at: time))
-        var dmg = max(1, base - Double(m.def.defense) * 0.6) * rand(0.9, 1.1)
-        if crit { dmg *= ambush ? 2.1 : 1.7 }
+        let dmg = RpgCombat.playerHit(base: base, monsterDefense: Double(m.def.defense), element: element, monsterElement: m.def.element,
+                                      crit: crit, ambush: ambush, roll: rand(0, 1))
         m.hp -= dmg
         m.hurtFlash = 0.12
         m.lastHitBy = playerID
@@ -1798,7 +1798,7 @@ final class RpgWorld {
         let previousActor = actor
         actor = players[i].id
         defer { actor = previousActor }
-        var dmg = max(1, raw - players[i].defense * 0.5) * rand(0.9, 1.1)
+        var dmg = RpgCombat.monsterHit(raw: raw, playerDefense: players[i].defense, roll: rand(0, 1))
         if players[i].hardcore { dmg *= Self.hardcoreDamage }
         if time < players[i].ironUntil { dmg *= 0.6 }
         if time < players[i].shieldUntil {
