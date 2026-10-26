@@ -194,11 +194,11 @@ private struct PlazaView: View {
 
     private var roster: some View {
         let others = plaza.everyone.filter { $0.id != plaza.me.id }
-            .sorted { ($0.profile.rating ?? Elo.start) > ($1.profile.rating ?? Elo.start) }
+            .sorted { $0.profile.trainer.localizedStandardCompare($1.profile.trainer) == .orderedAscending }
         return VStack(alignment: .leading, spacing: 8) {
             Text("광장 사람들").font(.headline)
             HStack {
-                Text("\(plaza.stats.tier.label) \(plaza.stats.rating)").font(.callout.bold())
+                Text(plaza.stats.tier.label).font(.callout.bold())
                 Spacer(minLength: 0)
                 Button("내 전적") { showStats = true }.controlSize(.small)
             }
@@ -226,7 +226,7 @@ private struct PlazaView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(player.profile.trainer).font(.callout.bold()).lineLimit(1)
-                Text(player.profile.rating.map { "\(RankTier.tier(for: $0).emoji)\($0)" } ?? "").font(.caption)
+                Text(player.profile.rating.map { RankTier.tier(for: $0).label } ?? "").font(.caption)
                 Text("♥ \(player.profile.popularity ?? 0)").font(.caption).foregroundStyle(.pink)
                 if let record = plaza.stats.opponents[player.profile.pid ?? "name:\(player.profile.trainer)"] {
                     Text("\(record.wins)승 \(record.losses)패").font(.caption2).foregroundStyle(.secondary)
