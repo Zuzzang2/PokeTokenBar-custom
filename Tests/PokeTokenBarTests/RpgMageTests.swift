@@ -42,17 +42,20 @@ final class RpgMageTests: XCTestCase {
         XCTAssertGreaterThan(w.player(2)?.mp ?? 0, 0, "basic orb hits feed the MP bar even mid-fight")
     }
 
+    /// Clerics and summoners also fire orbs; only the mage's feed MP.
     func testOtherClassesDoNotGainManaFromBasicAttacks() {
-        let w = RpgWorld(player: RpgSaveStore.newPlayer(name: "t", cls: .warrior, id: 1))
-        var p = RpgSaveStore.newPlayer(name: "archer", cls: .archer, id: 2)
-        p.level = 5
-        p.map = .field
-        p.pos = RpgMap.center(RpgMaps.def(.field).portals.first!.arrive)
-        p.mp = 0
-        p.lastHurt = .greatestFiniteMagnitude
-        w.addPlayer(p)
-        fight(w, seconds: 4)
-        XCTAssertEqual(w.player(2)?.mp ?? -1, 0, accuracy: 0.001)
+        for cls in RpgClass.allCases where cls != .mage {
+            let w = RpgWorld(player: RpgSaveStore.newPlayer(name: "t", cls: .warrior, id: 1))
+            var p = RpgSaveStore.newPlayer(name: "other", cls: cls, id: 2)
+            p.level = 5
+            p.map = .field
+            p.pos = RpgMap.center(RpgMaps.def(.field).portals.first!.arrive)
+            p.mp = 0
+            p.lastHurt = .greatestFiniteMagnitude
+            w.addPlayer(p)
+            fight(w, seconds: 4)
+            XCTAssertEqual(w.player(2)?.mp ?? -1, 0, accuracy: 0.001, cls.rawValue)
+        }
     }
 
     /// Hits of `attack` a fresh character of `cls` at `level` takes to fall (the `hurtPlayer` formula, no gear).
