@@ -32,6 +32,18 @@ struct RpgPlayerPub: Codable, Sendable {
     var job: Int? = nil
     var combo: Int? = nil
     var comboLeft: Double? = nil
+    /// Worn gear (item ids) so everyone sees each other's equipment; nil from hosts on an older build.
+    var gear: RpgGearPub? = nil
+    /// Seconds left on the basic-attack weapon swing.
+    var swing: Double? = nil
+}
+
+struct RpgGearPub: Codable, Sendable {
+    var armor: String?
+    var helmet: String?
+    var boots: String?
+    var ring: String?
+    var amulet: String?
 }
 
 struct RpgMobPub: Codable, Sendable {

@@ -110,13 +110,13 @@ enum RpgArt {
     ]
     static let crown: RpgGrid = ["K.K.K.K", "KYKYKYK", "KYYYYYK", "KYRYOYK", "KKKKKKK"]
 
-    private struct SpriteSpec {
+    struct SpriteSpec {
         let grid: RpgGrid
         let swap: [Character: CGColor]
         var boss = false
     }
 
-    private static let specs: [String: SpriteSpec] = [
+    static let specs: [String: SpriteSpec] = [
         "warrior": SpriteSpec(grid: warrior, swap: [:]), "archer": SpriteSpec(grid: archer, swap: [:]),
         "mage": SpriteSpec(grid: mage, swap: [:]), "villager": SpriteSpec(grid: villager, swap: [:]),
         "rogue": SpriteSpec(grid: rogue, swap: [:]), "cleric": SpriteSpec(grid: cleric, swap: [:]), "monk": SpriteSpec(grid: monk, swap: [:]),
@@ -323,7 +323,7 @@ enum RpgArt {
         "................", "................", "................", "................",
     ]
 
-    private static func itemColors(_ item: RpgItem) -> [Character: CGColor] {
+    static func itemColors(_ item: RpgItem) -> [Character: CGColor] {
         switch item.kind {
         case .weapon(let cls):
             let swords: [[Character: CGColor]] = [

@@ -476,8 +476,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
     private func drawPlayer(_ p: RpgPlayer, in f: CGContext) {
         let t = world.time
-        let tint = RpgArt.classTint(p.cls, weapon: p.weaponItem).merging(RpgJobs.tint(p.cls, p.job)) { weapon, _ in weapon }
-        guard let img = RpgArt.sprite(p.cls.rawValue, tint: tint) else { return }
+        let look = RpgLook(cls: p.cls, job: p.job, weapon: p.weapon, plus: p.plus[p.weapon] ?? 0, armor: p.armor, helmet: p.helmet,
+                           boots: p.boots, ring: p.ring, amulet: p.amulet)
         let bob: CGFloat = p.moving && Int(t * 8) % 2 == 0 ? 1 : 0
         f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
         f.fillEllipse(in: CGRect(x: p.pos.x - 6, y: p.pos.y - 2, width: 12, height: 4))
@@ -488,13 +488,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
             f.setStrokeColor(KartArt.rgb(140, 190, 255, 0.8))
             f.strokeEllipse(in: CGRect(x: p.pos.x - 10, y: p.pos.y - 20, width: 20, height: 22))
         }
-        if p.dead { f.setAlpha(0.35) } else if p.invulnerable > 0, Int(t * 20) % 2 == 0 { f.setAlpha(0.45) }
-        KartArt.draw(img, in: f, rect: CGRect(x: (p.pos.x - 8).rounded(), y: (p.pos.y - 15 - bob).rounded(), width: 16, height: 16), flipX: !p.facingRight)
+        let alpha: CGFloat = p.dead ? 0.35 : (p.invulnerable > 0 && Int(t * 20) % 2 == 0 ? 0.45 : 1)
+        // Equipment changes the look (helmet, armor, boots, held weapon, aura); see RpgGearArt.
+        RpgGearArt.draw(look, in: f, at: p.pos, facingRight: p.facingRight, bob: bob, time: t,
+                        swing: max(0, p.swingUntil - t) / RpgWorld.swingTime, alpha: alpha)
         f.setAlpha(1)
-        // Glint on a highly enhanced weapon.
-        if let w = p.weaponItem, (p.plus[w.id] ?? 0) >= 7, Int(t * 6) % 4 == 0 {
-            KartArt.fill(f, KartArt.rgb(255, 255, 255), p.pos.x + (p.facingRight ? 5 : -6), p.pos.y - 14, 1, 1)
-        }
     }
 
     // MARK: pets

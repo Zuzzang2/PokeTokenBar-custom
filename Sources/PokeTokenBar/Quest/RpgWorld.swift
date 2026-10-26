@@ -147,6 +147,8 @@ struct RpgPlayer {
     /// Kills in a row; resets when `comboUntil` passes. Not saved.
     var combo = 0
     var comboUntil = 0.0
+    /// Basic-attack weapon swing for the held-weapon sprite; not saved.
+    var swingUntil = 0.0
     /// Lifetime counters (saved): kills per monster id, golden elites, best combo, unlocked achievements.
     var kills: [String: Int] = [:]
     var eliteKills = 0
@@ -911,6 +913,7 @@ final class RpgWorld {
     private func basicAttack(_ i: Int) {
         let p = players[i]
         players[i].attackTimer = p.attackInterval(at: time)
+        players[i].swingUntil = time + Self.swingTime
         let angle = facingAngle(p)
         let atk = p.attack(at: time)
         switch p.cls {
@@ -2450,6 +2453,9 @@ extension RpgWorld {
 
     // MARK: host → clients
 
+    /// How long the held weapon swings on a basic attack.
+    static let swingTime = 0.22
+
     func snapshot() -> RpgSnapshot {
         let occupied = Set(players.map(\.map))
         let pubs = players.map { p in
@@ -2459,7 +2465,9 @@ extension RpgWorld {
                          rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
                          shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
                          bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
-                         combo: p.combo, comboLeft: max(0, p.comboUntil - time))
+                         combo: p.combo, comboLeft: max(0, p.comboUntil - time),
+                         gear: RpgGearPub(armor: p.armor, helmet: p.helmet, boots: p.boots, ring: p.ring, amulet: p.amulet),
+                         swing: p.swingUntil > time ? p.swingUntil - time : nil)
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -2531,6 +2539,14 @@ extension RpgWorld {
             p.job = pub.job ?? 0
             p.combo = pub.combo ?? 0
             p.comboUntil = time + (pub.comboLeft ?? 0)
+            if let g = pub.gear {
+                p.armor = g.armor
+                p.helmet = g.helmet
+                p.boots = g.boots
+                p.ring = g.ring
+                p.amulet = g.amulet
+            }
+            p.swingUntil = time + (pub.swing ?? 0)
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
