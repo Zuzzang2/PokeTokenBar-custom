@@ -38,7 +38,27 @@ final class RpgWindowController: RpgDriver {
     private var lastInputSent = 0.0
     private var pendingSave: RpgSaveData?
 
-    func show() {
+    /// Opens the window; the raised companion becomes the player's pet.
+    func show(companion: CompanionStore) {
+        self.companion = companion
+        refreshPet()
+        showWindow()
+    }
+
+    private weak var companion: CompanionStore?
+    private var petInfo: RpgPetInfo?
+
+    private func refreshPet() {
+        guard let companion else { return }
+        Task { [weak self] in
+            let info = await RpgPetFactory.make(companion: companion)
+            guard let self else { return }
+            self.petInfo = info
+            if self.world != nil, self.game != nil { self.send(.pet(info)) }
+        }
+    }
+
+    private func showWindow() {
         if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(); return }
         state.reload()
         let title = NSHostingView(rootView: RpgTitleView(state: state,
@@ -134,6 +154,7 @@ final class RpgWindowController: RpgDriver {
         game = view
         window.contentView = view
         window.makeFirstResponder(view)
+        if let petInfo { send(.pet(petInfo)) }
     }
 
     private func backToTitle() {

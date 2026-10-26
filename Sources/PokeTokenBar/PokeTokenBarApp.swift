@@ -603,7 +603,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .openBattle: battleWindow.show(companion: companion)
         case .openKart: kartWindow.show(companion: companion)
         case .openArena: arenaWindow.show(companion: companion)
-        case .openQuest: questWindow.show()
+        case .openQuest: questWindow.show(companion: companion)
         case .updateToLatest: updateToLatestMain()
         case .quit: NSApp.terminate(nil)
         case nil: break

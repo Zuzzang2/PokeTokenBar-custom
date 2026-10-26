@@ -26,6 +26,8 @@ struct RpgPlayerPub: Codable, Sendable {
     let bubble: String?
     let bubbleLeft: Double
     var partyID: Int? = nil
+    /// 2차 전직 (nil or 0 = not advanced); optional so peers on an older build still decode snapshots.
+    var job: Int? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {
@@ -62,6 +64,7 @@ struct RpgSnapshot: Codable, Sendable {
     let toasts: [RpgToast]
     let chat: [RpgChat]
     let shake: Double
+    var pets: [RpgPetPub]? = nil
 }
 
 struct RpgPrivate: Codable, Sendable {

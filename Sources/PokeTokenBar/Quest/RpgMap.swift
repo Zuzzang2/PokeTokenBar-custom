@@ -170,6 +170,7 @@ struct RpgMap: Sendable {
             RpgBuilding(x: 5, y: 15, w: 5, h: 4, place: .smith),
             RpgBuilding(x: 22, y: 15, w: 5, h: 4, place: .shop(.skill)),
             RpgBuilding(x: 14, y: 16, w: 3, h: 2, place: .board),
+            RpgBuilding(x: 8, y: 8, w: 4, h: 3, place: .jobMaster),
         ]
         for (x, y) in [(4, 20), (11, 20), (20, 20), (27, 20), (3, 14), (12, 14)] { set(x, y, .flower) }
     }

@@ -27,6 +27,7 @@ struct RpgSaveData: Codable, Sendable {
     var quests: [RpgQuest]?
     var visited: [RpgMapID]?
     var bossLoot: [String: Double]?
+    var job: Int?
 }
 
 enum RpgSaveStore {
@@ -71,7 +72,7 @@ enum RpgSaveStore {
         let spot = inBoss ? RpgMap.center(RpgWorld.townSpawn) : p.pos
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
-                           plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot)
+                           plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, job: p.job)
     }
 
     static func player(from s: RpgSaveData, id: Int) -> RpgPlayer {
@@ -91,6 +92,7 @@ enum RpgSaveStore {
         p.quests = s.quests ?? []
         p.visited = Set(s.visited ?? [.town, s.map])
         p.bossLoot = s.bossLoot ?? [:]
+        p.job = RpgJobs.def(s.cls, s.job ?? 0) == nil ? 0 : (s.job ?? 0)
         p.hp = p.maxHP
         p.mp = p.maxMP
         // A position from an older map layout might now be inside a wall.

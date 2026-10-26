@@ -104,7 +104,7 @@ enum RpgSkills {
         s("m_heal", "치유", .mage, 28, 30, 14, 0, "HP 30% 회복 (레벨당 +3%)"),
         s("m_ult", "메테오 스톰", .mage, 35, 70, 45, 3.2, max: 5, "주변에 운석 8개 낙하"),
     ]
-    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills).map { ($0.id, $0) })
     static func def(_ id: String) -> RpgSkillDef? { byID[id] }
     static func damage(_ s: RpgSkillDef, level: Int) -> Double { s.power * (1 + 0.12 * Double(max(1, level) - 1)) }
 }
@@ -238,12 +238,14 @@ enum RpgPlace: Sendable, Equatable {
     case shop(RpgShop)
     case smith
     case board
+    case jobMaster
 
     var title: String {
         switch self {
         case .shop(let s): return s.title
         case .smith: return "대장간"
         case .board: return "의뢰소"
+        case .jobMaster: return "전직관"
         }
     }
 }
