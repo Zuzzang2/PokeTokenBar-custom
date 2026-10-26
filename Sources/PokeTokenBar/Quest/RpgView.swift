@@ -7,9 +7,11 @@ import QuartzCore
 // forge, quest board, skills, key settings, 차원문). Arrow keys move; every other key is rebindable.
 
 @MainActor
-final class RpgView: NSView {
+final class RpgView: NSView, NSTextFieldDelegate {
     var onExit: (() -> Void)?
     var onSave: ((RpgSaveData) -> Void)?
+    weak var driver: RpgDriver?
+    private var chatField: NSTextField?
 
     private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests }
 
@@ -64,6 +66,50 @@ final class RpgView: NSView {
         } else if window == nil {
             stop()
         }
+    }
+
+    // MARK: actions and chat
+
+    private func act(_ action: RpgAction) {
+        if let driver { driver.send(action) } else { world.perform(action, for: localID) }
+    }
+
+    /// Return opens a text field (a real one, so Korean input composes properly); Return sends, Esc cancels.
+    private func openChat() {
+        guard chatField == nil else { return }
+        let field = NSTextField(frame: NSRect(x: 16, y: bounds.height - 150, width: min(460, bounds.width - 32), height: 26))
+        field.placeholderString = "채팅 입력 후 Enter (Esc 취소)"
+        field.font = .systemFont(ofSize: 14, weight: .semibold)
+        field.focusRingType = .none
+        field.bezelStyle = .roundedBezel
+        field.delegate = self
+        field.autoresizingMask = [.maxXMargin, .minYMargin]
+        addSubview(field)
+        window?.makeFirstResponder(field)
+        chatField = field
+        keys.removeAll()
+    }
+
+    private func closeChat() {
+        chatField?.removeFromSuperview()
+        chatField = nil
+        window?.makeFirstResponder(self)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            let text = chatField?.stringValue ?? ""
+            if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                if let driver { driver.chat(text) } else { world.say(localID, text) }
+            }
+            closeChat()
+            return true
+        }
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            closeChat()
+            return true
+        }
+        return false
     }
 
     // MARK: input
@@ -143,7 +189,7 @@ final class RpgView: NSView {
         if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
             if p.skills[skill.id] != nil {
-                world.perform(.assign(slot: slot, skill: skill.id), for: localID)
+                act(.assign(slot: slot, skill: skill.id))
                 world.toast("\(skill.name) → 슬롯 \(bindings.label(.slot(slot)))")
             } else {
                 world.toast("아직 배우지 않은 스킬이에요")
@@ -164,10 +210,10 @@ final class RpgView: NSView {
             guard !repeatKey else { return }
             switch panel {
             case .board where tab == 1, .quests:
-                if p.quests.indices.contains(selection) { world.perform(.abandonQuest(p.quests[selection].id), for: localID); world.toast("의뢰 포기") }
+                if p.quests.indices.contains(selection) { act(.abandonQuest(p.quests[selection].id)); world.toast("의뢰 포기") }
             case .skills:
                 let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
-                if let slot = p.slots.firstIndex(of: skill.id) { world.perform(.assign(slot: slot, skill: nil), for: localID) }
+                if let slot = p.slots.firstIndex(of: skill.id) { act(.assign(slot: slot, skill: nil)) }
             case .keys:
                 bindings = .defaults
                 bindings.save()
@@ -183,34 +229,34 @@ final class RpgView: NSView {
         switch panel {
         case .inventory:
             let ids = sortedInventory(p)
-            if ids.indices.contains(selection) { world.perform(.equip(ids[selection]), for: localID) }
+            if ids.indices.contains(selection) { act(.equip(ids[selection])) }
         case .shop(let s):
             if tab == 0 {
                 let items = stock(s, p)
-                if items.indices.contains(selection) { world.perform(.buy(items[selection].id), for: localID) }
+                if items.indices.contains(selection) { act(.buy(items[selection].id)) }
             } else {
                 let ids = sortedInventory(p)
-                if ids.indices.contains(selection) { world.perform(.sell(ids[selection]), for: localID) }
+                if ids.indices.contains(selection) { act(.sell(ids[selection])) }
             }
         case .smith:
-            world.perform(.enhance(weapon: selection == 0), for: localID)
+            act(.enhance(weapon: selection == 0))
         case .board:
             if tab == 0 {
                 let offers = world.boardOffers(for: localID)
-                if offers.indices.contains(selection) { world.perform(.acceptQuest(offers[selection].id), for: localID) }
+                if offers.indices.contains(selection) { act(.acceptQuest(offers[selection].id)) }
             } else if p.quests.indices.contains(selection) {
-                if p.quests[selection].done { world.perform(.claimQuest(p.quests[selection].id), for: localID) }
+                if p.quests[selection].done { act(.claimQuest(p.quests[selection].id)) }
                 else { world.toast("아직 다 못 했어요 (\(p.quests[selection].progress)/\(p.quests[selection].count))") }
             }
         case .skills:
             let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
-            if p.skills[skill.id] != nil { world.perform(.levelSkill(skill.id), for: localID) }
+            if p.skills[skill.id] != nil { act(.levelSkill(skill.id)) }
             else { world.toast(skill.price > 0 ? "마법서점에서 스킬북을 살 수 있어요" : "몬스터가 떨어뜨리는 스킬북으로 배워요") }
         case .keys:
             waitingKey = true
         case .waypoint:
             let list = waypoints(p)
-            if list.indices.contains(selection) { world.perform(.warp(list[selection]), for: localID); close() }
+            if list.indices.contains(selection) { act(.warp(list[selection])); close() }
         case .quests, .none:
             break
         }
@@ -227,9 +273,9 @@ final class RpgView: NSView {
             input.move = CGVector(dx: (held(124) ? 1 : 0) - (held(123) ? 1 : 0), dy: (held(125) ? 1 : 0) - (held(126) ? 1 : 0))
             input.attack = keys.contains(bindings.code(.attack))
             for s in 0..<RpgWorld.slotCount where tapped(.slot(s)) { input.slots.insert(s) }
-            if tapped(.hpPotion) { world.perform(.hpPotion, for: localID) }
-            if tapped(.mpPotion) { world.perform(.mpPotion, for: localID) }
-            if tapped(.scroll) { world.perform(.scroll, for: localID) }
+            if tapped(.hpPotion) { act(.hpPotion) }
+            if tapped(.mpPotion) { act(.mpPotion) }
+            if tapped(.scroll) { act(.scroll) }
             if tapped(.interact) {
                 if let place = world.nearbyPlace(for: localID) {
                     switch place {
@@ -240,7 +286,7 @@ final class RpgView: NSView {
                 } else if let portal = world.nearbyPortal(for: localID), portal.waypoint {
                     open(.waypoint)
                 } else {
-                    world.perform(.interact, for: localID)
+                    act(.interact)
                 }
             }
             if tapped(.inventory) { open(.inventory) }
@@ -248,9 +294,25 @@ final class RpgView: NSView {
             if tapped(.quests) { open(.quests) }
             if tapped(.keys) { open(.keys) }
             if pressed.contains(53) { saveNow(); onExit?() }
+            if pressed.contains(36) { openChat() }
         }
         pressed.removeAll()
-        world.step(dt, inputs: [localID: input])
+        if let d = driver, d.isClient {
+            // Client: walk locally right away, tell the host, and let snapshots fill in the rest.
+            world.predict(localID, input: input, dt: dt)
+            if let me {
+                input.pos = me.pos
+                input.facing = me.facing
+            }
+            for slot in input.slots { d.send(.cast(slot)) }
+            input.slots = []
+            d.sendInput(input)
+            world.mirrorTick(dt, localID: localID)
+        } else {
+            var all = driver?.remoteInputs() ?? [:]
+            all[localID] = input
+            world.step(dt, inputs: all)
+        }
         saveClock += dt
         if saveClock > 10 { saveClock = 0; saveNow() }
         needsDisplay = true
@@ -558,6 +620,30 @@ final class RpgView: NSView {
                  color: locked ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : (portal.waypoint ? Self.gold : NSColor(red: 0.7, green: 0.85, blue: 1, alpha: 1)),
                  weight: .bold, align: .center)
         }
+        // Other players: name tags; everyone: chat bubbles.
+        for p in world.players where p.map == me.map {
+            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - 18))
+            var top = head.y
+            if p.id != localID {
+                top -= 18
+                text("Lv\(p.level) \(p.name)", at: CGPoint(x: head.x, y: top), size: 11,
+                     color: NSColor(red: 0.6, green: 0.85, blue: 1, alpha: 1), weight: .bold, align: .center)
+            }
+            if let b = p.bubble, world.time < p.bubbleUntil {
+                let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+                let str = NSAttributedString(string: b, attributes: [.font: font, .foregroundColor: NSColor.black])
+                let w = min(260, str.size().width + 16), h = str.size().height + 8
+                let r = CGRect(x: head.x - w / 2, y: top - h - 6, width: w, height: h)
+                if let ctx = NSGraphicsContext.current?.cgContext {
+                    ctx.setFillColor(NSColor.white.withAlphaComponent(0.95).cgColor)
+                    ctx.addPath(CGPath(roundedRect: r, cornerWidth: 7, cornerHeight: 7, transform: nil))
+                    ctx.fillPath()
+                    ctx.move(to: CGPoint(x: head.x - 5, y: r.maxY)); ctx.addLine(to: CGPoint(x: head.x + 5, y: r.maxY))
+                    ctx.addLine(to: CGPoint(x: head.x, y: r.maxY + 6)); ctx.fillPath()
+                }
+                str.draw(with: CGRect(x: r.minX + 8, y: r.minY + 4, width: w - 16, height: h - 6), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            }
+        }
         for fl in world.floaters where fl.map == me.map {
             let s = screen(fl.pos)
             let a = CGFloat(min(1, fl.life / 0.3))
@@ -621,7 +707,7 @@ final class RpgView: NSView {
             bar(ctx, r, boss.hp / Double(boss.def.hp), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
         }
 
-        for (k, toast) in world.toasts.enumerated() {
+        for (k, toast) in world.toasts.filter({ $0.to == nil || $0.to == localID }).suffix(4).enumerated() {
             text(toast.text, at: CGPoint(x: bounds.midX, y: 92 + CGFloat(k) * 20), size: 14, color: NSColor(red: 1, green: 0.95, blue: 0.75, alpha: 1), align: .center)
         }
 
@@ -633,6 +719,21 @@ final class RpgView: NSView {
                 if portal.waypoint { hint("\(interact)  차원문 열기") }
                 else { hint(me.level < portal.minLevel ? "Lv\(portal.minLevel) 이상만 들어갈 수 있어요" : "\(interact)  \(RpgMaps.def(portal.to).name)(으)로 이동") }
             }
+        }
+
+        // Online status and chat log.
+        if let d = driver {
+            let n = d.onlineCount
+            text(n > 1 ? "● 온라인 \(n)명 · \(d.statusLabel)" : "● 혼자 · 같은 Wi-Fi 동료를 찾는 중", at: CGPoint(x: 14, y: 128), size: 11,
+                 color: n > 1 ? NSColor(red: 0.5, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .bold)
+        }
+        let recent = world.chatLog.filter { world.time - $0.at < 30 }.suffix(6)
+        for (k, line) in recent.enumerated() {
+            let y = bounds.height - 160 - CGFloat(recent.count - k) * 18
+            text("\(line.name): \(line.text)", at: CGPoint(x: 16, y: y), size: 12, color: NSColor(white: 1, alpha: 0.9), weight: .semibold)
+        }
+        if chatField == nil, panel == .none {
+            text("Enter 채팅", at: CGPoint(x: 16, y: bounds.height - 150), size: 10, color: NSColor(white: 1, alpha: 0.4), weight: .semibold)
         }
 
         drawHotbar(ctx, me)

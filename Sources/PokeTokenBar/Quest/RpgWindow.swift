@@ -2,16 +2,41 @@ import AppKit
 import SwiftUI
 
 // SPIKE: standalone window for 픽셀 모험, opened from the status item menu. Opens on a title screen
-// (continue the saved character or make a new one), then swaps in `RpgView`. Saves every few seconds,
-// on Esc and when the window closes.
+// (continue the saved character or make a new one), then swaps in `RpgView`. Also the multiplayer
+// driver: it hosts the world (simulating remote players from their inputs and broadcasting snapshots) or
+// mirrors a nearby host's world, and switches between the two as players come and go.
 
 @MainActor
-final class RpgWindowController {
+protocol RpgDriver: AnyObject {
+    var isClient: Bool { get }
+    var onlineCount: Int { get }
+    var statusLabel: String { get }
+    func send(_ action: RpgAction)
+    func sendInput(_ input: RpgInput)
+    func chat(_ text: String)
+    func remoteInputs() -> [Int: RpgInput]
+}
+
+@MainActor
+final class RpgWindowController: RpgDriver {
+    private enum Mode: Equatable { case host, joining(String), client(String) }
+
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
     private var titleView: NSView?
     private var game: RpgView?
+    private var world: RpgWorld?
+    private var localID = 1
     private let state = RpgTitleState()
+
+    private var session: RpgSession?
+    private var mode = Mode.host
+    private var hostPeers: [String: Int] = [:]
+    private var inputs: [Int: RpgInput] = [:]
+    private var netTimer: Timer?
+    private var tick = 0
+    private var lastInputSent = 0.0
+    private var pendingSave: RpgSaveData?
 
     func show() {
         if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(); return }
@@ -31,22 +56,36 @@ final class RpgWindowController {
         window.center()
         closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.game?.stop()
-                self?.game = nil
-                if let token = self?.closeObserver { NotificationCenter.default.removeObserver(token) }
-                self?.closeObserver = nil
-                self?.window = nil
-            }
+            MainActor.assumeIsolated { self?.teardown() }
         }
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
 
+    private func teardown() {
+        game?.stop()
+        game = nil
+        world = nil
+        stopNetwork()
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
+        window = nil
+    }
+
+    private func stopNetwork() {
+        netTimer?.invalidate()
+        netTimer = nil
+        session?.stop()
+        session = nil
+        hostPeers = [:]
+        inputs = [:]
+        mode = .host
+    }
+
     private func continueGame() {
         guard case .ok(let data) = RpgSaveStore.load() else { return }
-        start(RpgSaveStore.player(from: data, id: 1))
+        startHosting(RpgSaveStore.player(from: data, id: 1))
     }
 
     private func newGame(name: String, cls: RpgClass) {
@@ -54,15 +93,42 @@ final class RpgWindowController {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1)
         RpgSaveStore.save(RpgSaveStore.snapshot(player))
-        start(player)
+        startHosting(player)
     }
 
-    private func start(_ player: RpgPlayer) {
+    // MARK: worlds
+
+    /// Everyone starts by hosting their own world; meeting another host may make us yield to it.
+    private func startHosting(_ player: RpgPlayer, announce: Bool = true) {
+        let w = RpgWorld(player: player)
+        if announce { w.toast("\(player.name)의 모험 시작! 같은 Wi-Fi에서 켠 동료와 자동으로 만나요") }
+        world = w
+        localID = player.id
+        mode = .host
+        hostPeers = [:]
+        inputs = [:]
+        present(w)
+        if session == nil {
+            let s = RpgSession(name: player.name)
+            s.onMessage = { [weak self] message, from in self?.receive(message, from: from) }
+            s.onPeerLeft = { [weak self] key in self?.peerLeft(key) }
+            s.onPeersChanged = { [weak self] in self?.reconcile() }
+            session = s
+        }
+        session?.setHosting(true)
+        if netTimer == nil {
+            netTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.netTick() }
+            }
+        }
+        reconcile()
+    }
+
+    private func present(_ w: RpgWorld) {
         guard let window else { return }
         game?.stop()
-        let world = RpgWorld(player: player)
-        world.toast("\(player.name)의 모험 시작! 오른쪽 포탈로 초원에 가 보세요")
-        let view = RpgView(frame: window.contentView?.bounds ?? .zero, world: world, localID: player.id)
+        let view = RpgView(frame: window.contentView?.bounds ?? .zero, world: w, localID: localID)
+        view.driver = self
         view.onSave = { RpgSaveStore.save($0) }
         view.onExit = { [weak self] in self?.backToTitle() }
         game = view
@@ -73,8 +139,149 @@ final class RpgWindowController {
     private func backToTitle() {
         game?.stop()
         game = nil
+        world = nil
+        stopNetwork()
         state.reload()
         if let titleView { window?.contentView = titleView }
+    }
+
+    private var myState: RpgSaveData? { world?.player(localID).map(RpgSaveStore.snapshot) }
+
+    /// Decide who hosts: the smallest key among hosts. Hosts with a bigger key yield; clients whose host
+    /// vanished follow the new one, or start hosting when nobody else is.
+    private func reconcile() {
+        guard let session, world != nil else { return }
+        let elected = session.electedHost
+        switch mode {
+        case .host:
+            if let e = elected, e != session.key { yield(to: e) }
+        case .joining(let h), .client(let h):
+            if let e = elected, e != h, e != session.key {
+                join(e)
+            } else if elected == nil, session.peers[h] == nil {
+                // Host gone and nobody hosting: the smallest remaining key takes over.
+                if session.peers.keys.allSatisfy({ session.key < $0 }), let me = world?.player(localID) {
+                    world?.toast("방장이 나가서 이 세계를 이어받았어요", to: nil)
+                    var p = me
+                    p.dead = false
+                    startHosting(p, announce: false)
+                }
+            }
+        }
+    }
+
+    private func yield(to host: String) {
+        game?.saveNow()
+        session?.setHosting(false)
+        join(host)
+    }
+
+    private func join(_ host: String) {
+        guard let save = myState ?? pendingSave else { return }
+        pendingSave = save
+        mode = .joining(host)
+        hostPeers = [:]
+        session?.send(.join(peer: session?.key ?? "", save: save), to: host, reliable: true)
+        world?.toast("근처 동료의 세계에 들어가는 중…", to: nil)
+    }
+
+    private func peerLeft(_ key: String) {
+        if mode == .host, let id = hostPeers.removeValue(forKey: key) {
+            world?.removePlayer(id)
+            inputs.removeValue(forKey: id)
+        }
+        reconcile()
+    }
+
+    // MARK: messages
+
+    private func receive(_ message: RpgNetMessage, from: String) {
+        guard let session else { return }
+        switch message {
+        case .hello:
+            break
+        case .join(let peer, let save):
+            guard mode == .host, let w = world else { return }
+            let id = hostPeers[peer] ?? w.nextPlayerID
+            hostPeers[peer] = id
+            w.addPlayer(RpgSaveStore.player(from: save, id: id))
+            session.send(.welcome(peer: peer, id: id), to: peer, reliable: true)
+        case .welcome(let peer, let id):
+            guard peer == session.key, case .joining(let host) = mode, host == from, let save = pendingSave else { return }
+            var p = RpgSaveStore.player(from: save, id: id)
+            p.dead = false
+            let w = RpgWorld(player: p)
+            w.isMirror = true
+            world = w
+            localID = id
+            mode = .client(host)
+            present(w)
+            w.toast("\(session.peers[host]?.name ?? "동료")님의 세계에 들어왔어요", to: nil)
+        case .input(let peer, let input):
+            if mode == .host, let id = hostPeers[peer] { inputs[id] = input }
+        case .action(let peer, let action):
+            if mode == .host, let id = hostPeers[peer] { world?.perform(action, for: id) }
+        case .chat(let peer, let text):
+            if mode == .host, let id = hostPeers[peer] { world?.say(id, text) }
+        case .snapshot(let snap):
+            if case .client(let host) = mode, host == from { world?.apply(snap, localID: localID) }
+        case .privateState(let peer, let s):
+            if peer == session.key, case .client(let host) = mode, host == from {
+                world?.applyPrivate(s, localID: localID)
+                pendingSave = s.save
+            }
+        }
+    }
+
+    private func netTick() {
+        guard let session, let w = world, mode == .host, !hostPeers.isEmpty else { return }
+        tick += 1
+        session.broadcast(.snapshot(w.snapshot()), reliable: false)
+        if tick % 5 == 0 {
+            for (peer, id) in hostPeers {
+                if let s = w.privateState(for: id) { session.send(.privateState(peer: peer, state: s), to: peer, reliable: true) }
+            }
+        }
+    }
+
+    // MARK: RpgDriver
+
+    var isClient: Bool { if case .host = mode { return false } else { return true } }
+    var onlineCount: Int { (session?.connectedCount ?? 0) + 1 }
+    var statusLabel: String {
+        switch mode {
+        case .host: return hostPeers.isEmpty ? "혼자" : "방장"
+        case .joining: return "접속 중…"
+        case .client: return "참가 중"
+        }
+    }
+
+    func send(_ action: RpgAction) {
+        switch mode {
+        case .host: world?.perform(action, for: localID)
+        case .client(let host): session?.send(.action(peer: session?.key ?? "", action: action), to: host, reliable: true)
+        case .joining: break
+        }
+    }
+
+    func sendInput(_ input: RpgInput) {
+        guard case .client(let host) = mode, let session, let w = world, w.time - lastInputSent >= 1.0 / 30 || w.time < lastInputSent else { return }
+        lastInputSent = w.time
+        session.send(.input(peer: session.key, input: input), to: host, reliable: false)
+    }
+
+    func chat(_ text: String) {
+        switch mode {
+        case .host: world?.say(localID, text)
+        case .client(let host): session?.send(.chat(peer: session?.key ?? "", text: text), to: host, reliable: true)
+        case .joining: break
+        }
+    }
+
+    func remoteInputs() -> [Int: RpgInput] {
+        let current = inputs
+        // Held keys persist; a remote input only replaces them when the next packet arrives.
+        return current
     }
 }
 
@@ -105,7 +312,7 @@ struct RpgTitleView: View {
     var body: some View {
         VStack(spacing: 18) {
             Text("픽셀 모험").font(.system(size: 40, weight: .heavy))
-            Text("마을에서 장비를 사고, 포탈을 넘어 사냥터로. 동굴 끝엔 슬라임 킹이 기다려요.")
+            Text("마을에서 장비를 사고, 포탈을 넘어 사냥터로. 같은 Wi-Fi의 동료와 자동으로 같은 세계에서 만나요.")
                 .foregroundStyle(.secondary)
             if let s = state.save {
                 GroupBox {

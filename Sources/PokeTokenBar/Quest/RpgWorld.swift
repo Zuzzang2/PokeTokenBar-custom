@@ -6,14 +6,30 @@ import Foundation
 // remote players the same way. Monsters of a map only live while someone is on it. Pixel coordinates,
 // y down; unit positions are their feet.
 
-struct RpgInput {
+struct RpgInput: Codable, Sendable {
     var move = CGVector.zero
     var attack = false
     /// Skill slots pressed this frame (8 slots).
     var slots: Set<Int> = []
+    /// Set by remote players: where they stand and face on their own screen.
+    var pos: CGPoint?
+    var facing: CGVector?
 }
 
-enum RpgAction {
+struct RpgToast: Codable, Sendable {
+    let text: String
+    let at: Double
+    /// Player the toast is for; nil shows it to everyone.
+    let to: Int?
+}
+
+struct RpgChat: Codable, Sendable {
+    let name: String
+    let text: String
+    let at: Double
+}
+
+enum RpgAction: Codable, Sendable {
     case interact, hpPotion, mpPotion, scroll
     case equip(String)
     case buy(String)
@@ -25,6 +41,8 @@ enum RpgAction {
     case claimQuest(String)
     case abandonQuest(String)
     case warp(RpgMapID)
+    /// A remote player fires skill slot n (sent reliably so a press is never lost).
+    case cast(Int)
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -79,6 +97,10 @@ struct RpgPlayer {
     var shieldUntil = 0.0
     var cycloneUntil = 0.0
     var nextCyclone = 0.0
+    /// Host ignores client-reported positions until then (dashes, blinks, travel move the player on the host).
+    var posLockUntil = 0.0
+    var bubble: String?
+    var bubbleUntil = 0.0
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -134,8 +156,8 @@ struct RpgMob {
     var flies: Bool { def.behavior == .flyer }
 }
 
-struct RpgShot {
-    enum Kind { case arrow, orb, bigArrow, mobArrow, slimeBall, bossOrb, poisonArrow }
+struct RpgShot: Codable, Sendable {
+    enum Kind: Codable, Sendable { case arrow, orb, bigArrow, mobArrow, slimeBall, bossOrb, poisonArrow }
     var pos: CGPoint
     var vel: CGVector
     let map: RpgMapID
@@ -149,8 +171,8 @@ struct RpgShot {
     var pierce: Bool { kind == .bigArrow }
 }
 
-struct RpgFX {
-    enum Kind {
+struct RpgFX: Codable, Sendable {
+    enum Kind: Codable, Sendable {
         case slash(angle: Double, radius: Double)
         case burst(radius: Double)
         case ice(radius: Double)
@@ -184,7 +206,7 @@ struct RpgPending {
     let fx: RpgFX.Kind?
 }
 
-struct RpgTrap {
+struct RpgTrap: Codable, Sendable {
     let map: RpgMapID
     let pos: CGPoint
     let ownerID: Int
@@ -193,8 +215,8 @@ struct RpgTrap {
     let armedAt: Double
 }
 
-struct RpgFloater {
-    enum Style { case damage, crit, hurt, heal, gold, xp, info, poison }
+struct RpgFloater: Codable, Sendable {
+    enum Style: Codable, Sendable { case damage, crit, hurt, heal, gold, xp, info, poison }
     let text: String
     let map: RpgMapID
     var pos: CGPoint
@@ -202,7 +224,7 @@ struct RpgFloater {
     let style: Style
 }
 
-struct RpgDropped {
+struct RpgDropped: Codable, Sendable {
     let id: Int
     let map: RpgMapID
     let pos: CGPoint
@@ -224,7 +246,14 @@ final class RpgWorld {
     private(set) var traps: [RpgTrap] = []
     private(set) var floaters: [RpgFloater] = []
     private(set) var drops: [RpgDropped] = []
-    private(set) var toasts: [(text: String, at: Double)] = []
+    private(set) var toasts: [RpgToast] = []
+    private(set) var chatLog: [RpgChat] = []
+    /// Who an action is being resolved for, so toasts reach only that player in a shared world.
+    private var actor: Int?
+    /// A client mirrors the host: no simulation, snapshots fill it in.
+    var isMirror = false
+    /// Client side: where the host last put each remote player (p<id>) and monster (m<id>); drawn positions ease toward them.
+    var netTargets: [String: CGPoint] = [:]
     private(set) var offers: [RpgQuest] = []
     private(set) var time = 0.0
     private(set) var shake = 0.0
@@ -253,9 +282,9 @@ final class RpgWorld {
     private func rand(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * Double(rng.int(10_000)) / 10_000 }
     private func dist(_ a: CGPoint, _ b: CGPoint) -> Double { Double(hypot(a.x - b.x, a.y - b.y)) }
 
-    func toast(_ text: String) {
-        toasts.append((text, time))
-        if toasts.count > 4 { toasts.removeFirst() }
+    func toast(_ text: String, to target: Int? = -1) {
+        toasts.append(RpgToast(text: text, at: time, to: target == -1 ? actor : target))
+        if toasts.count > 12 { toasts.removeFirst() }
     }
 
     private func float(_ text: String, _ map: RpgMapID, _ p: CGPoint, _ style: RpgFloater.Style) {
@@ -291,6 +320,8 @@ final class RpgWorld {
 
     func perform(_ action: RpgAction, for id: Int) {
         guard let i = pIndex(id) else { return }
+        actor = id
+        defer { actor = nil }
         if players[i].dead { return }
         switch action {
         case .interact:
@@ -348,6 +379,8 @@ final class RpgWorld {
             grantXP(players[i].id, q.xp)
         case .abandonQuest(let qid):
             players[i].quests.removeAll { $0.id == qid }
+        case .cast(let slot):
+            if players[i].slots.indices.contains(slot), let s = players[i].slots[slot] { castSkill(i, s) }
         case .warp(let target):
             guard players[i].visited.contains(target), let arrive = arrival(for: target) else { return }
             travel(i, to: target, at: arrive, minLevel: 1)
@@ -457,6 +490,7 @@ final class RpgWorld {
         players[i].map = target
         players[i].pos = RpgMap.center(arrive)
         players[i].dash = nil
+        players[i].posLockUntil = time + 0.6
         let first = players[i].visited.insert(target).inserted
         spawnMobsIfNeeded(target)
         leaveMapIfEmpty(from)
@@ -470,6 +504,7 @@ final class RpgWorld {
         players[i].map = .town
         players[i].pos = RpgMap.center(Self.townSpawn)
         players[i].dash = nil
+        players[i].posLockUntil = time + 0.6
         leaveMapIfEmpty(from)
     }
 
@@ -490,6 +525,7 @@ final class RpgWorld {
 
     /// Offers on the board, refreshed every five minutes or when taken.
     func boardOffers(for id: Int) -> [RpgQuest] {
+        if isMirror { return offers }
         guard let p = player(id) else { return [] }
         if offers.count < 3 || time - offersAt > 300 {
             offersAt = time
@@ -526,10 +562,13 @@ final class RpgWorld {
         floaters.removeAll { $0.life <= 0 }
         fx.removeAll { time - $0.start > $0.duration }
         toasts.removeAll { time - $0.at > 3.5 }
+        chatLog.removeAll { time - $0.at > 30 }
         drops.removeAll { time - $0.at > 120 }
     }
 
     private func stepPlayer(_ i: Int, _ dt: Double, _ input: RpgInput) {
+        actor = players[i].id
+        defer { actor = nil }
         var p = players[i]
         p.playTime += dt
         p.attackTimer = max(0, p.attackTimer - dt)
@@ -574,7 +613,14 @@ final class RpgWorld {
         let mv = input.move
         let len = hypot(mv.dx, mv.dy)
         p.moving = len > 0.01
-        if p.moving {
+        if let reported = input.pos {
+            // A remote player moves on their own machine; take their position when it is believable.
+            if time >= p.posLockUntil, m.canStand(reported), dist(reported, p.pos) < 90 { p.pos = reported }
+            if let f = input.facing, hypot(f.dx, f.dy) > 0.1 {
+                p.facing = f
+                if abs(f.dx) > 0.2 { p.facingRight = f.dx > 0 }
+            }
+        } else if p.moving {
             let dir = CGVector(dx: mv.dx / len, dy: mv.dy / len)
             p.facing = dir
             if abs(dir.dx) > 0.2 { p.facingRight = dir.dx > 0 }
@@ -659,6 +705,7 @@ final class RpgWorld {
                 if map(p.map).canStand(c) { to = c } else { break }
             }
             players[i].dash = (to, [], power)
+            players[i].posLockUntil = time + 0.5
             players[i].invulnerable = 0.3
             effect(.slash(angle: angle, radius: 13), p.map, CGPoint(x: to.x, y: to.y - 6), e)
         case "w_quake":
@@ -706,6 +753,7 @@ final class RpgWorld {
                 if map(p.map).canStand(c) { to = c } else { break }
             }
             players[i].dash = (to, [], 0)
+            players[i].posLockUntil = time + 0.5
             players[i].invulnerable = 0.35
             for d in [-0.4, -0.2, 0.0, 0.2, 0.4] { fire(from: p, angle: angle + d, kind: .arrow, damage: power, speed: 250, range: 180) }
         case "a_trap":
@@ -743,6 +791,7 @@ final class RpgWorld {
             effect(.burst(radius: 24), p.map, p.pos, e == .base ? .cosmic : e)
             hitArea(p.pos, 24, p, power, e)
             players[i].pos = to
+            players[i].posLockUntil = time + 0.5
             players[i].invulnerable = 0.3
             effect(.levelUp, p.map, to, .cosmic, duration: 0.4)
         case "m_shield":
@@ -909,7 +958,7 @@ final class RpgWorld {
         if m.def.behavior == .boss {
             effect(.burst(radius: 50), map, m.pos, .holy, duration: 0.6)
             shake = 2
-            toast("\(m.def.name)을(를) 쓰러뜨렸다!")
+            toast("\(m.def.name)을(를) 쓰러뜨렸다!", to: nil)
             pending.removeAll { !$0.fromPlayer && $0.map == map }
         }
         if !m.summoned || rng.int(3) == 0 {
@@ -955,6 +1004,9 @@ final class RpgWorld {
 
     private func hurtPlayer(_ i: Int, _ raw: Double, from p: CGPoint) {
         guard !players[i].dead, players[i].invulnerable <= 0, players[i].dash == nil else { return }
+        let previousActor = actor
+        actor = players[i].id
+        defer { actor = previousActor }
         var dmg = max(1, raw - players[i].defense * 0.5) * rand(0.9, 1.1)
         if time < players[i].ironUntil { dmg *= 0.6 }
         if time < players[i].shieldUntil {
@@ -1288,6 +1340,8 @@ final class RpgWorld {
             guard time - d.at > 0.35,
                   let i = players.indices.first(where: { players[$0].map == d.map && !players[$0].dead && dist(players[$0].pos, d.pos) < 26 })
             else { keep.append(d); continue }
+            actor = players[i].id
+            defer { actor = nil }
             if d.gold > 0 {
                 players[i].gold += d.gold
                 float("+\(d.gold)G", d.map, d.pos, .gold)
@@ -1299,5 +1353,211 @@ final class RpgWorld {
             }
         }
         drops = keep
+    }
+}
+
+// MARK: - multiplayer
+
+extension RpgWorld {
+    var nextPlayerID: Int { (players.map(\.id).max() ?? 0) + 1 }
+
+    func addPlayer(_ player: RpgPlayer) {
+        var p = player
+        p.visited.insert(p.map)
+        p.posLockUntil = time + 0.6
+        players.removeAll { $0.id == p.id }
+        players.append(p)
+        _ = map(p.map)
+        spawnMobsIfNeeded(p.map)
+        toast("\(p.name) 님이 들어왔어요", to: nil)
+    }
+
+    func removePlayer(_ id: Int) {
+        guard let i = pIndex(id) else { return }
+        let p = players.remove(at: i)
+        leaveMapIfEmpty(p.map)
+        toast("\(p.name) 님이 나갔어요", to: nil)
+    }
+
+    /// A chat line: a bubble over the speaker's head and an entry in everyone's chat log.
+    func say(_ id: Int, _ text: String) {
+        guard let i = pIndex(id) else { return }
+        let line = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        guard !line.isEmpty else { return }
+        players[i].bubble = line
+        players[i].bubbleUntil = time + 5
+        chatLog.append(RpgChat(name: players[i].name, text: line, at: time))
+        if chatLog.count > 30 { chatLog.removeFirst() }
+    }
+
+    // MARK: host → clients
+
+    func snapshot() -> RpgSnapshot {
+        let occupied = Set(players.map(\.map))
+        let pubs = players.map { p in
+            RpgPlayerPub(id: p.id, name: p.name, cls: p.cls, level: p.level, map: p.map, x: Double(p.pos.x), y: Double(p.pos.y),
+                         fx: Double(p.facing.dx), fy: Double(p.facing.dy), facingRight: p.facingRight, moving: p.moving, hp: p.hp, mp: p.mp,
+                         dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
+                         rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
+                         shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
+                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time))
+        }
+        var mobPubs: [RpgMobPub] = []
+        for mapID in occupied {
+            for m in mobs[mapID] ?? [] where !m.dead || time - m.diedAt < 0.5 {
+                mobPubs.append(RpgMobPub(id: m.id, def: m.def.id, map: mapID, x: Double(m.pos.x), y: Double(m.pos.y), hp: m.hp, dead: m.dead,
+                                         diedAgo: time - m.diedAt, airborne: m.airborne, jx: m.jumpTarget.map { Double($0.x) },
+                                         jy: m.jumpTarget.map { Double($0.y) }, phaseLeft: m.phaseUntil - time, hurt: m.hurtFlash > 0,
+                                         stunLeft: max(0, m.stunUntil - time), slowLeft: max(0, m.slowUntil - time),
+                                         dot: m.dotTicks > 0 ? m.dotElement : nil, windup: m.windup != nil, facingRight: m.facingRight,
+                                         summoned: m.summoned))
+            }
+        }
+        return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
+                           fx: fx.filter { occupied.contains($0.map) }, floaters: floaters.filter { occupied.contains($0.map) },
+                           drops: drops.filter { occupied.contains($0.map) }, traps: traps.filter { occupied.contains($0.map) },
+                           toasts: toasts, chat: Array(chatLog.suffix(10)), shake: shake)
+    }
+
+    func privateState(for id: Int) -> RpgPrivate? {
+        guard let p = player(id) else { return nil }
+        return RpgPrivate(save: RpgSaveStore.snapshot(p), hp: p.hp, mp: p.mp, cooldowns: p.cooldowns, offers: boardOffers(for: id),
+                          respawnIn: max(0, p.respawnAt - time))
+    }
+
+    // MARK: client mirror
+
+    /// Fill the mirror from a host snapshot. The local player keeps its own predicted position unless the
+    /// host moved it somewhere else (portal, dash, respawn).
+    func apply(_ s: RpgSnapshot, localID: Int) {
+        time = s.time
+        var next: [RpgPlayer] = []
+        for pub in s.players {
+            let target = CGPoint(x: pub.x, y: pub.y)
+            var p = player(pub.id) ?? RpgPlayer(id: pub.id, name: pub.name, cls: pub.cls, weapon: pub.weapon, pos: target)
+            if pub.id == localID {
+                if pub.map != p.map || hypot(target.x - p.pos.x, target.y - p.pos.y) > 40 { p.pos = target }
+            } else {
+                p.facing = CGVector(dx: pub.fx, dy: pub.fy)
+                p.facingRight = pub.facingRight
+                p.moving = pub.moving
+                if pub.map != p.map || hypot(target.x - p.pos.x, target.y - p.pos.y) > 60 { p.pos = target }
+                netTargets["p\(pub.id)"] = target
+            }
+            p.map = pub.map
+            p.name = pub.name
+            p.level = pub.level
+            p.hp = pub.hp
+            p.mp = pub.mp
+            p.dead = pub.dead
+            p.weapon = pub.weapon
+            p.plus[pub.weapon] = pub.weaponPlus
+            p.rageUntil = time + pub.rage
+            p.ironUntil = time + pub.iron
+            p.focusUntil = time + pub.focus
+            p.shieldUntil = time + pub.shield
+            p.cycloneUntil = time + pub.cyclone
+            p.invulnerable = pub.invulnerable ? 0.1 : 0
+            p.bubble = pub.bubble
+            p.bubbleUntil = time + pub.bubbleLeft
+            next.append(p)
+        }
+        if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
+        players = next
+        var byMap: [RpgMapID: [RpgMob]] = [:]
+        for mp in s.mobs {
+            let target = CGPoint(x: mp.x, y: mp.y)
+            var m = mobs[mp.map]?.first { $0.id == mp.id } ?? RpgMob(id: mp.id, def: RpgMonsters.def(mp.def), pos: target, home: target, hp: mp.hp)
+            m.hp = mp.hp
+            m.dead = mp.dead
+            m.diedAt = time - mp.diedAgo
+            m.airborne = mp.airborne
+            m.jumpTarget = mp.jx.flatMap { x in mp.jy.map { CGPoint(x: x, y: $0) } }
+            m.phaseUntil = time + mp.phaseLeft
+            m.hurtFlash = mp.hurt ? 0.1 : 0
+            m.stunUntil = time + mp.stunLeft
+            m.slowUntil = time + mp.slowLeft
+            m.dotTicks = mp.dot == nil ? 0 : 1
+            m.dotElement = mp.dot ?? .fire
+            m.windup = mp.windup ? 0.1 : nil
+            m.facingRight = mp.facingRight
+            m.summoned = mp.summoned
+            if hypot(target.x - m.pos.x, target.y - m.pos.y) > 60 { m.pos = target }
+            netTargets["m\(mp.id)"] = target
+            byMap[mp.map, default: []].append(m)
+        }
+        mobs = byMap
+        shots = s.shots
+        fx = s.fx
+        floaters = s.floaters
+        drops = s.drops
+        traps = s.traps
+        toasts = s.toasts
+        chatLog = s.chat
+        shake = max(shake, s.shake)
+    }
+
+    func applyPrivate(_ s: RpgPrivate, localID: Int) {
+        guard let i = pIndex(localID) else { return }
+        let d = s.save
+        players[i].level = d.level
+        players[i].xp = d.xp
+        players[i].gold = d.gold
+        players[i].inventory = d.inventory
+        players[i].weapon = d.weapon
+        players[i].armor = d.armor
+        players[i].plus = d.plus ?? [:]
+        players[i].skills = d.skills ?? players[i].skills
+        players[i].sp = d.sp ?? players[i].sp
+        players[i].slots = d.slots ?? players[i].slots
+        players[i].quests = d.quests ?? []
+        players[i].visited = Set(d.visited ?? [])
+        players[i].playTime = d.playTime
+        players[i].hp = s.hp
+        players[i].mp = s.mp
+        players[i].cooldowns = s.cooldowns
+        players[i].respawnAt = time + s.respawnIn
+        offers = s.offers
+    }
+
+    /// Client-side movement of the local player so walking feels instant.
+    func predict(_ id: Int, input: RpgInput, dt: Double) {
+        guard let i = pIndex(id), !players[i].dead else { return }
+        let m = map(players[i].map)
+        let mv = input.move
+        let len = hypot(mv.dx, mv.dy)
+        players[i].moving = len > 0.01
+        guard len > 0.01 else { return }
+        let dir = CGVector(dx: mv.dx / len, dy: mv.dy / len)
+        players[i].facing = dir
+        if abs(dir.dx) > 0.2 { players[i].facingRight = dir.dx > 0 }
+        let step = CGFloat(players[i].cls.speed * dt)
+        let nx = CGPoint(x: players[i].pos.x + dir.dx * step, y: players[i].pos.y)
+        if m.canStand(nx) { players[i].pos = nx }
+        let ny = CGPoint(x: players[i].pos.x, y: players[i].pos.y + dir.dy * step)
+        if m.canStand(ny) { players[i].pos = ny }
+    }
+
+    /// Between snapshots: advance the clock and glide remote players and monsters toward the host's positions.
+    func mirrorTick(_ dt: Double, localID: Int) {
+        time += dt
+        shake = max(0, shake - dt * 8)
+        let k = CGFloat(min(1, dt * 12))
+        for i in players.indices where players[i].id != localID {
+            guard let t = netTargets["p\(players[i].id)"] else { continue }
+            players[i].pos.x += (t.x - players[i].pos.x) * k
+            players[i].pos.y += (t.y - players[i].pos.y) * k
+        }
+        for (mapID, list) in mobs {
+            var moved = list
+            for j in moved.indices {
+                guard let t = netTargets["m\(moved[j].id)"] else { continue }
+                moved[j].pos.x += (t.x - moved[j].pos.x) * k
+                moved[j].pos.y += (t.y - moved[j].pos.y) * k
+            }
+            mobs[mapID] = moved
+        }
+        for j in floaters.indices { floaters[j].life -= dt; floaters[j].pos.y -= CGFloat(dt * 18) }
+        floaters.removeAll { $0.life <= 0 }
     }
 }
