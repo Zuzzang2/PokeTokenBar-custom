@@ -28,6 +28,8 @@ struct RpgPlayerPub: Codable, Sendable {
     var partyID: Int? = nil
     var hardcore: Bool? = nil
     var fallen: Bool? = nil
+    /// 2차 전직 (nil or 0 = not advanced); optional so peers on an older build still decode snapshots.
+    var job: Int? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {
@@ -65,6 +67,7 @@ struct RpgSnapshot: Codable, Sendable {
     let chat: [RpgChat]
     let shake: Double
     var graves: [RpgGrave] = []
+    var pets: [RpgPetPub]? = nil
 }
 
 struct RpgPrivate: Codable, Sendable {

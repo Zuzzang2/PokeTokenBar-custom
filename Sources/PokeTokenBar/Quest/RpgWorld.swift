@@ -51,6 +51,10 @@ enum RpgAction: Codable, Sendable {
     case leaveParty
     /// 차원문: go stand next to a party member wherever they are.
     case warpToMember(Int)
+    /// 2차 전직 at the 전직관: pick advanced job 1 or 2.
+    case advance(Int)
+    /// The player's raised companion, sent by its owner so the host can run it as their pet.
+    case pet(RpgPetInfo?)
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -117,23 +121,35 @@ struct RpgPlayer {
     /// Hardcore: one life. `fallen` once that life is spent.
     var hardcore = false
     var fallen = false
+    /// 0 before the 2차 전직, then 1 or 2 (see `RpgJobs`).
+    var job = 0
+    /// The raised companion that follows this player; not saved.
+    var petInfo: RpgPetInfo?
+    var frenzyUntil = 0.0
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
     var element: RpgElement { weaponItem?.element ?? .base }
-    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) }
-    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) }
+    var jobDef: RpgJobDef? { RpgJobs.def(cls, job) }
+    /// Class name, or the advanced job's name once advanced.
+    var title: String { jobDef?.name ?? cls.name }
+    /// The skills shown in the skills window: the class's 8 plus the advanced job's 2.
+    var skillList: [RpgSkillDef] { cls.skills + (jobDef?.skills.compactMap(RpgSkills.def) ?? []) }
+    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) }
+    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) }
     func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
     func armorDefense() -> Double { armorItem.map { RpgItems.boosted($0.defense, plus: plus[$0.id] ?? 0) } ?? 0 }
     func attack(at time: Double) -> Double {
-        let base = Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()
-        return base * (time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1)
+        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1)
+        var buff = time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1
+        if time < frenzyUntil { buff = max(buff, 1.4) }
+        return base * buff
     }
-    var defense: Double { Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense() }
+    var defense: Double { (Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense()) * (jobDef?.defense ?? 1) }
     func attackInterval(at time: Double) -> Double {
-        cls.attackInterval * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
+        cls.attackInterval * (jobDef?.interval ?? 1) * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
     }
-    func critChance(at time: Double) -> Double { cls.critChance + (time < focusUntil ? 0.4 : 0) }
+    func critChance(at time: Double) -> Double { cls.critChance + (jobDef?.crit ?? 0) + (time < focusUntil ? 0.4 : 0) }
 }
 
 struct RpgMob {
@@ -275,6 +291,8 @@ final class RpgWorld {
     private(set) var traps: [RpgTrap] = []
     private(set) var floaters: [RpgFloater] = []
     private(set) var drops: [RpgDropped] = []
+    /// Raised companions following their owners (host simulates; a client mirrors the host's).
+    private(set) var pets: [Int: RpgPetState] = [:]
     private(set) var toasts: [RpgToast] = []
     private(set) var chatLog: [RpgChat] = []
     private(set) var graves: [RpgGrave] = []
@@ -452,6 +470,38 @@ final class RpgWorld {
         case .warp(let target):
             guard players[i].visited.contains(target), let arrive = arrival(for: target) else { return }
             travel(i, to: target, at: arrive, minLevel: 1)
+        case .advance(let choice):
+            advance(i, choice)
+        case .pet(let info):
+            let clean = info?.sanitized
+            if let clean, clean.speciesID != players[i].petInfo?.speciesID { toast("\(clean.name)이(가) 함께 모험해요!") }
+            players[i].petInfo = clean
+        }
+    }
+
+    // MARK: 2차 전직
+
+    private func advance(_ i: Int, _ choice: Int) {
+        guard players[i].job == 0 else { toast("이미 전직했어요"); return }
+        guard players[i].level >= RpgJobs.advanceLevel else { toast("Lv\(RpgJobs.advanceLevel) 이상이어야 전직할 수 있어요"); return }
+        guard let def = RpgJobs.def(players[i].cls, choice) else { return }
+        players[i].job = choice
+        learnJobSkills(i)
+        players[i].hp = players[i].maxHP
+        players[i].mp = players[i].maxMP
+        effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.4)
+        shake = max(shake, 1)
+        toast("2차 전직! \(def.name)이(가) 되었어요", to: nil)
+    }
+
+    /// Teaches the job skills the character's level allows (the second at Lv30) and puts new ones on a free slot.
+    private func learnJobSkills(_ i: Int) {
+        guard let def = players[i].jobDef else { return }
+        for (k, id) in def.skills.enumerated() where players[i].skills[id] == nil {
+            guard players[i].level >= (k == 0 ? RpgJobs.advanceLevel : RpgJobs.secondSkillLevel) else { continue }
+            players[i].skills[id] = 1
+            if let slot = players[i].slots.firstIndex(where: { $0 == nil }) { players[i].slots[slot] = id }
+            if let s = RpgSkills.def(id) { toast("\(s.name) 스킬을 배웠어요 (스킬창에서 슬롯을 바꿀 수 있어요)") }
         }
     }
 
@@ -622,6 +672,7 @@ final class RpgWorld {
         shake = max(0, shake - dt * 8)
         for i in players.indices { stepPlayer(i, dt, inputs[players[i].id] ?? RpgInput()) }
         for mapID in Set(players.map(\.map)) { stepMobs(mapID, dt) }
+        stepPets(dt)
         stepShots(dt)
         stepPending()
         stepTraps()
@@ -886,6 +937,63 @@ final class RpgWorld {
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.18)
                 schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32))
             }
+        // 2차 전직 skills (RpgJobs)
+        case "j_bash":
+            let c = ahead(p, 18)
+            effect(.burst(radius: 24), p.map, c, e)
+            effect(.slash(angle: angle, radius: 14), p.map, c, e)
+            for v in mobIDs(near: c, radius: 26, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.5) }
+            players[i].invulnerable = max(players[i].invulnerable, 0.3)
+            shake = max(shake, 0.6)
+        case "j_aegis":
+            let heal = p.maxHP * 0.25
+            players[i].hp = min(p.maxHP, p.hp + heal)
+            players[i].ironUntil = time + 8
+            float("+\(Int(heal))", p.map, p.pos, .heal)
+            effect(.levelUp, p.map, p.pos, .holy, duration: 1.2)
+            toast("수호의 성역! 받는 피해 감소")
+        case "j_bloodslash":
+            let c = ahead(p, 16)
+            for a in [-0.5, 0.0, 0.5] { effect(.slash(angle: angle + a, radius: 17), p.map, c, .fire, duration: 0.3) }
+            hitArea(c, 40, p, power, e)
+            shake = max(shake, 0.8)
+        case "j_frenzy":
+            players[i].frenzyUntil = time + 10
+            players[i].cycloneUntil = time + 3
+            players[i].nextCyclone = time
+            effect(.levelUp, p.map, p.pos, .fire, duration: 1)
+            toast("광기! 공격력 상승")
+        case "j_snipe":
+            fire(from: p, angle: angle, kind: .bigArrow, damage: power, speed: 420, range: 320)
+            shake = max(shake, 0.5)
+        case "j_deadeye":
+            for d in [-0.04, 0.0, 0.04] { fire(from: p, angle: angle + d, kind: .bigArrow, damage: power, speed: 380, range: 300) }
+        case "j_volley":
+            for k in 0..<8 { fire(from: p, angle: angle + (Double(k) - 3.5) * 0.1, kind: .arrow, damage: power, speed: 240, range: 175) }
+        case "j_net":
+            for k in 1...3 {
+                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * 22), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4))
+            }
+            toast("그물 덫 설치!")
+        case "j_inferno":
+            let c = ahead(p, 50)
+            for k in 0..<6 {
+                let at = CGPoint(x: c.x + CGFloat(rand(-16, 16)), y: c.y + CGFloat(rand(-12, 12)))
+                schedule(Double(k) * 0.18, p.map, at, radius: 34, damage: power, owner: p.id, element: .fire, fx: .burst(radius: 30))
+            }
+        case "j_firestorm":
+            for k in 0..<5 {
+                let a = rand(0, .pi * 2), d = rand(20, 100)
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
+                effect(.telegraph(radius: 28), p.map, c, .fire, duration: 0.25 + Double(k) * 0.16)
+                schedule(0.25 + Double(k) * 0.16, p.map, c, radius: 30, damage: power, owner: p.id, element: .fire, fx: .meteor(radius: 30))
+            }
+        case "j_frost":
+            effect(.ice(radius: 60), p.map, p.pos, .ice, duration: 0.5)
+            hitArea(p.pos, 64, p, power, .ice)
+        case "j_glacier":
+            let c = ahead(p, 55)
+            for k in 0..<12 { schedule(Double(k) * 0.3, p.map, c, radius: 46, damage: power, owner: p.id, element: .ice, fx: .ice(radius: 40)) }
         default:
             refund = true
         }
@@ -1132,6 +1240,8 @@ final class RpgWorld {
             toast("레벨 업! Lv\(players[i].level)  (스킬 포인트 +\(players[i].level % 10 == 0 ? 2 : 1))")
             let unlock = RpgSkills.all.filter { $0.cls == players[i].cls && $0.minLevel == players[i].level }
             for s in unlock { toast("\(s.name) 스킬북을 쓸 수 있는 레벨이 됐어요") }
+            if players[i].level == RpgJobs.advanceLevel, players[i].job == 0 { toast("마을의 전직관을 찾아가 2차 전직을 하세요!") }
+            learnJobSkills(i)
         }
     }
 
@@ -1513,22 +1623,96 @@ final class RpgWorld {
                       players[$0].map == d.map && !players[$0].dead && dist(players[$0].pos, d.pos) < 26 && (!reserved || players[$0].id == d.owner)
                   })
             else { keep.append(d); continue }
-            actor = players[i].id
-            defer { actor = nil }
-            if d.gold > 0 {
-                // Gold is split between party members on the same map.
-                let mates = partyMembers(of: players[i].id).compactMap(pIndex).filter { players[$0].map == d.map }
-                let each = max(1, d.gold / max(1, mates.count))
-                for k in mates { players[k].gold += each }
-                float(mates.count > 1 ? "+\(each)G ×\(mates.count)" : "+\(d.gold)G", d.map, d.pos, .gold)
-            }
-            if let item = d.item, let it = RpgItems.item(item) {
-                players[i].inventory[item, default: 0] += 1
-                toast("\(RpgItems.rarityName[it.rarity]) \(it.name) 획득!")
-                if it.rarity >= 2 { effect(.levelUp, d.map, players[i].pos, .holy, duration: 0.8) }
-            }
+            collect(d, by: i)
         }
         drops = keep
+    }
+
+    /// Hands a drop to player `i` (a pet fetching it counts as its owner picking it up).
+    private func collect(_ d: RpgDropped, by i: Int) {
+        actor = players[i].id
+        defer { actor = nil }
+        if d.gold > 0 {
+            // Gold is split between party members on the same map.
+            let mates = partyMembers(of: players[i].id).compactMap(pIndex).filter { players[$0].map == d.map }
+            let each = max(1, d.gold / max(1, mates.count))
+            for k in mates { players[k].gold += each }
+            float(mates.count > 1 ? "+\(each)G ×\(mates.count)" : "+\(d.gold)G", d.map, d.pos, .gold)
+        }
+        if let item = d.item, let it = RpgItems.item(item) {
+            players[i].inventory[item, default: 0] += 1
+            toast("\(RpgItems.rarityName[it.rarity]) \(it.name) 획득!")
+            if it.rarity >= 2 { effect(.levelUp, d.map, players[i].pos, .holy, duration: 0.8) }
+        }
+    }
+}
+
+// MARK: - pets
+
+extension RpgWorld {
+    private static let petSpeed = 95.0
+    private static let petAttackGap = 1.1
+    private static let petLootRadius = 150.0
+    private static let petFightRadius = 90.0
+
+    /// Pets follow their owner, hit monsters near them and fetch drops. Only the host simulates them.
+    fileprivate func stepPets(_ dt: Double) {
+        guard !isMirror else { return }
+        for p in players {
+            guard let info = p.petInfo else { pets[p.id] = nil; continue }
+            var s = pets[p.id] ?? RpgPetState(owner: p.id, map: p.map, pos: CGPoint(x: p.pos.x - 14, y: p.pos.y), info: info)
+            s.info = info
+            // Through a portal, or too far behind: rejoin the owner.
+            if s.map != p.map || dist(s.pos, p.pos) > 260 { s.map = p.map; s.pos = p.pos }
+            defer { pets[p.id] = s }
+            guard !p.dead, let i = pIndex(p.id) else { s.moving = false; continue }
+            let m = map(p.map)
+
+            var goal: CGPoint?
+            var arrive = 4.0
+            let target = (mobs[p.map] ?? []).filter { !$0.dead && !$0.airborne && dist($0.pos, p.pos) < Self.petFightRadius }
+                .min { dist($0.pos, s.pos) < dist($1.pos, s.pos) }
+            // A drop near the owner is fetched unless a fight is on; drops reserved for someone else are left alone.
+            let fighting = target.map { dist($0.pos, p.pos) < 50 } ?? false
+            let loot: RpgDropped? = fighting ? nil : drops.filter { d in
+                d.map == p.map && time - d.at > 0.35 && dist(d.pos, p.pos) < Self.petLootRadius
+                    && !(d.owner != nil && time - d.at < 30 && d.owner != p.id)
+            }.min { dist($0.pos, s.pos) < dist($1.pos, s.pos) }
+            if let loot {
+                goal = loot.pos
+                arrive = 6
+                if dist(s.pos, loot.pos) < 10 {
+                    collect(loot, by: i)
+                    drops.removeAll { $0.id == loot.id }
+                }
+            } else if let target {
+                goal = target.pos
+                arrive = 20
+                if dist(s.pos, target.pos) < 30, time >= s.attackAt {
+                    s.attackAt = time + Self.petAttackGap
+                    s.facingRight = target.pos.x > s.pos.x
+                    effect(.slash(angle: atan2(Double(target.pos.y - s.pos.y), Double(target.pos.x - s.pos.x)), radius: 9), p.map,
+                           CGPoint(x: target.pos.x, y: target.pos.y - 6), info.element, duration: 0.25)
+                    damageMob(target.id, map: p.map, base: Double(info.power) * 0.4 + p.attack(at: time) * 0.35, by: p.id,
+                              element: info.element, skill: false)
+                }
+            } else if dist(s.pos, p.pos) > 34 {
+                goal = CGPoint(x: p.pos.x + (p.facingRight ? -18 : 18), y: p.pos.y)
+            }
+
+            s.moving = false
+            guard let goal else { continue }
+            let dx = Double(goal.x - s.pos.x), dy = Double(goal.y - s.pos.y), d = hypot(dx, dy)
+            guard d > arrive else { continue }
+            let step = min(d, Self.petSpeed * dt)
+            let nx = CGPoint(x: s.pos.x + CGFloat(dx / d * step), y: s.pos.y + CGFloat(dy / d * step))
+            if m.canStand(nx) { s.pos = nx }
+            else if m.canStand(CGPoint(x: nx.x, y: s.pos.y)) { s.pos.x = nx.x }
+            else if m.canStand(CGPoint(x: s.pos.x, y: nx.y)) { s.pos.y = nx.y }
+            s.moving = true
+            if abs(dx) > 1 { s.facingRight = dx > 0 }
+        }
+        pets = pets.filter { entry in players.contains { $0.id == entry.key } }
     }
 }
 
@@ -1578,7 +1762,7 @@ extension RpgWorld {
                          dead: p.dead, weapon: p.weapon, weaponPlus: p.plus[p.weapon] ?? 0,
                          rage: max(0, p.rageUntil - time), iron: max(0, p.ironUntil - time), focus: max(0, p.focusUntil - time),
                          shield: max(0, p.shieldUntil - time), cyclone: max(0, p.cycloneUntil - time), invulnerable: p.invulnerable > 0,
-                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, hardcore: p.hardcore, fallen: p.fallen)
+                         bubble: time < p.bubbleUntil ? p.bubble : nil, bubbleLeft: max(0, p.bubbleUntil - time), partyID: p.partyID, hardcore: p.hardcore, fallen: p.fallen, job: p.job)
         }
         var mobPubs: [RpgMobPub] = []
         for mapID in occupied {
@@ -1594,7 +1778,11 @@ extension RpgWorld {
         return RpgSnapshot(time: time, players: pubs, mobs: mobPubs, shots: shots.filter { occupied.contains($0.map) },
                            fx: fx.filter { occupied.contains($0.map) }, floaters: floaters.filter { occupied.contains($0.map) },
                            drops: drops.filter { occupied.contains($0.map) }, traps: traps.filter { occupied.contains($0.map) },
-                           toasts: toasts, chat: Array(chatLog.suffix(10)), shake: shake, graves: graves.filter { occupied.contains($0.map) })
+                           toasts: toasts, chat: Array(chatLog.suffix(10)), shake: shake, graves: graves.filter { occupied.contains($0.map) },
+                           pets: pets.values.filter { occupied.contains($0.map) }.map { st in
+                               RpgPetPub(owner: st.owner, map: st.map, x: Double(st.pos.x), y: Double(st.pos.y), facingRight: st.facingRight,
+                                         moving: st.moving, speciesID: st.info.speciesID, shiny: st.info.shiny, name: st.info.name)
+                           })
     }
 
     func privateState(for id: Int) -> RpgPrivate? {
@@ -1642,6 +1830,7 @@ extension RpgWorld {
             p.hardcore = pub.hardcore ?? false
             if pub.id != localID { p.fallen = pub.fallen ?? false }
             if pub.id == localID, pub.fallen == true { p.fallen = true; p.respawnAt = .infinity }
+            p.job = pub.job ?? 0
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
@@ -1671,6 +1860,19 @@ extension RpgWorld {
             byMap[mp.map, default: []].append(m)
         }
         mobs = byMap
+        var nextPets: [Int: RpgPetState] = [:]
+        for pub in s.pets ?? [] {
+            let target = CGPoint(x: pub.x, y: pub.y)
+            var st = pets[pub.owner] ?? RpgPetState(owner: pub.owner, map: pub.map, pos: target, info: RpgPetInfo(speciesID: pub.speciesID, shiny: pub.shiny, name: pub.name, power: 0, element: .base))
+            if st.map != pub.map || hypot(target.x - st.pos.x, target.y - st.pos.y) > 80 { st.pos = target }
+            st.map = pub.map
+            st.facingRight = pub.facingRight
+            st.moving = pub.moving
+            st.info = RpgPetInfo(speciesID: pub.speciesID, shiny: pub.shiny, name: pub.name, power: 0, element: .base)
+            netTargets["t\(pub.owner)"] = target
+            nextPets[pub.owner] = st
+        }
+        pets = nextPets
         shots = s.shots
         fx = s.fx
         floaters = s.floaters
@@ -1701,6 +1903,7 @@ extension RpgWorld {
         if d.fallen == true { players[i].fallen = true }
         players[i].visited = Set(d.visited ?? [])
         players[i].playTime = d.playTime
+        players[i].job = d.job ?? 0
         players[i].hp = s.hp
         players[i].mp = s.mp
         players[i].cooldowns = s.cooldowns
@@ -1736,6 +1939,12 @@ extension RpgWorld {
             guard let t = netTargets["p\(players[i].id)"] else { continue }
             players[i].pos.x += (t.x - players[i].pos.x) * k
             players[i].pos.y += (t.y - players[i].pos.y) * k
+        }
+        for (owner, var st) in pets {
+            guard let t = netTargets["t\(owner)"] else { continue }
+            st.pos.x += (t.x - st.pos.x) * k
+            st.pos.y += (t.y - st.pos.y) * k
+            pets[owner] = st
         }
         for (mapID, list) in mobs {
             var moved = list
