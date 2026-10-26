@@ -63,6 +63,9 @@ extension EchoGameView {
         for d in level.doors { EchoArt.door(f, tx: d.tx, ty: d.ty, open: open[d.group] == true, clock: clock) }
         EchoArt.exit(f, level.exit, clock: clock)
 
+        if let past = pastFrame {
+            drawPokemon(f, owner: meID, at: past, tint: KartArt.rgb(255, 236, 170), alpha: 0.3)
+        }
         for (i, owned) in echoes.enumerated() {
             guard let g = ghosts[i] else { continue }
             drawPokemon(f, owner: owned.owner, at: g, tint: EchoArt.echoTints[i % EchoArt.echoTints.count], alpha: 0.62)
@@ -85,6 +88,12 @@ extension EchoGameView {
             f.setFillColor(KartArt.rgb(255, 255, 230, 0.10))
             f.fill(CGRect(x: 0, y: 0, width: EchoArt.width, height: EchoArt.height))
         }
+    }
+
+    /// Where last time's clearing run is now; it has no body and presses nothing.
+    var pastFrame: EchoFrame? {
+        guard let past = pastRun, !past.isEmpty, mode == .play || mode == .spectate || mode == .rewind else { return nil }
+        return past[min(viewFrame, past.count - 1)]
     }
 
     /// Plates as drawn. Only active play has a fresh simulation; a spectator, the rewind and the clear
@@ -252,6 +261,12 @@ extension EchoGameView {
                 text(n == 0 ? "혼자서." : "메아리 \(n)개와 함께.", at: CGPoint(x: area.midX, y: area.midY - 6), size: 16,
                      weight: .bold, align: .center)
             }
+        }
+        if let past = pastFrame, viewFrame < 240 {
+            let x = area.minX + CGFloat((past.x + EchoCore.P.w / 2) / EchoArt.scale) * lastScale
+            let y = area.minY + CGFloat(past.y / EchoArt.scale - 16) * lastScale
+            text("지난번의 나", at: CGPoint(x: x, y: y - 14), size: 11, color: NSColor(white: 1, alpha: 0.7),
+                 weight: .bold, align: .center)
         }
         if mode == .waiting {
             text("방장을 기다리는 중…", at: CGPoint(x: area.midX, y: area.midY), size: 18, align: .center)

@@ -113,7 +113,8 @@ final class EchoWindowController {
         let defaults = UserDefaults.standard
         let prior = online ? (0, 0) : (defaults.integer(forKey: Self.loopsKey), defaults.integer(forKey: Self.echoesKey))
         let view = EchoGameView(frame: window.contentView?.bounds ?? .zero, roster: roster, meID: session.me.id,
-                                hostID: hostID, gameID: gameID, startLevel: level, prior: prior, send: send,
+                                hostID: hostID, gameID: gameID, startLevel: level, prior: prior,
+                                memory: EchoMemory(defaults: .standard), send: send,
                                 sendState: sendState)
         view.onExit = { [weak self] in self?.backToLobby() }
         game = view

@@ -53,6 +53,10 @@ final class EchoGameView: NSView {
     private(set) var stats = (loops: 0, echoes: 0)
     var particles: [Particle] = []
 
+    /// The run that last cleared this level on this Mac, replayed as a faint ghost.
+    private let memory: EchoMemory?
+    private(set) var pastRun: [EchoFrame]?
+
     // Host only.
     private var match: EchoMatch?
     private var collectStartedAt: Double?
@@ -76,7 +80,7 @@ final class EchoGameView: NSView {
     var lastOrigin = CGPoint.zero
 
     init(frame: NSRect, roster: [EchoRosterEntry], meID: String, hostID: String, gameID: String, startLevel: Int,
-         prior: (loops: Int, echoes: Int) = (0, 0),
+         prior: (loops: Int, echoes: Int) = (0, 0), memory: EchoMemory? = nil,
          send: @escaping (EchoMessage) -> Void, sendState: @escaping (EchoMessage) -> Void) {
         self.roster = roster
         self.meID = meID
@@ -85,6 +89,7 @@ final class EchoGameView: NSView {
         self.send = send
         self.sendState = sendState
         self.levelIndex = startLevel
+        self.memory = memory
         self.world = EchoCore.makeWorld(EchoLevels.all[startLevel], echoes: [])
         super.init(frame: frame)
         terrainImage = EchoArt.terrain(level)
@@ -183,6 +188,7 @@ final class EchoGameView: NSView {
         }
         loop = start.loop
         echoes = start.echoes
+        pastRun = memory?.lastWin(level: level.name)
         world = EchoCore.makeWorld(level, echoes: start.echoes.map(\.rec))
         frames = [EchoCore.snapshot(world.player)]
         peers = peers.mapValues { var p = $0; p.alive = true; return p }
@@ -346,6 +352,7 @@ final class EchoGameView: NSView {
         case .play: break
         case .won:
             mode = .spectate
+            memory?.remember(level: level.name, frames: frames)
             burst(at: EchoCore.snapshot(world.player), color: KartArt.rgb(170, 255, 200), count: 30)
             send(.exited(gameID: gameID, loop: loop, id: meID))
         case .dead:
