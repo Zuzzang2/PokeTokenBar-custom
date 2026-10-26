@@ -26,14 +26,15 @@ struct EchoMatch: Equatable {
     private(set) var done: Set<String> = []
     private(set) var collecting = false
     private var received: [String: EchoOwned] = [:]
-    /// Loops played across the whole run, for the ending.
-    private(set) var totalLoops = 0
+    /// Loops that ended in a rewind across the whole run, for the ending. Level changes and erases
+    /// restart the loop too but are not rewinds.
+    private(set) var rewinds = 0
 
     /// `priorLoops` carries a solo run's loop count over from earlier sessions.
     init(players: [String], level: Int, priorLoops: Int = 0) {
         active = Set(players)
         self.level = level
-        totalLoops = priorLoops
+        rewinds = priorLoops
     }
 
     /// Where a solo run resumes after clearing `level`: the next one, or the start once the last is done.
@@ -88,6 +89,7 @@ struct EchoMatch: Equatable {
                 full.append(id)
             }
         }
+        rewinds += 1
         resetLoop()
         return full
     }
@@ -106,7 +108,6 @@ struct EchoMatch: Equatable {
 
     private mutating func resetLoop() {
         loop += 1
-        totalLoops += 1
         exited = []
         done = []
         collecting = false

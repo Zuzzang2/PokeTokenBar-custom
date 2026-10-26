@@ -160,6 +160,8 @@ final class EchoGameView: NSView {
         case let .cleared(g, lvl, loops, _):
             guard g == gameID, lvl == levelIndex else { return }
             stats.loops = loops
+            // Only a run that was part of an actual clear comes back as "지난번의 나".
+            if exitedIDs.contains(meID) { memory?.remember(level: level.name, frames: frames) }
             mode = .clear
             montageFrame = 0
             showBanner("클리어!", seconds: 3)
@@ -222,7 +224,7 @@ final class EchoGameView: NSView {
         match = m
         if m.isCleared, advanceAt == nil {
             echoesUsed += m.echoes.count
-            send(.cleared(gameID: gameID, level: m.level, loops: m.totalLoops + 1, echoes: echoesUsed))
+            send(.cleared(gameID: gameID, level: m.level, loops: m.rewinds, echoes: echoesUsed))
             advanceAt = clock + 3.4
         } else if m.allDone, !m.collecting {
             send(.endLoop(gameID: gameID, loop: m.loop, by: nil))
@@ -263,7 +265,7 @@ final class EchoGameView: NSView {
                 match = m
                 send(.loop(EchoLoopStart(gameID: gameID, level: m.level, loop: m.loop, echoes: [], full: [])))
             } else {
-                send(.finished(gameID: gameID, loops: m.totalLoops + 1, echoes: echoesUsed))
+                send(.finished(gameID: gameID, loops: m.rewinds, echoes: echoesUsed))
             }
         }
     }
@@ -352,7 +354,6 @@ final class EchoGameView: NSView {
         case .play: break
         case .won:
             mode = .spectate
-            memory?.remember(level: level.name, frames: frames)
             burst(at: EchoCore.snapshot(world.player), color: KartArt.rgb(170, 255, 200), count: 30)
             send(.exited(gameID: gameID, loop: loop, id: meID))
         case .dead:
