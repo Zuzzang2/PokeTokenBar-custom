@@ -41,6 +41,7 @@ final class StatusItemMenuTests: XCTestCase {
             .init(title: "Settings…", keyEquivalent: ",", action: .openSettings),
             .init(title: l.floatingPetHideLabel, keyEquivalent: "", action: .toggleFloatingPet),
             .init(title: "대결 (테스트)…", keyEquivalent: "b", action: .openBattle),
+            .init(title: "카트 (테스트)…", keyEquivalent: "k", action: .openKart),
             nil,
             .init(title: "최근 버전으로 업데이트 (main)…", keyEquivalent: "u", action: .updateToLatest),
             nil,
