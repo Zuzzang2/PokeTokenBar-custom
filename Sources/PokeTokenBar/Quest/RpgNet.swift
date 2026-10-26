@@ -35,6 +35,17 @@ struct RpgPlayerPub: Codable, Sendable {
     var comboLeft: Double? = nil
     /// Seconds of stealth left (nil or 0 = visible).
     var stealth: Double? = nil
+    /// Appearance: customization (`RpgLook`) and worn gear, so everyone draws the same hero.
+    var look: [Int]? = nil
+    var armor: String? = nil
+    var helmet: String? = nil
+    var boots: String? = nil
+    var ring: String? = nil
+    var amulet: String? = nil
+    /// Animation: seconds since the last basic attack / skill cast (nil when long ago) and hurt-flash seconds left.
+    var attackAgo: Double? = nil
+    var castAgo: Double? = nil
+    var hurt: Double? = nil
 }
 
 struct RpgMobPub: Codable, Sendable {

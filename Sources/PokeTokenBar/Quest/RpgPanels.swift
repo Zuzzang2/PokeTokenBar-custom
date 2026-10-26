@@ -181,8 +181,8 @@ extension RpgView {
     // MARK: equipment
 
     func playerSprite(_ p: RpgPlayer) -> CGImage? {
-        let tint = RpgArt.classTint(p.cls, weapon: p.weaponItem).merging(RpgJobs.tint(p.cls, p.job)) { weapon, _ in weapon }
-        return RpgArt.sprite(p.cls.rawValue, tint: tint)
+        let t = world.time
+        return RpgArt.heroPreview(p, pose: RpgArt.heroShowcasePose(p, time: t, still: true), time: t)
     }
 
     /// The incoming monster attack used for the "damage taken" readout: the normal monster closest to the player's level.

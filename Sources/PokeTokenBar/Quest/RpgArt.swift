@@ -291,17 +291,6 @@ enum RpgArt {
         return img
     }
 
-    /// Weapon tint on the class sprite: blade, bowstring or staff orb take the element colour.
-    static func classTint(_ cls: RpgClass, weapon: RpgItem?) -> [Character: CGColor] {
-        guard let w = weapon, w.element != .base else { return [:] }
-        let e = elem(w.element)
-        switch cls {
-        case .warrior: return ["B": e.mid]
-        case .archer, .mage, .cleric, .summoner, .mechanic: return ["Y": e.mid]
-        case .rogue, .monk: return ["R": e.mid]
-        }
-    }
-
     // MARK: icons
 
     private static let swordT: RpgGrid = [
@@ -535,6 +524,11 @@ enum RpgArt {
             let tone = tones[id] ?? (rgb(200, 200, 200), rgb(120, 120, 120))
             return ["B": tone.0, "E": tone.1]
         }
+    }
+
+    /// The colours `icon(_:)` paints an item with (tier palette and region overrides), for drawing it elsewhere: the hero's hand and gear.
+    static func iconColors(_ item: RpgItem) -> [Character: CGColor] {
+        palette.merging(itemColors(item)) { _, new in new }.merging(regionIcons[item.id] ?? [:]) { _, new in new }
     }
 
     private static var iconCache: [String: CGImage] = [:]
