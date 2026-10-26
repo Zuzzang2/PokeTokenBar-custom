@@ -26,6 +26,15 @@ struct RpgSaveData: Codable, Sendable {
     var slots: [String?]?
     var quests: [RpgQuest]?
     var visited: [RpgMapID]?
+    var bossLoot: [String: Double]?
+    var hardcore: Bool?
+    var fallen: Bool?
+    var job: Int?
+    var kills: [String: Int]?
+    var eliteKills: Int?
+    var bestCombo: Int?
+    var achievements: [String]?
+    var bestFloor: Int?
 }
 
 enum RpgSaveStore {
@@ -70,7 +79,8 @@ enum RpgSaveStore {
         let spot = inBoss ? RpgMap.center(RpgWorld.townSpawn) : p.pos
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
-                           plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited))
+                           plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
+                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor)
     }
 
     static func player(from s: RpgSaveData, id: Int) -> RpgPlayer {
@@ -89,6 +99,15 @@ enum RpgSaveStore {
         p.slots = s.slots.map { $0 + Array(repeating: nil, count: max(0, RpgWorld.slotCount - $0.count)) } ?? starterSlots(s.cls)
         p.quests = s.quests ?? []
         p.visited = Set(s.visited ?? [.town, s.map])
+        p.bossLoot = s.bossLoot ?? [:]
+        p.hardcore = s.hardcore ?? false
+        p.fallen = s.fallen ?? false
+        p.job = RpgJobs.def(s.cls, s.job ?? 0) == nil ? 0 : (s.job ?? 0)
+        p.kills = RpgAchievements.cleanKills(s.kills)
+        p.eliteKills = min(max(s.eliteKills ?? 0, 0), 10_000_000)
+        p.bestCombo = min(max(s.bestCombo ?? 0, 0), 10_000)
+        p.achievements = Set((s.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
+        p.bestFloor = min(max(s.bestFloor ?? 0, 0), 1000)
         p.hp = p.maxHP
         p.mp = p.maxMP
         // A position from an older map layout might now be inside a wall.
@@ -106,8 +125,10 @@ enum RpgSaveStore {
         return (0..<RpgWorld.slotCount).map { $0 < starters.count ? starters[$0] : nil }
     }
 
-    static func newPlayer(name: String, cls: RpgClass, id: Int) -> RpgPlayer {
+    static func newPlayer(name: String, cls: RpgClass, id: Int, hardcore: Bool = false) -> RpgPlayer {
         var p = RpgPlayer(id: id, name: name, cls: cls, weapon: cls.starterWeapon, pos: RpgMap.center(RpgWorld.townSpawn))
+        p.hardcore = hardcore
+        if hardcore { p.inventory["hp1"] = 5 }
         p.gold = 150
         p.inventory = ["hp0": 6, "mp0": 4, "scroll": 2]
         p.armor = "armor0"
@@ -116,5 +137,21 @@ enum RpgSaveStore {
         p.hp = p.maxHP
         p.mp = p.maxMP
         return p
+    }
+}
+
+/// Tombstones of fallen hardcore characters, kept on this Mac (plain JSON: nothing to cheat by editing).
+enum RpgGraveStore {
+    private static var url: URL { AppStatePaths.directory().appendingPathComponent("rpg-graves.json") }
+
+    static func load() -> [RpgGrave] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([RpgGrave].self, from: data)) ?? []
+    }
+
+    static func save(_ graves: [RpgGrave]) {
+        guard let data = try? JSONEncoder().encode(graves) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 }

@@ -38,12 +38,32 @@ final class RpgWindowController: RpgDriver {
     private var lastInputSent = 0.0
     private var pendingSave: RpgSaveData?
 
-    func show() {
+    /// Opens the window; the raised companion becomes the player's pet.
+    func show(companion: CompanionStore) {
+        self.companion = companion
+        refreshPet()
+        showWindow()
+    }
+
+    private weak var companion: CompanionStore?
+    private var petInfo: RpgPetInfo?
+
+    private func refreshPet() {
+        guard let companion else { return }
+        Task { [weak self] in
+            let info = await RpgPetFactory.make(companion: companion)
+            guard let self else { return }
+            self.petInfo = info
+            if self.world != nil, self.game != nil { self.send(.pet(info)) }
+        }
+    }
+
+    private func showWindow() {
         if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(); return }
         state.reload()
         let title = NSHostingView(rootView: RpgTitleView(state: state,
             onContinue: { [weak self] in self?.continueGame() },
-            onNew: { [weak self] name, cls in self?.newGame(name: name, cls: cls) }))
+            onNew: { [weak self] name, cls, hardcore in self?.newGame(name: name, cls: cls, hardcore: hardcore) }))
         titleView = title
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let size = NSSize(width: min(1080, screen.width * 0.9), height: min(720, screen.height * 0.85))
@@ -84,14 +104,14 @@ final class RpgWindowController: RpgDriver {
     }
 
     private func continueGame() {
-        guard case .ok(let data) = RpgSaveStore.load() else { return }
+        guard case .ok(let data) = RpgSaveStore.load(), data.fallen != true else { return }
         startHosting(RpgSaveStore.player(from: data, id: 1))
     }
 
-    private func newGame(name: String, cls: RpgClass) {
+    private func newGame(name: String, cls: RpgClass, hardcore: Bool) {
         if case .tampered = RpgSaveStore.load() { RpgSaveStore.quarantine() }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1)
+        let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1, hardcore: hardcore)
         RpgSaveStore.save(RpgSaveStore.snapshot(player))
         startHosting(player)
     }
@@ -101,6 +121,7 @@ final class RpgWindowController: RpgDriver {
     /// Everyone starts by hosting their own world; meeting another host may make us yield to it.
     private func startHosting(_ player: RpgPlayer, announce: Bool = true) {
         let w = RpgWorld(player: player)
+        attachGraves(w)
         if announce { w.toast("\(player.name)의 모험 시작! 같은 Wi-Fi에서 켠 동료와 자동으로 만나요") }
         world = w
         localID = player.id
@@ -134,6 +155,7 @@ final class RpgWindowController: RpgDriver {
         game = view
         window.contentView = view
         window.makeFirstResponder(view)
+        if let petInfo { send(.pet(petInfo)) }
     }
 
     private func backToTitle() {
@@ -143,6 +165,16 @@ final class RpgWindowController: RpgDriver {
         stopNetwork()
         state.reload()
         if let titleView { window?.contentView = titleView }
+    }
+
+    /// Graves live on disk on every Mac: load them into a world and write back whenever one appears.
+    private func attachGraves(_ w: RpgWorld) {
+        w.addGraves(RpgGraveStore.load())
+        w.onGraves = { [weak w] in
+            guard let w else { return }
+            let merged = Dictionary((RpgGraveStore.load() + w.graves).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            RpgGraveStore.save(Array(merged.values))
+        }
     }
 
     private var myState: RpgSaveData? { world?.player(localID).map(RpgSaveStore.snapshot) }
@@ -212,6 +244,8 @@ final class RpgWindowController: RpgDriver {
             p.dead = false
             let w = RpgWorld(player: p)
             w.isMirror = true
+            attachGraves(w)
+            session.send(.graves(peer: session.key, list: RpgGraveStore.load()), to: host, reliable: true)
             world = w
             localID = id
             mode = .client(host)
@@ -223,6 +257,8 @@ final class RpgWindowController: RpgDriver {
             if mode == .host, let id = hostPeers[peer] { world?.perform(action, for: id) }
         case .chat(let peer, let text):
             if mode == .host, let id = hostPeers[peer] { world?.say(id, text) }
+        case .graves(_, let list):
+            if mode == .host { world?.addGraves(list) }
         case .snapshot(let snap):
             if case .client(let host) = mode, host == from { world?.apply(snap, localID: localID) }
         case .privateState(let peer, let s):
@@ -303,18 +339,34 @@ final class RpgTitleState {
 struct RpgTitleView: View {
     let state: RpgTitleState
     let onContinue: () -> Void
-    let onNew: (String, RpgClass) -> Void
+    let onNew: (String, RpgClass, Bool) -> Void
 
     @State private var name = ""
     @State private var cls = RpgClass.warrior
     @State private var confirmNew = false
+    @State private var hardcore = false
 
     var body: some View {
         VStack(spacing: 18) {
             Text("픽셀 모험").font(.system(size: 40, weight: .heavy))
             Text("마을에서 장비를 사고, 포탈을 넘어 사냥터로. 같은 Wi-Fi의 동료와 자동으로 같은 세계에서 만나요.")
                 .foregroundStyle(.secondary)
-            if let s = state.save {
+            if let s = state.save, s.fallen == true {
+                GroupBox {
+                    HStack(spacing: 14) {
+                        RpgSpriteImage(key: s.cls.rawValue).frame(width: 64, height: 64).opacity(0.4).grayscale(1)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("☠ \(s.name) · \(s.cls.name) Lv\(s.level)").font(.title3.bold())
+                            Text("하드코어 · \(RpgMaps.def(s.map).name)에서 영원히 잠들었습니다 · 플레이 \(Int(s.playTime / 60))분")
+                                .foregroundStyle(.secondary)
+                            Text("그 자리에 묘비가 남아 있어요. 새 모험을 시작하세요.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(6)
+                }
+                .frame(maxWidth: 560)
+            } else if let s = state.save {
                 GroupBox {
                     HStack(spacing: 14) {
                         RpgSpriteImage(key: s.cls.rawValue).frame(width: 64, height: 64)
@@ -358,8 +410,17 @@ struct RpgTitleView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    Button(state.save == nil ? "모험 시작" : "새로 시작 (기존 캐릭터 삭제)") {
-                        if state.save == nil { onNew(name, cls) } else { confirmNew = true }
+                    Toggle(isOn: $hardcore) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("하드코어 — 죽으면 끝").font(.headline).foregroundStyle(hardcore ? .red : .primary)
+                            Text("받는 피해 1.5배, 경험치·드랍 1.3배. 쓰러지면 그 자리에 묘비가 남고 캐릭터는 사라져요.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                    .frame(maxWidth: 520, alignment: .leading)
+                    Button(state.save == nil || state.save?.fallen == true ? "모험 시작" : "새로 시작 (기존 캐릭터 삭제)") {
+                        if state.save == nil || state.save?.fallen == true { onNew(name, cls, hardcore) } else { confirmNew = true }
                     }
                     .controlSize(.large)
                     .buttonStyle(.bordered)
@@ -371,7 +432,7 @@ struct RpgTitleView: View {
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert("기존 캐릭터를 지우고 새로 시작할까요?", isPresented: $confirmNew) {
-            Button("새로 시작", role: .destructive) { onNew(name, cls) }
+            Button("새로 시작", role: .destructive) { onNew(name, cls, hardcore) }
             Button("취소", role: .cancel) {}
         }
     }

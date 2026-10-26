@@ -104,7 +104,7 @@ enum RpgSkills {
         s("m_heal", "치유", .mage, 28, 30, 14, 0, "HP 30% 회복 (레벨당 +3%)"),
         s("m_ult", "메테오 스톰", .mage, 35, 70, 45, 3.2, max: 5, "주변에 운석 8개 낙하"),
     ]
-    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills).map { ($0.id, $0) })
     static func def(_ id: String) -> RpgSkillDef? { byID[id] }
     static func damage(_ s: RpgSkillDef, level: Int) -> Double { s.power * (1 + 0.12 * Double(max(1, level) - 1)) }
 }
@@ -238,12 +238,14 @@ enum RpgPlace: Sendable, Equatable {
     case shop(RpgShop)
     case smith
     case board
+    case jobMaster
 
     var title: String {
         switch self {
         case .shop(let s): return s.title
         case .smith: return "대장간"
         case .board: return "의뢰소"
+        case .jobMaster: return "전직관"
         }
     }
 }
@@ -310,7 +312,7 @@ enum RpgMonsters {
         m("golem", "골렘", "golem", 13, 480, 44, 14, 20, 115, 40...70, .aggressive,
           [("armor3", 0.02), ("staff2", 0.01), ("staff3", 0.01), ("staff4", 0.01), ("sword4", 0.01), ("stone", 0.08)]),
         m("goldslime", "황금 슬라임", "goldslime", 8, 110, 0, 5, 44, 45, 150...320, .coward, [("hp1", 0.3), ("stone", 0.3)]),
-        boss("slimeking", "슬라임 킹", "slimeking", 15, 30000, 60, 10, 34, 1500, 500...800, .slime, minion: "slime", element: .base,
+        boss("slimeking", "슬라임 킹", "slimeking", 15, 45000, 60, 10, 34, 1500, 500...800, .slime, minion: "slime", element: .base,
              [("sword5", 0.1), ("bow5", 0.1), ("staff5", 0.1), ("armor4", 0.15), ("hp1", 1)]),
 
         m("sandslime", "모래 슬라임", "sandslime", 15, 420, 52, 14, 32, 160, 40...70, .passive, [("hp1", 0.1), ("stone", 0.05)]),
@@ -319,7 +321,7 @@ enum RpgMonsters {
         m("mummy", "미라", "mummy", 19, 700, 66, 20, 30, 250, 60...95, .aggressive, [("hp2", 0.06), ("armor5", 0.006), ("stone", 0.07)]),
         m("sandgolem", "모래 골렘", "sandgolem", 21, 1100, 78, 30, 22, 340, 80...130, .aggressive,
           [("sword6", 0.008), ("bow6", 0.008), ("staff6", 0.008), ("stone", 0.1), ("book_w_cyclone", 0.005), ("book_a_trap", 0.005), ("book_m_pillar", 0.005)]),
-        boss("sandking", "모래골렘 왕", "sandking", 24, 150000, 140, 30, 30, 6000, 2000...3000, .golem, minion: "sandslime", element: .fire,
+        boss("sandking", "모래골렘 왕", "sandking", 24, 225000, 140, 30, 30, 6000, 2000...3000, .golem, minion: "sandslime", element: .fire,
              [("sword6", 0.25), ("bow6", 0.25), ("staff6", 0.25), ("armor5", 0.3), ("book_w_cyclone", 0.15), ("book_a_trap", 0.15), ("book_m_pillar", 0.15)]),
 
         m("iceslime", "얼음 슬라임", "iceslime", 22, 900, 82, 26, 32, 380, 70...110, .passive, [("hp2", 0.08), ("stone", 0.07)]),
@@ -328,7 +330,7 @@ enum RpgMonsters {
         m("icebat", "얼음 박쥐", "icebat", 25, 820, 96, 24, 52, 420, 70...110, .flyer, [("mp1", 0.06), ("stone", 0.08)]),
         m("yeti", "설인", "yeti", 28, 2000, 115, 40, 26, 650, 120...190, .aggressive,
           [("armor6", 0.004), ("bow7", 0.004), ("stone", 0.12), ("book_w_slam", 0.006), ("book_a_focus", 0.006), ("book_m_heal", 0.006)]),
-        boss("yetiking", "설인 왕", "yetiking", 32, 220000, 210, 45, 34, 14000, 4000...6000, .yeti, minion: "snowwolf", element: .ice,
+        boss("yetiking", "설인 왕", "yetiking", 32, 330000, 210, 45, 34, 14000, 4000...6000, .yeti, minion: "snowwolf", element: .ice,
              [("armor6", 0.2), ("bow7", 0.2), ("staff6", 0.3), ("book_w_slam", 0.2), ("book_a_focus", 0.2), ("book_m_heal", 0.2)]),
 
         m("magmaslime", "용암 슬라임", "magmaslime", 30, 1900, 130, 42, 34, 720, 130...200, .passive, [("hp2", 0.1), ("stone", 0.1)]),
@@ -337,7 +339,7 @@ enum RpgMonsters {
           [("hp3", 0.03), ("sword7", 0.004), ("staff7", 0.004), ("stone", 0.12)]),
         m("lavagolem", "용암 골렘", "lavagolem", 38, 4200, 185, 66, 24, 1300, 240...340, .aggressive,
           [("sword7", 0.005), ("staff7", 0.005), ("bow7", 0.005), ("stone", 0.15), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001)]),
-        boss("skelking", "화염 해골왕", "skelking", 42, 350000, 330, 70, 36, 30000, 8000...12000, .skeleton, minion: "flameskel", element: .fire,
+        boss("skelking", "화염 해골왕", "skelking", 42, 525000, 330, 70, 36, 30000, 8000...12000, .skeleton, minion: "flameskel", element: .fire,
              [("sword7", 0.25), ("staff7", 0.25), ("bow7", 0.25), ("book_w_ult", 0.1), ("book_a_ult", 0.1), ("book_m_ult", 0.1)]),
 
         m("darkknight", "암흑 기사", "darkknight", 42, 5200, 230, 80, 40, 1700, 300...450, .aggressive, [("hp3", 0.05), ("stone", 0.15)]),
@@ -345,8 +347,27 @@ enum RpgMonsters {
         m("demonbat", "악마 박쥐", "demonbat", 44, 4000, 240, 60, 60, 1800, 300...450, .flyer, [("hp3", 0.04), ("stone", 0.15)]),
         m("gargoyle", "가고일", "gargoyle", 50, 8000, 290, 100, 28, 2600, 450...650, .aggressive,
           [("stone", 0.22), ("book_w_ult", 0.002), ("book_a_ult", 0.002), ("book_m_ult", 0.002)]),
-        boss("demonking", "마왕", "demonking", 58, 650000, 500, 110, 40, 90000, 30000...50000, .demon, minion: "darkknight", element: .cosmic,
+        boss("demonking", "마왕", "demonking", 58, 975000, 500, 110, 40, 90000, 30000...50000, .demon, minion: "darkknight", element: .cosmic,
              [("sword8", 0.15), ("bow8", 0.15), ("staff8", 0.15), ("armor7", 0.2), ("book_w_ult", 0.25), ("book_a_ult", 0.25), ("book_m_ult", 0.25)]),
+
+        // swamp (Lv16~20)
+        m("bogshroom", "늪 버섯", "bogshroom", 16, 500, 56, 16, 28, 185, 45...75, .aggressive, [("hp1", 0.1), ("stone", 0.05)]),
+        m("bogwolf", "늪 늑대", "bogwolf", 18, 650, 64, 19, 54, 235, 55...88, .aggressive,
+          [("hp2", 0.05), ("stone", 0.06), ("book_w_cyclone", 0.004), ("book_a_trap", 0.004), ("book_m_pillar", 0.004)]),
+        m("mossgolem", "이끼 골렘", "mossgolem", 20, 950, 72, 26, 22, 300, 70...115, .aggressive,
+          [("sword6", 0.006), ("bow6", 0.006), ("staff6", 0.006), ("stone", 0.09)]),
+        // ruins (Lv29~34)
+        m("ruinbat", "유적 박쥐", "ruinbat", 29, 1800, 122, 38, 54, 690, 110...170, .flyer, [("mp1", 0.07), ("stone", 0.1)]),
+        m("ruinskel", "고대 해골", "ruinskel", 31, 2300, 135, 44, 34, 800, 125...190, .aggressive,
+          [("hp2", 0.08), ("stone", 0.11), ("book_w_slam", 0.005), ("book_a_focus", 0.005), ("book_m_heal", 0.005)]),
+        m("ruinwarden", "유적 수호자", "ruinwarden", 34, 3000, 152, 54, 24, 920, 150...230, .aggressive,
+          [("armor6", 0.005), ("sword7", 0.004), ("bow7", 0.004), ("stone", 0.13)]),
+        // crypt (Lv45~52)
+        m("wraith", "망령", "wraith", 45, 4800, 255, 68, 40, 2000, 330...480, .ranged, [("mp1", 0.1), ("hp3", 0.04), ("stone", 0.15)]),
+        m("bonelord", "뼈 군주", "bonelord", 48, 6200, 270, 88, 34, 2300, 400...580, .aggressive,
+          [("hp3", 0.05), ("stone", 0.18), ("book_w_ult", 0.001), ("book_a_ult", 0.001), ("book_m_ult", 0.001)]),
+        m("cryptguard", "지하묘지 수호상", "cryptguard", 52, 10000, 310, 110, 26, 3000, 500...720, .aggressive,
+          [("stone", 0.25), ("book_w_ult", 0.002), ("book_a_ult", 0.002), ("book_m_ult", 0.002)]),
     ]
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: String) -> RpgMonsterDef { byID[id]! }
@@ -357,6 +378,8 @@ enum RpgMonsters {
 enum RpgMapID: String, Codable, CaseIterable, Sendable {
     case town, field, forest, cave1, cave2, boss, pond
     case desert, desertBoss, snow, snowBoss, volcano, volcanoBoss, castle, castleBoss
+    case swamp, ruins, crypt
+    case tower
 }
 
 enum RpgMapKind: Sendable { case town, field, forest, cave, boss, pond, desert, snow, volcano, castle }
@@ -407,7 +430,7 @@ enum RpgMaps {
         town.waypoint = true
         var maps: [RpgMapDef] = [
             RpgMapDef(id: .town, name: "마을", levelText: "안전지대", width: 32, height: 24, kind: .town, seed: 1,
-                      portals: [p(30, 11, .field, 4, 14), town], monsters: []),
+                      portals: [p(30, 11, .field, 4, 14), p(28, 7, .tower, 14, 17, minLevel: 10), town], monsters: []),
             RpgMapDef(id: .field, name: "초원", levelText: "Lv1~4", width: 46, height: 28, kind: .field, seed: 11,
                       portals: [p(1, 14, .town, 28, 11), p(44, 14, .forest, 4, 15)],
                       monsters: sp([("slime", 10), ("blueslime", 5), ("brownshroom", 6)])),
@@ -425,14 +448,17 @@ enum RpgMaps {
                       monsters: sp([("slimeking", 1)]), zone: .cave),
             RpgMapDef(id: .pond, name: "비밀 연못", levelText: "보너스", width: 24, height: 16, kind: .pond, seed: 61,
                       portals: [p(11, 14, .forest, 6, 6)], monsters: sp([("goldslime", 3)])),
+            // 무한의 탑: no fixed monsters, `RpgWorld` fills each floor (see `towerWave`).
+            RpgMapDef(id: .tower, name: "무한의 탑", levelText: "도전", width: 28, height: 22, kind: .boss, seed: 131,
+                      portals: [p(14, 20, .town, 27, 7)], monsters: [], zone: .castle),
 
             RpgMapDef(id: .desert, name: "작열의 사막", levelText: "Lv15~22", width: 50, height: 30, kind: .desert, seed: 71,
-                      portals: [p(1, 15, .boss, 23, 10), p(48, 15, .snow, 4, 15, minLevel: 22), p(25, 1, .desertBoss, 14, 17, minLevel: 20)],
+                      portals: [p(1, 15, .boss, 23, 10), p(48, 15, .snow, 4, 15, minLevel: 22), p(25, 1, .desertBoss, 14, 17, minLevel: 20), p(25, 28, .swamp, 4, 15, minLevel: 16)],
                       monsters: sp([("sandslime", 9), ("scorpion", 7), ("mummy", 6), ("sandgolem", 4)])),
             RpgMapDef(id: .desertBoss, name: "피라미드 심층", levelText: "보스 Lv24", width: 28, height: 22, kind: .boss, seed: 73,
                       portals: [p(14, 20, .desert, 25, 4)], monsters: sp([("sandking", 1)]), zone: .desert),
             RpgMapDef(id: .snow, name: "얼어붙은 설원", levelText: "Lv22~30", width: 50, height: 30, kind: .snow, seed: 79,
-                      portals: [p(1, 15, .desert, 45, 15), p(48, 15, .volcano, 4, 15, minLevel: 30), p(25, 1, .snowBoss, 14, 17, minLevel: 28)],
+                      portals: [p(1, 15, .desert, 45, 15), p(48, 15, .volcano, 4, 15, minLevel: 30), p(25, 1, .snowBoss, 14, 17, minLevel: 28), p(25, 28, .ruins, 4, 15, minLevel: 29)],
                       monsters: sp([("iceslime", 9), ("snowwolf", 7), ("icebat", 6), ("yeti", 4)])),
             RpgMapDef(id: .snowBoss, name: "빙하 동굴", levelText: "보스 Lv32", width: 28, height: 22, kind: .boss, seed: 83,
                       portals: [p(14, 20, .snow, 25, 4)], monsters: sp([("yetiking", 1)]), zone: .snow),
@@ -442,17 +468,26 @@ enum RpgMaps {
             RpgMapDef(id: .volcanoBoss, name: "화산의 심장", levelText: "보스 Lv42", width: 28, height: 22, kind: .boss, seed: 97,
                       portals: [p(14, 20, .volcano, 25, 4)], monsters: sp([("skelking", 1)]), zone: .volcano),
             RpgMapDef(id: .castle, name: "마왕성", levelText: "Lv40~55", width: 50, height: 32, kind: .castle, seed: 101,
-                      portals: [p(1, 16, .volcano, 45, 15), p(25, 1, .castleBoss, 14, 17, minLevel: 50)],
+                      portals: [p(1, 16, .volcano, 45, 15), p(25, 1, .castleBoss, 14, 17, minLevel: 50), p(25, 30, .crypt, 4, 15, minLevel: 44)],
                       monsters: sp([("darkknight", 8), ("shadowmage", 6), ("demonbat", 6), ("gargoyle", 4)])),
             RpgMapDef(id: .castleBoss, name: "마왕의 옥좌", levelText: "보스 Lv58", width: 28, height: 22, kind: .boss, seed: 103,
                       portals: [p(14, 20, .castle, 25, 4)], monsters: sp([("demonking", 1)]), zone: .castle),
+            RpgMapDef(id: .swamp, name: "안개 늪", levelText: "Lv16~21", width: 46, height: 30, kind: .forest, seed: 107,
+                      portals: [p(1, 15, .desert, 25, 25)],
+                      monsters: sp([("bogshroom", 8), ("bogwolf", 6), ("mossgolem", 4)])),
+            RpgMapDef(id: .ruins, name: "잊힌 유적", levelText: "Lv29~34", width: 46, height: 30, kind: .cave, seed: 109,
+                      portals: [p(1, 15, .snow, 25, 25)],
+                      monsters: sp([("ruinbat", 7), ("ruinskel", 6), ("ruinwarden", 4)])),
+            RpgMapDef(id: .crypt, name: "왕가의 지하묘지", levelText: "Lv44~52", width: 46, height: 30, kind: .castle, seed: 113,
+                      portals: [p(1, 15, .castle, 25, 27)],
+                      monsters: sp([("wraith", 7), ("bonelord", 6), ("cryptguard", 4)])),
         ]
         return maps
     }()
     static func def(_ id: RpgMapID) -> RpgMapDef { all.first { $0.id == id }! }
 
     /// Zones the 차원문 can open once visited.
-    static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .snow, .volcano, .castle]
+    static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .swamp, .snow, .ruins, .volcano, .castle, .crypt]
 
     static func xpNeeded(_ level: Int) -> Int {
         let l = level
