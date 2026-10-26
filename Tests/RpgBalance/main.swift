@@ -107,7 +107,14 @@ func run(_ cls: RpgClass, level: Int) -> Result {
 
 func pad(_ s: String, _ n: Int) -> String { s.count >= n ? s : s + String(repeating: " ", count: n - s.count) }
 var table: [RpgClass: [Int: Result]] = [:]
-for cls in RpgClass.allCases { for l in levels { table[cls, default: [:]][l] = run(cls, level: l) } }
+let trials = Int(ProcessInfo.processInfo.environment["TRIALS"] ?? "") ?? 3
+for cls in RpgClass.allCases {
+    for l in levels {
+        var sum = Result()
+        for _ in 0..<trials { let r = run(cls, level: l); sum.kills += r.kills; sum.deaths += r.deaths; sum.taken += r.taken; sum.xp += r.xp; sum.gold += r.gold }
+        table[cls, default: [:]][l] = Result(kills: sum.kills / trials, deaths: sum.deaths / trials, taken: sum.taken / Double(trials), xp: sum.xp / trials, gold: sum.gold / trials)
+    }
+}
 
 print("kills / deaths / damage taken per \(Int(seconds))s")
 print(pad("class", 10) + levels.map { pad("Lv\($0)", 16) }.joined())

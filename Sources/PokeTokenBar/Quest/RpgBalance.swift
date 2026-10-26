@@ -6,7 +6,17 @@ import Foundation
 
 enum RpgBalance {
     /// (level, factor) points per class.
-    static let attack: [RpgClass: [(Int, Double)]] = [:]
+    static let attack: [RpgClass: [(Int, Double)]] = [
+        .warrior: [(10, 1.0), (20, 1.1), (30, 1.1), (45, 1.2), (60, 1.5), (90, 1.5)],
+        .archer: [(10, 2.0), (30, 1.35), (60, 1.7), (90, 3.0)],
+        .mage: [(10, 1.15), (30, 0.85), (60, 1.0), (90, 0.75)],
+        .rogue: [(10, 1.1), (30, 1.0), (60, 1.0), (90, 1.0)],
+        .cleric: [(10, 1.95), (30, 1.9), (45, 2.3), (60, 2.7), (90, 4.3)],
+        .monk: [(10, 0.47), (30, 0.5), (60, 0.42), (90, 0.35)],
+        .summoner: [(10, 1.15), (30, 1.15), (60, 0.85), (90, 0.9)],
+        .mechanic: [(10, 1.2), (30, 1.5), (60, 1.25), (90, 1.95)],
+    ]
+
 
     static func attackFactor(_ cls: RpgClass, level: Int) -> Double {
         guard let pts = attack[cls], let first = pts.first else { return 1 }
