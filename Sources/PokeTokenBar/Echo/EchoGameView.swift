@@ -76,6 +76,7 @@ final class EchoGameView: NSView {
     var lastOrigin = CGPoint.zero
 
     init(frame: NSRect, roster: [EchoRosterEntry], meID: String, hostID: String, gameID: String, startLevel: Int,
+         prior: (loops: Int, echoes: Int) = (0, 0),
          send: @escaping (EchoMessage) -> Void, sendState: @escaping (EchoMessage) -> Void) {
         self.roster = roster
         self.meID = meID
@@ -87,7 +88,8 @@ final class EchoGameView: NSView {
         self.world = EchoCore.makeWorld(EchoLevels.all[startLevel], echoes: [])
         super.init(frame: frame)
         terrainImage = EchoArt.terrain(level)
-        if isHost { match = EchoMatch(players: roster.map(\.id), level: startLevel) }
+        if isHost { match = EchoMatch(players: roster.map(\.id), level: startLevel, priorLoops: prior.loops) }
+        echoesUsed = prior.echoes
     }
 
     @available(*, unavailable)
@@ -150,7 +152,7 @@ final class EchoGameView: NSView {
             guard g == gameID, l == loop, isHost else { return }
             match?.receive(run)
             hostMaybeStartNextLoop()
-        case let .cleared(g, lvl, loops):
+        case let .cleared(g, lvl, loops, _):
             guard g == gameID, lvl == levelIndex else { return }
             stats.loops = loops
             mode = .clear
@@ -214,7 +216,7 @@ final class EchoGameView: NSView {
         match = m
         if m.isCleared, advanceAt == nil {
             echoesUsed += m.echoes.count
-            send(.cleared(gameID: gameID, level: m.level, loops: m.totalLoops + 1))
+            send(.cleared(gameID: gameID, level: m.level, loops: m.totalLoops + 1, echoes: echoesUsed))
             advanceAt = clock + 3.4
         } else if m.allDone, !m.collecting {
             send(.endLoop(gameID: gameID, loop: m.loop, by: nil))
@@ -323,7 +325,7 @@ final class EchoGameView: NSView {
         }
     }
 
-    private func livePeers() -> [EchoFrame] {
+    func livePeers() -> [EchoFrame] {
         peers.compactMap { id, p in
             p.alive && p.loop == loop && !exitedIDs.contains(id) && !deadIDs.contains(id) ? p.frame : nil
         }

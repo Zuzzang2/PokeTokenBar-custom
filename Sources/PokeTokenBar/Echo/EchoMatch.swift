@@ -29,9 +29,16 @@ struct EchoMatch: Equatable {
     /// Loops played across the whole run, for the ending.
     private(set) var totalLoops = 0
 
-    init(players: [String], level: Int) {
+    /// `priorLoops` carries a solo run's loop count over from earlier sessions.
+    init(players: [String], level: Int, priorLoops: Int = 0) {
         active = Set(players)
         self.level = level
+        totalLoops = priorLoops
+    }
+
+    /// Where a solo run resumes after clearing `level`: the next one, or the start once the last is done.
+    static func nextStart(afterClearing level: Int, levelCount: Int) -> Int {
+        level + 1 < levelCount ? level + 1 : 0
     }
 
     var isCleared: Bool { !active.isEmpty && active.isSubset(of: exited) }

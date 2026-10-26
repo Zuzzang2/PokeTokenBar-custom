@@ -8,6 +8,9 @@ import SwiftUI
 final class EchoWindowController {
     static let pickKey = "echoPokemon"
     static let progressKey = "echoLevel"
+    /// Solo loops and echoes so far in the current run, so a run spread over sessions ends with its full count.
+    static let loopsKey = "echoRunLoops"
+    static let echoesKey = "echoRunEchoes"
 
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
@@ -97,17 +100,21 @@ final class EchoWindowController {
     private func present(roster: [EchoRosterEntry], hostID: String, gameID: String, level: Int, online: Bool) {
         guard let window, let session else { return }
         game?.stop()
-        let send: (EchoMessage) -> Void = online
-            ? { [weak session] in session?.send($0) }
-            : { [weak self] message in
-                if case .cleared(_, let level, _) = message {
-                    UserDefaults.standard.set(min(level + 1, EchoLevels.all.count - 1), forKey: Self.progressKey)
-                }
+        let send: (EchoMessage) -> Void
+        if online {
+            send = { [weak session] in session?.send($0) }
+        } else {
+            send = { [weak self] message in
+                Self.recordSoloProgress(message)
                 self?.game?.handle(message)
             }
+        }
         let sendState: (EchoMessage) -> Void = online ? { [weak session] in session?.sendState($0) } : { _ in }
+        let defaults = UserDefaults.standard
+        let prior = online ? (0, 0) : (defaults.integer(forKey: Self.loopsKey), defaults.integer(forKey: Self.echoesKey))
         let view = EchoGameView(frame: window.contentView?.bounds ?? .zero, roster: roster, meID: session.me.id,
-                            hostID: hostID, gameID: gameID, startLevel: level, send: send, sendState: sendState)
+                                hostID: hostID, gameID: gameID, startLevel: level, prior: prior, send: send,
+                                sendState: sendState)
         view.onExit = { [weak self] in self?.backToLobby() }
         game = view
         window.contentView = view
@@ -124,6 +131,21 @@ final class EchoWindowController {
             }
         }
         view.begin()
+    }
+
+    private static func recordSoloProgress(_ message: EchoMessage) {
+        let defaults = UserDefaults.standard
+        switch message {
+        case let .cleared(_, level, loops, echoes):
+            defaults.set(EchoMatch.nextStart(afterClearing: level, levelCount: EchoLevels.all.count), forKey: progressKey)
+            defaults.set(loops, forKey: loopsKey)
+            defaults.set(echoes, forKey: echoesKey)
+        case .finished:
+            // The run is over; the next solo game is a fresh run from the first level.
+            for key in [progressKey, loopsKey, echoesKey] { defaults.removeObject(forKey: key) }
+        default:
+            break
+        }
     }
 
     private func backToLobby() {

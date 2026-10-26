@@ -52,7 +52,7 @@ enum EchoMessage: Codable, Sendable {
     case died(gameID: String, loop: Int, id: String)
     case endLoop(gameID: String, loop: Int, by: String?)
     case recording(gameID: String, loop: Int, run: EchoOwned)
-    case cleared(gameID: String, level: Int, loops: Int)
+    case cleared(gameID: String, level: Int, loops: Int, echoes: Int)
     case finished(gameID: String, loops: Int, echoes: Int)
 }
 
