@@ -126,6 +126,8 @@ func duel(_ cls: RpgClass, level: Int, limit: Double) -> (Double?, Int, String) 
     let host = RpgWorld(player: RpgSaveStore.newPlayer(name: "host", cls: .warrior, id: 1))
     var p = build(cls, level: level, mapID: def.id, id: 2)
     p.pos = RpgMap.center(def.portals.first { !$0.waypoint }?.at ?? RpgTile(x: 14, y: 17))
+    // A real fight carries a limited stack of the best potions of the level.
+    p.inventory = level >= 70 ? ["hp5": 12, "mp3": 8] : (level >= 30 ? ["hp3": 20, "mp1": 10] : ["hp2": 20, "mp0": 10])
     host.addPlayer(p)
     if level >= RpgJobs.advanceLevel { host.perform(.advance(1), for: 2) }
     for _ in 0..<2 { host.perform(.promote, for: 2) }
