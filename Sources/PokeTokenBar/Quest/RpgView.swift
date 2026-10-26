@@ -478,6 +478,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         drawEffects(f, map: me.map)
         f.restoreGState()
 
+        drawAmbient(f, map: map, vw: vw, vh: vh)
         if map.darkness > 0 { drawDarkness(f, map: map, me: me, vw: vw, vh: vh) }
 
         if let frame = f.makeImage() {
