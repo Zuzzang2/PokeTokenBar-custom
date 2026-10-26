@@ -39,6 +39,7 @@ private struct BattleRootView: View {
     @State private var session: PlazaSession?
     @State private var candidates: [BattleCandidate] = []
     @State private var selected: [String] = []      // party order = tap order
+    @State private var query = ""
     @State private var preparing = false
     @State private var error: String?
     @State private var savedParties: [SavedParty] = SavedPartyStore.load()
@@ -110,14 +111,18 @@ private struct BattleRootView: View {
                 .font(.caption).foregroundStyle(.secondary)
             savedPartiesSection
             if let error { Text("준비 실패: \(error)").foregroundStyle(.red).font(.caption) }
+            TextField("이름이나 번호로 찾기", text: $query).textFieldStyle(.roundedBorder)
             ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(candidates) { c in
+                LazyVStack(spacing: 4) {
+                    ForEach(SpeciesRoster.filter(candidates, query: query)) { c in
                         let order = selected.firstIndex(of: c.id)
                         Button { toggle(c.id) } label: {
                             HStack {
                                 SpriteThumb(speciesID: c.speciesID, shiny: c.isShiny).frame(width: 40, height: 40)
                                 Text(c.name + (c.isShiny ? " ✦" : "") + (c.isRaising ? " (키우는 중)" : ""))
+                                if c.id.hasPrefix("free-") {
+                                    Text("#\(c.speciesID)").font(.caption).foregroundStyle(.secondary)
+                                }
                                 Spacer()
                                 if let order { Text("\(order + 1)").bold().foregroundStyle(.tint) }
                             }
@@ -218,7 +223,9 @@ private struct BattleRootView: View {
             let picks = selected.compactMap { id in candidates.first { $0.id == id } }
             var team: [BattleMon] = []
             for pick in picks { team.append(try await BattleMonBuilder.build(pick, trainer: trainer)) }
-            let shared = candidates.map { CollectionEntry(speciesID: $0.speciesID, name: $0.name, shiny: $0.isShiny) }
+            // Unlock-only picks (무쇠깨비, free pick) are not part of the trainer's real collection.
+            let shared = SecretMonster.ownedOnly(candidates)
+                .map { CollectionEntry(speciesID: $0.speciesID, name: $0.name, shiny: $0.isShiny) }
             let s = PlazaSession(team: team, collection: shared, trainerDesign: trainerDesign)
             onSession(s)
             session = s
