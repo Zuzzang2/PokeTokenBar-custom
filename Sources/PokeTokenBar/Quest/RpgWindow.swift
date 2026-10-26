@@ -380,6 +380,8 @@ struct RpgTitleView: View {
                 }
                 .buttonStyle(.plain)
                 .help(list[k].name)
+                .accessibilityLabel("\(title) \(list[k].name)")
+                .accessibilityAddTraits(selected == k ? .isSelected : [])
             }
         }
     }
