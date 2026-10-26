@@ -39,7 +39,7 @@ strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Cont
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # SPIKE battle art (plaza/battle backgrounds, trainer frames). Source sheets stay out of the bundle.
 mkdir -p "$APP/Contents/Resources/battle/trainers"
-cp assets/battle/*.png "$APP/Contents/Resources/battle/"
+cp assets/battle/*.png assets/battle/*.json "$APP/Contents/Resources/battle/"
 cp assets/battle/trainers/*.png "$APP/Contents/Resources/battle/trainers/"
 # Team-profile characters are local-only (not in git); bundle them when present.
 if compgen -G "assets/battle/trainers/local/*.png" >/dev/null; then
@@ -47,6 +47,9 @@ if compgen -G "assets/battle/trainers/local/*.png" >/dev/null; then
     cp assets/battle/trainers/local/*.png "$APP/Contents/Resources/battle/trainers/local/"
 fi
 cp -R assets/digimon "$APP/Contents/Resources/digimon"
+# SPIKE 메아리 art (backgrounds, stone texture, exit shrine).
+mkdir -p "$APP/Contents/Resources/echo"
+cp assets/echo/*.png "$APP/Contents/Resources/echo/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -74,6 +77,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <string>_ptb-kart1._udp</string>
         <string>_ptb-rpg1._tcp</string>
         <string>_ptb-rpg1._udp</string>
+        <string>_ptb-echo1._tcp</string>
+        <string>_ptb-echo1._udp</string>
     </array>
 </dict>
 </plist>

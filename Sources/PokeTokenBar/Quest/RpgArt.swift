@@ -723,8 +723,8 @@ enum RpgArt {
         }
         pts.append(to)
         for i in 0..<(pts.count - 1) {
-            line(c, pts[i].x - 1, pts[i].y, pts[i + 1].x - 1, pts[i + 1].y, e.edge)
-            line(c, pts[i].x + 1, pts[i].y, pts[i + 1].x + 1, pts[i + 1].y, e.mid)
+            line(c, Double(pts[i].x) - 1, pts[i].y, Double(pts[i + 1].x) - 1, pts[i + 1].y, e.edge)
+            line(c, Double(pts[i].x) + 1, pts[i].y, Double(pts[i + 1].x) + 1, pts[i + 1].y, e.mid)
             line(c, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, e.core)
         }
     }
