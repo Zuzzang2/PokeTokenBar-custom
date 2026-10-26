@@ -253,7 +253,7 @@ struct BattleSceneView: View {
 }
 
 /// HP bar that animates its width; green → yellow → red like the games.
-private struct HPBar: View {
+struct HPBar: View {
     let fraction: Double
 
     var body: some View {
@@ -273,7 +273,7 @@ private struct HPBar: View {
 }
 
 /// Generated field art, or the drawn field when the art is unavailable.
-private struct BattleBackdrop: View {
+struct BattleBackdrop: View {
     var body: some View {
         if let art = BattleArt.battleField {
             Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
@@ -325,7 +325,7 @@ private struct BattleBackground: View {
 }
 
 /// Plays a Black/White animated GIF at native pixel size × `scale`, feet anchored at the bottom.
-private struct BattleSprite: View {
+struct BattleSprite: View {
     let speciesID: Int
     let shiny: Bool
     let back: Bool
