@@ -369,7 +369,7 @@ struct RpgTitleView: View {
                 if let s = save, s.fallen != true {
                     RpgSpriteImage(key: s.cls.rawValue).frame(width: 56, height: 56)
                     Text(s.name + (s.hardcore == true ? " ☠" : "")).font(.headline).lineLimit(1)
-                    Text("\(RpgJobs.def(s.cls, s.job ?? 0)?.name ?? s.cls.name) Lv\(s.level)").font(.subheadline)
+                    Text("\(RpgJobs.def(s.cls, s.job ?? 0, tier: RpgStats.cleanTier(s.tier, job: s.job ?? 0))?.name ?? s.cls.name) Lv\(s.level)").font(.subheadline)
                     Text("\(RpgMaps.def(s.map).name) · \(s.gold) G · \(Int(s.playTime / 60))분").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     HStack {
                         Button("이어하기") { onContinue(k) }.buttonStyle(.borderedProminent)

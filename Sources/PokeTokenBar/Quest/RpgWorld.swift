@@ -67,6 +67,8 @@ enum RpgAction: Codable, Sendable {
     case craft(String)
     /// Put one 능력치 point into stat 0-3 (힘·민첩·체력·지력).
     case addStat(Int)
+    /// 3차·4차 전직.
+    case promote
     /// Take every point back for gold (`RpgStats.resetCost`).
     case resetStats
 }
@@ -148,6 +150,8 @@ struct RpgPlayer {
     var fallen = false
     /// 0 before the 2차 전직, then 1 or 2 (see `RpgJobs`).
     var job = 0
+    /// How far along the job branch: 0 none, 1 = 2차, 2 = 3차, 3 = 4차 (see `RpgTiers`).
+    var tier = 0
     /// The raised companion that follows this player; not saved.
     var petInfo: RpgPetInfo?
     var frenzyUntil = 0.0
@@ -174,11 +178,11 @@ struct RpgPlayer {
     /// Walking speed in pixels per second, with the speed potion.
     func speed(at time: Double) -> Double { cls.speed * (buffActive("speed", time) ? 1.25 : 1) * (1 + (bootsItem?.bonusSpeed ?? 0)) }
     var element: RpgElement { weaponItem?.element ?? .base }
-    var jobDef: RpgJobDef? { RpgJobs.def(cls, job) }
+    var jobDef: RpgJobDef? { job == 0 ? nil : RpgJobs.def(cls, job, tier: max(1, tier)) }
     /// Class name, or the advanced job's name once advanced.
     var title: String { jobDef?.name ?? cls.name }
     /// The skills shown in the skills window: the class's 8 plus the advanced job's 2.
-    var skillList: [RpgSkillDef] { cls.skills + (jobDef?.skills.compactMap(RpgSkills.def) ?? []) }
+    var skillList: [RpgSkillDef] { cls.skills + (job == 0 ? [] : (1...max(1, tier)).flatMap { RpgJobs.def(cls, job, tier: $0)?.skills.compactMap(RpgSkills.def) ?? [] }) }
     var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) * RpgStats.hpFactor(stats) + Double((ringItem?.bonusHP ?? 0) + (amuletItem?.bonusHP ?? 0) + (helmetItem?.bonusHP ?? 0)) }
     var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) * RpgStats.mpFactor(stats) + Double((ringItem?.bonusMP ?? 0) + (amuletItem?.bonusMP ?? 0)) }
     func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
@@ -490,6 +494,8 @@ final class RpgWorld {
             enhance(i, weapon: weapon)
         case .craft(let recipeID):
             craft(i, recipeID)
+        case .promote:
+            promote(i)
         case .addStat(let k):
             guard RpgStats.names.indices.contains(k) else { return }
             guard players[i].ap > 0 else { toast("능력치 포인트가 없어요 (레벨업마다 \(RpgStats.perLevel))"); return }
@@ -585,6 +591,7 @@ final class RpgWorld {
         guard players[i].level >= RpgJobs.advanceLevel else { toast("Lv\(RpgJobs.advanceLevel) 이상이어야 전직할 수 있어요"); return }
         guard let def = RpgJobs.def(players[i].cls, choice) else { return }
         players[i].job = choice
+        players[i].tier = 1
         learnJobSkills(i)
         players[i].hp = players[i].maxHP
         players[i].mp = players[i].maxMP
@@ -607,13 +614,36 @@ final class RpgWorld {
 
     /// Teaches the job skills the character's level allows (the second at Lv30) and puts new ones on a free slot.
     private func learnJobSkills(_ i: Int) {
-        guard let def = players[i].jobDef else { return }
-        for (k, id) in def.skills.enumerated() where players[i].skills[id] == nil {
-            guard players[i].level >= (k == 0 ? RpgJobs.advanceLevel : RpgJobs.secondSkillLevel) else { continue }
-            players[i].skills[id] = 1
-            if let slot = players[i].slots.firstIndex(where: { $0 == nil }) { players[i].slots[slot] = id }
-            if let s = RpgSkills.def(id) { toast("\(s.name) 스킬을 배웠어요 (스킬창에서 슬롯을 바꿀 수 있어요)") }
+        guard players[i].job != 0 else { return }
+        for tier in 1...max(1, players[i].tier) {
+            guard let def = RpgJobs.def(players[i].cls, players[i].job, tier: tier) else { continue }
+            let levels = tier == 1 ? [RpgJobs.advanceLevel, RpgJobs.secondSkillLevel] : (RpgTiers.skillLevels[tier] ?? [999, 999])
+            for (k, id) in def.skills.enumerated() where players[i].skills[id] == nil {
+                guard players[i].level >= levels[k] else { continue }
+                players[i].skills[id] = 1
+                if let slot = players[i].slots.firstIndex(where: { $0 == nil }) { players[i].slots[slot] = id }
+                if let s = RpgSkills.def(id) { toast("\(s.name) 스킬을 배웠어요 (스킬창에서 슬롯을 바꿀 수 있어요)") }
+            }
         }
+    }
+
+    /// 3차 / 4차 전직 at the 전직관 (level and gold from `RpgTiers`).
+    private func promote(_ i: Int) {
+        let next = players[i].tier + 1
+        guard players[i].job != 0, players[i].tier >= 1 else { toast("먼저 2차 전직을 하세요"); return }
+        guard next <= RpgTiers.maxTier, let need = RpgTiers.levels[next], let cost = RpgTiers.gold[next],
+              let def = RpgJobs.def(players[i].cls, players[i].job, tier: next) else { toast("더 올라갈 곳이 없어요"); return }
+        guard players[i].level >= need else { toast("Lv\(need) 이상이어야 \(next + 1)차 전직을 할 수 있어요"); return }
+        guard players[i].gold >= cost else { toast("전직에는 \(cost)G가 필요해요"); return }
+        players[i].gold -= cost
+        players[i].tier = next
+        learnJobSkills(i)
+        players[i].hp = players[i].maxHP
+        players[i].mp = players[i].maxMP
+        effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.6)
+        shake = max(shake, 1.2)
+        toast("\(next + 1)차 전직! \(def.name)이(가) 되었어요", to: nil)
+        checkAchievements(i)
     }
 
     private func arrival(for map: RpgMapID) -> RpgTile? {
@@ -1392,12 +1422,70 @@ final class RpgWorld {
             let c = ahead(p, 55)
             for k in 0..<12 { schedule(Double(k) * 0.3, p.map, c, radius: 46, damage: power, owner: p.id, element: .ice, fx: .ice(radius: 40)) }
         default:
-            refund = true
+            if let fx = def.fx { refund = !castTemplate(i, fx, power: power, angle: angle, level: lv) } else { refund = true }
         }
         if !refund {
             players[i].mp -= Double(def.mp)
             players[i].cooldowns[skill] = def.cooldown
         }
+    }
+
+    /// Plays an `RpgSkillFX` template; false when there was nothing to hit (the cast is refunded).
+    private func castTemplate(_ i: Int, _ fx: RpgSkillFX, power: Double, angle: Double, level lv: Int) -> Bool {
+        let p = players[i]
+        let e = fx.element ?? p.element
+        func blast(_ r: Double) -> RpgFX.Kind {
+            switch e {
+            case .ice: return .ice(radius: r)
+            case .thunder, .holy: return .strike
+            default: return .burst(radius: r)
+            }
+        }
+        switch fx.shape {
+        case .shot:
+            for k in 0..<fx.count {
+                let a = angle + (Double(k) - Double(fx.count - 1) / 2) * fx.spread
+                fire(from: p, angle: a, kind: fx.big ? .bigArrow : .arrow, damage: power, speed: fx.speed, range: fx.range, element: e)
+            }
+        case .zone:
+            let c = fx.dist > 0 ? ahead(p, fx.dist) : p.pos
+            for k in 0..<fx.count { schedule(Double(k) * fx.interval, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: blast(fx.radius * 0.9)) }
+            if fx.dist == 0 { shake = max(shake, 0.6) }
+        case .rain:
+            for k in 0..<fx.count {
+                let a = rand(0, .pi * 2), d = rand(10, fx.dist)
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
+                let delay = 0.25 + Double(k) * 0.14
+                effect(.telegraph(radius: fx.radius), p.map, c, e, duration: delay)
+                schedule(delay, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .meteor(radius: fx.radius))
+            }
+        case .chain:
+            let targets = nearestMobs(p, fx.radius, fx.count)
+            guard !targets.isEmpty else { toast("주변에 적이 없어요"); return false }
+            players[i].invulnerable = max(players[i].invulnerable, 0.2 + Double(targets.count) * 0.1)
+            for (k, t) in targets.enumerated() {
+                schedule(Double(k) * 0.1, p.map, t.pos, radius: 16, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .slash(angle: Double(k) * 1.1, radius: 16))
+            }
+            shake = max(shake, 0.8)
+        case .line:
+            for k in 1...max(1, fx.count) {
+                schedule(Double(k) * fx.interval, p.map, ahead(p, Double(k) * fx.dist), radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: blast(fx.radius * 0.7))
+            }
+            shake = max(shake, 0.6)
+        case .buff:
+            let until = time + fx.seconds
+            let others = fx.flags.contains("stealth") || fx.flags.contains("frenzy") ? [i] : alliesNear(p, fx.radius)
+            for k in others {
+                if fx.flags.contains("rage") { players[k].rageUntil = until }
+                if fx.flags.contains("iron") { players[k].ironUntil = until }
+                if fx.flags.contains("focus") { players[k].focusUntil = until }
+                effect(.levelUp, p.map, players[k].pos, e, duration: 1)
+            }
+            if fx.flags.contains("frenzy") { players[i].frenzyUntil = until; players[i].cycloneUntil = time + 3; players[i].nextCyclone = time }
+            if fx.flags.contains("stealth") { players[i].stealthUntil = time + fx.seconds; players[i].invulnerable = max(players[i].invulnerable, 0.5) }
+            if fx.heal > 0 { healNearby(p, fraction: fx.heal, radius: fx.radius) }
+        }
+        return true
     }
 
     /// Living monsters within `radius` of `p`, closest first.
@@ -1688,6 +1776,7 @@ final class RpgWorld {
             let unlock = RpgSkills.all.filter { $0.cls == players[i].cls && $0.minLevel == players[i].level }
             for s in unlock { toast("\(s.name) 스킬북을 쓸 수 있는 레벨이 됐어요") }
             if players[i].level == RpgJobs.advanceLevel, players[i].job == 0 { toast("마을의 전직관을 찾아가 2차 전직을 하세요!") }
+            if let next = RpgTiers.levels.first(where: { $0.value == players[i].level && $0.key == players[i].tier + 1 }) { toast("전직관에서 \(next.key + 1)차 전직을 할 수 있어요!") }
             learnJobSkills(i)
             checkAchievements(i)
         }
@@ -2505,6 +2594,7 @@ extension RpgWorld {
             pub.hardcore = p.hardcore
             pub.fallen = p.fallen
             pub.job = p.job
+            pub.tier = p.tier
             pub.combo = p.combo
             pub.comboLeft = max(0, p.comboUntil - time)
             pub.stealth = max(0, p.stealthUntil - time)
@@ -2578,6 +2668,7 @@ extension RpgWorld {
             if pub.id != localID { p.fallen = pub.fallen ?? false }
             if pub.id == localID, pub.fallen == true { p.fallen = true; p.respawnAt = .infinity }
             p.job = pub.job ?? 0
+            p.tier = pub.tier ?? (p.job > 0 ? 1 : 0)
             p.combo = pub.combo ?? 0
             p.stealthUntil = time + (pub.stealth ?? 0)
             p.comboUntil = time + (pub.comboLeft ?? 0)
@@ -2664,6 +2755,7 @@ extension RpgWorld {
         players[i].boots = d.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
         players[i].tradeFrom = s.tradeFrom
         players[i].job = d.job ?? 0
+        players[i].tier = RpgStats.cleanTier(d.tier, job: d.job ?? 0)
         players[i].kills = RpgAchievements.cleanKills(d.kills)
         players[i].eliteKills = min(max(d.eliteKills ?? 0, 0), 10_000_000)
         players[i].bestCombo = min(max(d.bestCombo ?? 0, 0), 10_000)

@@ -30,6 +30,7 @@ struct RpgPlayerPub: Codable, Sendable {
     var fallen: Bool? = nil
     /// 2차 전직 (nil or 0 = not advanced); optional so peers on an older build still decode snapshots.
     var job: Int? = nil
+    var tier: Int? = nil
     var combo: Int? = nil
     var comboLeft: Double? = nil
     /// Seconds of stealth left (nil or 0 = visible).

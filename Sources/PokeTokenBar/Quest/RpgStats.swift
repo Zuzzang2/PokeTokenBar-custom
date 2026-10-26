@@ -20,6 +20,9 @@ enum RpgStats {
     static func mpFactor(_ s: [Int]) -> Double { 1 + 0.012 * v(s, 3) }
     static func skillFactor(_ s: [Int]) -> Double { 1 + 0.005 * v(s, 3) }
 
+    /// 0 without a job, otherwise 1...3 (saves from before tiers count as 2차).
+    static func cleanTier(_ tier: Int?, job: Int) -> Int { job == 0 ? 0 : min(max(tier ?? 1, 1), RpgTiers.maxTier) }
+
     /// Saved numbers are untrusted: four non-negative stats, and no more points in total than the level has earned.
     /// A save from before stats gets every point its level would have earned.
     static func clean(ap: Int?, stats: [Int]?, level: Int) -> (Int, [Int]) {

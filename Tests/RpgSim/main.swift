@@ -581,7 +581,7 @@ do {
     var defs: [(RpgClass, Int, RpgSkillDef)] = []
     for cls in RpgClass.allCases {
         for sk in cls.skills { defs.append((cls, 0, sk)) }
-        for job in 1...2 { for id in RpgJobs.def(cls, job)!.skills { defs.append((cls, job, RpgSkills.def(id)!)) } }
+        for job in 1...2 { for tier in 1...RpgTiers.maxTier { for id in RpgJobs.def(cls, job, tier: tier)!.skills { defs.append((cls, job, RpgSkills.def(id)!)) } } }
     }
     for (cls, job, sk) in defs {
         var ok = false
@@ -676,6 +676,7 @@ do {
 contentChecks()
 rogueChecks()
 statChecks()
+tierChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

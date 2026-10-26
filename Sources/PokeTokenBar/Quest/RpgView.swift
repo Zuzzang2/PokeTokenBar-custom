@@ -160,7 +160,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .inventory: return sortedInventory(p).count
         case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
         case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
-        case .job: return 2
+        case .job: return me?.job == 0 ? 2 : 1
         case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
         case .skills: return tab == 0 ? p.skillList.count : RpgStats.names.count
         case .keys: return RpgKeyAction.allCases.count
@@ -270,7 +270,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if tab == 0 { act(.enhance(weapon: selection == 0)) }
             else if RpgRecipes.all.indices.contains(selection) { act(.craft(RpgRecipes.all[selection].id)) }
         case .job:
-            act(.advance(selection + 1))
+            act(p.job == 0 ? .advance(selection + 1) : .promote)
         case .board:
             if tab == 0 {
                 let offers = world.boardOffers(for: localID)
@@ -1180,6 +1180,28 @@ final class RpgView: NSView, NSTextFieldDelegate {
                     bar(ctx, CGRect(x: r.maxX - 150, y: r.minY + 12, width: 140, height: 8), Double(value) / Double(a.goal), have ? green : Self.gold,
                         label: "\(value)/\(a.goal)")
                 }
+            }
+        case .job where p.job != 0:
+            let next = p.tier + 1
+            let nextDef = RpgJobs.def(p.cls, p.job, tier: next)
+            let area = frame(ctx, title: "전직관 — \(p.title)", hint: nextDef != nil ? "Enter 전직   Esc 나가기" : "Esc 나가기")
+            if let o = nextDef, let need = RpgTiers.levels[next], let cost = RpgTiers.gold[next] {
+                let ready = p.level >= need && p.gold >= cost
+                text("\(next + 1)차 전직: \(o.name)", at: CGPoint(x: area.minX + 8, y: area.minY - 30), size: 14, color: Self.gold)
+                list(ctx, count: 1, in: area, rowH: 150) { _, r in
+                    text(o.name, at: CGPoint(x: r.minX + 16, y: r.minY + 8), size: 20, color: ready ? Self.gold : .white, weight: .bold)
+                    text(o.blurb, at: CGPoint(x: r.minX + 16, y: r.minY + 38), size: 12, color: Self.dim, weight: .semibold)
+                    text("조건: Lv\(need) (현재 \(p.level))  ·  \(cost) G (보유 \(p.gold))", at: CGPoint(x: r.minX + 16, y: r.minY + 62), size: 13,
+                         color: ready ? NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1) : NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1), weight: .bold)
+                    let bonus = [("HP", o.hp), ("MP", o.mp), ("공격", o.attack), ("방어", o.defense)].filter { $0.1 != 1 }
+                        .map { "\($0.0) \($0.1 > 1 ? "+" : "")\(Int(($0.1 - 1) * 100))%" }.joined(separator: "  ")
+                    text("현재 직업 대비 총 보정  " + bonus + "  치명 +\(Int(o.crit * 100))%", at: CGPoint(x: r.minX + 16, y: r.minY + 86), size: 12, weight: .bold)
+                    let levels = RpgTiers.skillLevels[next] ?? []
+                    let names = o.skills.compactMap(RpgSkills.def).enumerated().map { "\($1.name) (Lv\(levels[$0]))" }
+                    text("스킬: " + names.joined(separator: "  ·  "), at: CGPoint(x: r.minX + 16, y: r.minY + 110), size: 12)
+                }
+            } else {
+                text("최고 단계에 도달했어요", at: CGPoint(x: area.midX, y: area.minY + 40), size: 16, color: Self.gold, align: .center)
             }
         case .job:
             let area = frame(ctx, title: "전직관 — 2차 전직", hint: p.job == 0 && p.level >= RpgJobs.advanceLevel

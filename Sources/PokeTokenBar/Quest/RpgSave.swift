@@ -32,6 +32,7 @@ struct RpgSaveData: Codable, Sendable {
     var hardcore: Bool?
     var fallen: Bool?
     var job: Int?
+    var tier: Int?
     var kills: [String: Int]?
     var eliteKills: Int?
     var bestCombo: Int?
@@ -99,7 +100,7 @@ enum RpgSaveStore {
         let spot = inBoss ? RpgMap.center(RpgWorld.townSpawn) : p.pos
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
-                           plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
+                           plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job, tier: p.tier,
                            kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor,
                            ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots)
     }
@@ -125,6 +126,7 @@ enum RpgSaveStore {
         p.hardcore = s.hardcore ?? false
         p.fallen = s.fallen ?? false
         p.job = RpgJobs.def(s.cls, s.job ?? 0) == nil ? 0 : (s.job ?? 0)
+        p.tier = RpgStats.cleanTier(s.tier, job: p.job)
         p.kills = RpgAchievements.cleanKills(s.kills)
         p.eliteKills = min(max(s.eliteKills ?? 0, 0), 10_000_000)
         p.bestCombo = min(max(s.bestCombo ?? 0, 0), 10_000)

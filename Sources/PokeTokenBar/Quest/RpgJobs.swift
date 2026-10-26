@@ -17,6 +17,8 @@ struct RpgJobDef: Sendable {
     let interval: Double
     /// Skills taught at Lv20 and Lv30.
     let skills: [String]
+    /// 1 = 2차 job, 2 = 3차, 3 = 4차 (see `RpgTiers`).
+    var tier = 1
 }
 
 enum RpgJobs {
@@ -77,7 +79,7 @@ enum RpgJobs {
     }
 
     static func options(for cls: RpgClass) -> [RpgJobDef] { all.filter { $0.cls == cls } }
-    static func def(_ cls: RpgClass, _ job: Int) -> RpgJobDef? { all.first { $0.cls == cls && $0.job == job } }
+    static func def(_ cls: RpgClass, _ job: Int, tier: Int = 1) -> RpgJobDef? { RpgTiers.def(cls, job, tier: tier) }
 
     /// Job skills are kept out of `RpgSkills.all` so they never become skill books, shop stock or quest rewards.
     private static func s(_ id: String, _ name: String, _ cls: RpgClass, _ lv: Int, _ mp: Int, _ cd: Double, _ power: Double, _ desc: String) -> RpgSkillDef {

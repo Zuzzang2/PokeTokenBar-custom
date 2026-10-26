@@ -71,6 +71,8 @@ struct RpgSkillDef: Sendable {
     let price: Int
     let starter: Bool
     let desc: String
+    /// Set for skills cast from a template (3차·4차 jobs) instead of a hand-written case.
+    var fx: RpgSkillFX? = nil
 
     var isUltimate: Bool { maxLevel == 5 }
 }
@@ -146,7 +148,7 @@ enum RpgSkills {
         s("s_dragon", "용 소환", .summoner, 28, 28, 10, 2.6, "용의 숨결이 전방을 쓸어낸다"),
         s("s_ult", "대악마 강림", .summoner, 35, 70, 45, 3.2, max: 5, "대악마가 주변을 폭격한다"),
     ]
-    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills).map { ($0.id, $0) })
+    private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills + RpgTiers.skills).map { ($0.id, $0) })
     static func def(_ id: String) -> RpgSkillDef? { byID[id] }
     static func damage(_ s: RpgSkillDef, level: Int) -> Double { s.power * (1 + 0.12 * Double(max(1, level) - 1)) }
 }
