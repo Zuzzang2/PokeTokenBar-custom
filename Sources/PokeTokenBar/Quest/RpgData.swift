@@ -24,7 +24,7 @@ enum RpgClass: String, Codable, CaseIterable, Sendable {
     var baseAttack: Int { [11, 10, 12][index] }
     var attackPerLevel: Double { [3.2, 3.2, 3.6][index] }
     var baseDefense: Int { [6, 4, 3][index] }
-    var defensePerLevel: Double { [2.2, 1.4, 1.1][index] }
+    var defensePerLevel: Double { [2.2, 1.4, 1.6][index] }
     var speed: Double { [72, 80, 68][index] }
     var attackInterval: Double { [0.42, 0.5, 0.6][index] }
     var critChance: Double { [0.08, 0.16, 0.08][index] }
