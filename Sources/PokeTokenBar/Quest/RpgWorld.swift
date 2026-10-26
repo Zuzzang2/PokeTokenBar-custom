@@ -920,7 +920,7 @@ final class RpgWorld {
         case .archer:
             fire(from: p, angle: angle, kind: .arrow, damage: atk, speed: 230, range: 170)
         case .mage:
-            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.15, speed: 170, range: 140)
+            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.3, speed: 220, range: 165)
         }
     }
 
