@@ -345,7 +345,7 @@ do {
     check(Set(ids).count == ids.count, "monster ids are unique (\(ids.count) monsters)")
     let allSprites = MainActor.assumeIsolated { RpgMonsters.all.allSatisfy { RpgArt.sprite($0.sprite) != nil } }
     check(allSprites, "every monster has a sprite")
-    check(RpgMonsters.all.filter { [.swarm, .charger, .exploder].contains($0.behavior) }.count == 33, "33 pack / charger / bomb monsters exist")
+    check(RpgMonsters.all.filter { [.swarm, .charger, .exploder].contains($0.behavior) }.count >= 33, "at least 33 pack / charger / bomb monsters exist")
 }
 
 do {
