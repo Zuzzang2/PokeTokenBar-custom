@@ -2721,7 +2721,8 @@ extension RpgWorld {
             p.combo = pub.combo ?? 0
             p.stealthUntil = time + (pub.stealth ?? 0)
             p.comboUntil = time + (pub.comboLeft ?? 0)
-            p.look = RpgLook.clean(pub.look, cls: p.cls)
+            // An older host sends no look: keep ours (it would otherwise be saved back as the class default).
+            if let look = pub.look { p.look = RpgLook.clean(look, cls: p.cls) }
             if pub.id != localID {
                 // Others' gear only shows on their hero (our own comes with the private state).
                 p.armor = pub.armor.flatMap { RpgItems.item($0)?.kind == .armor ? $0 : nil }
@@ -2814,7 +2815,7 @@ extension RpgWorld {
         players[i].amulet = d.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
         players[i].helmet = d.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
         players[i].boots = d.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
-        players[i].look = RpgLook.clean(d.look, cls: players[i].cls)
+        if let look = d.look { players[i].look = RpgLook.clean(look, cls: players[i].cls) }
         players[i].tradeFrom = s.tradeFrom
         players[i].job = d.job ?? 0
         players[i].tier = RpgStats.cleanTier(d.tier, job: d.job ?? 0)

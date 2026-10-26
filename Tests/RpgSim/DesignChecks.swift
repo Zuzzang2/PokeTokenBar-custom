@@ -144,7 +144,17 @@ func designChecks() {
     let oldSnap = (try? JSONSerialization.data(withJSONObject: bare)).flatMap { try? JSONDecoder().decode(RpgSnapshot.self, from: $0) }
     check(oldSnap != nil, "a snapshot from an older build still decodes")
     if let oldSnap {
-        mirror.apply(oldSnap, localID: 2)
-        check(mirror.player(1)?.look == RpgLook.defaults(.warrior), "an older peer's hero shows the class default look")
+        // Joining an older host: our own look must survive its snapshots and private state (they are saved back to disk).
+        let guest = RpgWorld(player: RpgSaveStore.newPlayer(name: "guest", cls: .mage, id: 2, look: [8, 4, 6]))
+        guest.isMirror = true
+        guest.apply(oldSnap, localID: 2)
+        let drawn = guest.player(1).map { other in MainActor.assumeIsolated { RpgArt.heroFrame(other, pose: RpgArt.heroPose(other, time: 0), time: 0) } }
+        check(drawn != nil && guest.player(1)?.look.isEmpty == true, "an older peer's hero is drawn with the class default look")
+        check(guest.player(2)?.look == [8, 4, 6], "an older host's snapshot keeps our own look")
+        var save = RpgSaveStore.snapshot(guest.player(2)!)
+        save.look = nil
+        guest.applyPrivate(RpgPrivate(save: save, hp: 1, mp: 1, cooldowns: [:], offers: [], respawnIn: 0), localID: 2)
+        check(guest.player(2)?.look == [8, 4, 6] && RpgSaveStore.snapshot(guest.player(2)!).look == [8, 4, 6],
+              "an older host's private state keeps our own look, so it is saved back intact")
     }
 }
