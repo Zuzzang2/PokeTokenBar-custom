@@ -19,8 +19,8 @@ enum RpgClass: String, Codable, CaseIterable, Sendable {
     }
     var baseHP: Int { [130, 95, 80][index] }
     var hpPerLevel: Int { [22, 15, 12][index] }
-    var baseMP: Int { [30, 40, 70][index] }
-    var mpPerLevel: Int { [4, 5, 8][index] }
+    var baseMP: Int { [30, 40, 140][index] }
+    var mpPerLevel: Int { [4, 5, 16][index] }
     var baseAttack: Int { [11, 10, 12][index] }
     var attackPerLevel: Double { [3.2, 3.2, 3.6][index] }
     var baseDefense: Int { [6, 4, 3][index] }
