@@ -162,7 +162,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
         case .job: return 2
         case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
-        case .skills: return p.skillList.count
+        case .skills: return tab == 0 ? p.skillList.count : RpgStats.names.count
         case .keys: return RpgKeyAction.allCases.count
         case .waypoint: return waypoints(p).count
         case .quests: return p.quests.count
@@ -203,7 +203,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         // The key that opened a window also closes it.
         let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
-        if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
+        if panel == .skills, tab == 0, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
             let skill = p.skillList[min(selection, p.skillList.count - 1)]
             if p.skills[skill.id] != nil {
                 act(.assign(slot: slot, skill: skill.id))
@@ -237,6 +237,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 }
             case .board where tab == 1, .quests:
                 if p.quests.indices.contains(selection) { act(.abandonQuest(p.quests[selection].id)); world.toast("의뢰 포기") }
+            case .skills where tab == 1:
+                act(.resetStats)
             case .skills:
                 let skill = p.skillList[min(selection, p.skillList.count - 1)]
                 if let slot = p.slots.firstIndex(of: skill.id) { act(.assign(slot: slot, skill: nil)) }
@@ -277,6 +279,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 if p.quests[selection].done { act(.claimQuest(p.quests[selection].id)) }
                 else { world.toast("아직 다 못 했어요 (\(p.quests[selection].progress)/\(p.quests[selection].count))") }
             }
+        case .skills where tab == 1:
+            act(.addStat(selection))
         case .skills:
             let skill = p.skillList[min(selection, p.skillList.count - 1)]
             if p.skills[skill.id] != nil { act(.levelSkill(skill.id)) }
@@ -840,8 +844,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
         let need = RpgMaps.xpNeeded(me.level)
         bar(ctx, CGRect(x: 20, y: 74, width: 150, height: 6), me.level >= RpgMaps.maxLevel ? 1 : Double(me.xp) / Double(need), NSColor(red: 0.65, green: 0.5, blue: 1, alpha: 1))
         text("\(me.gold) G", at: CGPoint(x: 260, y: 80), size: 13, color: Self.gold, align: .right, mono: true)
-        text("XP \(me.xp)/\(need)" + (me.sp > 0 ? "   SP \(me.sp)" : ""), at: CGPoint(x: 20, y: 82), size: 9,
-             color: me.sp > 0 ? NSColor(red: 0.6, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .semibold, mono: true)
+        text("XP \(me.xp)/\(need)" + (me.sp > 0 ? "   SP \(me.sp)" : "") + (me.ap > 0 ? "   AP \(me.ap)" : ""), at: CGPoint(x: 20, y: 82), size: 9,
+             color: me.sp > 0 || me.ap > 0 ? NSColor(red: 0.6, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .semibold, mono: true)
 
         // Buffs.
         var buffs: [(String, Double, NSColor)] = []
@@ -1233,8 +1237,17 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .quests:
             let area = frame(ctx, title: "의뢰 목록", hint: "완료한 의뢰는 마을 의뢰소에서 보상을 받아요   Delete 포기   \(bindings.label(.quests))/Esc 닫기")
             list(ctx, count: p.quests.count, in: area, rowH: 58) { i, r in questRow(ctx, p.quests[i], r, active: true) }
+        case .skills where tab == 1:
+            let area = frame(ctx, title: "능력치  (AP \(p.ap))", hint: "↑↓ 선택   Enter +1   Delete 초기화(\(RpgStats.resetCost(level: p.level))G)   ←→ 탭   \(bindings.label(.skills))/Esc 닫기", tabs: ["스킬", "능력치"])
+            list(ctx, count: RpgStats.names.count, in: area, rowH: 60) { i, r in
+                text("\(RpgStats.names[i])  \(p.stats[i])", at: CGPoint(x: r.minX + 12, y: r.minY + 6), size: 16, color: p.ap > 0 ? Self.gold : .white, weight: .bold)
+                text(RpgStats.blurbs[i], at: CGPoint(x: r.minX + 12, y: r.minY + 32), size: 11, color: Self.dim, weight: .semibold)
+            }
+            let n = CGFloat(RpgStats.names.count) * 60 + 8
+            text("공격 \(Int(p.attack(at: world.time)))  ·  방어 \(Int(p.defense))  ·  HP \(Int(p.maxHP))  ·  MP \(Int(p.maxMP))  ·  치명타 \(Int(p.critChance(at: world.time) * 100))%",
+                 at: CGPoint(x: area.minX + 12, y: area.minY + n + 6), size: 13, color: .white, weight: .bold)
         case .skills:
-            let area = frame(ctx, title: "스킬  (SP \(p.sp))", hint: "↑↓ 선택   Enter 스킬 레벨업   슬롯 키(\(bindings.label(.slot(0)))…\(bindings.label(.slot(7))))를 눌러 배치   Delete 슬롯에서 빼기")
+            let area = frame(ctx, title: "스킬  (SP \(p.sp))", hint: "↑↓ 선택   Enter 스킬 레벨업   슬롯 키(\(bindings.label(.slot(0)))…\(bindings.label(.slot(7))))를 눌러 배치   Delete 슬롯에서 빼기   ←→ 탭", tabs: ["스킬", "능력치"])
             let skills = p.skillList
             list(ctx, count: skills.count, in: area, rowH: 52) { i, r in
                 let s = skills[i]

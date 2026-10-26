@@ -675,6 +675,7 @@ do {
 // Check groups that live in their own files (Tests/RpgSim/*Checks.swift).
 contentChecks()
 rogueChecks()
+statChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

@@ -23,6 +23,8 @@ struct RpgSaveData: Codable, Sendable {
     var plus: [String: Int]?
     var skills: [String: Int]?
     var sp: Int?
+    var ap: Int?
+    var stats: [Int]?
     var slots: [String?]?
     var quests: [RpgQuest]?
     var visited: [RpgMapID]?
@@ -97,7 +99,7 @@ enum RpgSaveStore {
         let spot = inBoss ? RpgMap.center(RpgWorld.townSpawn) : p.pos
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
-                           plus: p.plus, skills: p.skills, sp: p.sp, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
+                           plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job,
                            kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor,
                            ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots)
     }
@@ -115,6 +117,7 @@ enum RpgSaveStore {
         p.skills = s.skills ?? starterSkills(s.cls)
         // Version-1 characters get the skill points their levels would have earned.
         p.sp = s.sp ?? (1..<max(1, s.level)).reduce(0) { $0 + (($1 + 1) % 10 == 0 ? 2 : 1) }
+        (p.ap, p.stats) = RpgStats.clean(ap: s.ap, stats: s.stats, level: s.level)
         p.slots = s.slots.map { $0 + Array(repeating: nil, count: max(0, RpgWorld.slotCount - $0.count)) } ?? starterSlots(s.cls)
         p.quests = s.quests ?? []
         p.visited = Set(s.visited ?? [.town, s.map])

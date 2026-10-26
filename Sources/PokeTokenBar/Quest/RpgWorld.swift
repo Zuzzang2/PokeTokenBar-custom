@@ -65,6 +65,10 @@ enum RpgAction: Codable, Sendable {
     case tradeConfirm(Bool)
     /// Smith: turn materials and gold into an item (`RpgRecipes`).
     case craft(String)
+    /// Put one 능력치 point into stat 0-3 (힘·민첩·체력·지력).
+    case addStat(Int)
+    /// Take every point back for gold (`RpgStats.resetCost`).
+    case resetStats
 }
 
 struct RpgQuest: Codable, Sendable, Equatable {
@@ -101,6 +105,9 @@ struct RpgPlayer {
     var plus: [String: Int] = [:]
     var skills: [String: Int] = [:]
     var sp = 0
+    /// 능력치 포인트 (레벨업마다 \(RpgStats.perLevel)) and the points put into 힘·민첩·체력·지력 (`RpgStats`).
+    var ap = 0
+    var stats = [0, 0, 0, 0]
     var slots: [String?] = Array(repeating: nil, count: 8)
     var quests: [RpgQuest] = []
     var visited: Set<RpgMapID> = [.town]
@@ -172,22 +179,22 @@ struct RpgPlayer {
     var title: String { jobDef?.name ?? cls.name }
     /// The skills shown in the skills window: the class's 8 plus the advanced job's 2.
     var skillList: [RpgSkillDef] { cls.skills + (jobDef?.skills.compactMap(RpgSkills.def) ?? []) }
-    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) + Double((ringItem?.bonusHP ?? 0) + (amuletItem?.bonusHP ?? 0) + (helmetItem?.bonusHP ?? 0)) }
-    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) + Double((ringItem?.bonusMP ?? 0) + (amuletItem?.bonusMP ?? 0)) }
+    var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) * (jobDef?.hp ?? 1) * RpgStats.hpFactor(stats) + Double((ringItem?.bonusHP ?? 0) + (amuletItem?.bonusHP ?? 0) + (helmetItem?.bonusHP ?? 0)) }
+    var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) * (jobDef?.mp ?? 1) * RpgStats.mpFactor(stats) + Double((ringItem?.bonusMP ?? 0) + (amuletItem?.bonusMP ?? 0)) }
     func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
     func armorDefense() -> Double { armorItem.map { RpgItems.boosted($0.defense, plus: plus[$0.id] ?? 0) } ?? 0 }
     func attack(at time: Double) -> Double {
-        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1) * (1 + (ringItem?.bonusAttack ?? 0))
+        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1) * (1 + (ringItem?.bonusAttack ?? 0)) * RpgStats.attackFactor(stats)
         var buff = time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1
         if time < frenzyUntil { buff = max(buff, 1.4) }
         if buffActive("atk", time) { buff *= 1.3 }
         return base * buff
     }
-    var defense: Double { (Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense()) * (jobDef?.defense ?? 1) + Double((amuletItem?.defense ?? 0) + (helmetItem?.defense ?? 0) + (bootsItem?.defense ?? 0)) }
+    var defense: Double { (Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense()) * (jobDef?.defense ?? 1) * RpgStats.defenseFactor(stats) + Double((amuletItem?.defense ?? 0) + (helmetItem?.defense ?? 0) + (bootsItem?.defense ?? 0)) }
     func attackInterval(at time: Double) -> Double {
-        cls.attackInterval * (jobDef?.interval ?? 1) * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
+        cls.attackInterval * (jobDef?.interval ?? 1) * RpgStats.intervalFactor(stats) * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
     }
-    func critChance(at time: Double) -> Double { cls.critChance + (jobDef?.crit ?? 0) + (ringItem?.bonusCrit ?? 0) + (time < focusUntil ? 0.4 : 0) }
+    func critChance(at time: Double) -> Double { cls.critChance + (jobDef?.crit ?? 0) + RpgStats.crit(stats) + (ringItem?.bonusCrit ?? 0) + (time < focusUntil ? 0.4 : 0) }
 }
 
 struct RpgMob {
@@ -483,6 +490,24 @@ final class RpgWorld {
             enhance(i, weapon: weapon)
         case .craft(let recipeID):
             craft(i, recipeID)
+        case .addStat(let k):
+            guard RpgStats.names.indices.contains(k) else { return }
+            guard players[i].ap > 0 else { toast("능력치 포인트가 없어요 (레벨업마다 \(RpgStats.perLevel))"); return }
+            guard players[i].stats[k] < RpgStats.cap else { toast("이미 최대예요"); return }
+            let hpRatio = players[i].hp / max(1, players[i].maxHP)
+            players[i].ap -= 1
+            players[i].stats[k] += 1
+            players[i].hp = min(players[i].maxHP, max(players[i].hp, hpRatio * players[i].maxHP))
+        case .resetStats:
+            let cost = RpgStats.resetCost(level: players[i].level)
+            guard players[i].stats.reduce(0, +) > 0 else { return }
+            guard players[i].gold >= cost else { toast("초기화에는 \(cost)G가 필요해요"); return }
+            players[i].gold -= cost
+            players[i].ap += players[i].stats.reduce(0, +)
+            players[i].stats = [0, 0, 0, 0]
+            players[i].hp = min(players[i].hp, players[i].maxHP)
+            players[i].mp = min(players[i].mp, players[i].maxMP)
+            toast("능력치를 초기화했어요 (-\(cost)G)")
         case .acceptQuest(let qid):
             guard let k = offers.firstIndex(where: { $0.id == qid }) else { return }
             guard players[i].quests.count < 3 else { toast("의뢰는 3개까지 받을 수 있어요"); return }
@@ -896,7 +921,7 @@ final class RpgWorld {
             let def = RpgSkills.def("w_cyclone")!
             effect(.slash(angle: time * 9, radius: 18), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 5), p.element, duration: 0.25)
             for v in mobIDs(near: p.pos, radius: 30, map: p.map) {
-                damageMob(v, map: p.map, base: p.attack(at: time) * RpgSkills.damage(def, level: lv), by: p.id, element: p.element, skill: true)
+                damageMob(v, map: p.map, base: p.attack(at: time) * RpgSkills.damage(def, level: lv) * RpgStats.skillFactor(p.stats), by: p.id, element: p.element, skill: true)
             }
         }
         if input.attack, players[i].attackTimer <= 0 { basicAttack(i) }
@@ -969,7 +994,7 @@ final class RpgWorld {
         let angle = facingAngle(p)
         let e = p.element
         let atk = p.attack(at: time)
-        let power = atk * RpgSkills.damage(def, level: lv)
+        let power = atk * RpgSkills.damage(def, level: lv) * RpgStats.skillFactor(p.stats)
         var refund = false
         switch skill {
         case "w_whirl":
@@ -1655,10 +1680,11 @@ final class RpgWorld {
             players[i].xp -= RpgMaps.xpNeeded(players[i].level)
             players[i].level += 1
             players[i].sp += players[i].level % 10 == 0 ? 2 : 1
+            players[i].ap += RpgStats.perLevel
             players[i].hp = players[i].maxHP
             players[i].mp = players[i].maxMP
             effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.0)
-            toast("레벨 업! Lv\(players[i].level)  (스킬 포인트 +\(players[i].level % 10 == 0 ? 2 : 1))")
+            toast("레벨 업! Lv\(players[i].level)  (스킬 포인트 +\(players[i].level % 10 == 0 ? 2 : 1), 능력치 +\(RpgStats.perLevel))")
             let unlock = RpgSkills.all.filter { $0.cls == players[i].cls && $0.minLevel == players[i].level }
             for s in unlock { toast("\(s.name) 스킬북을 쓸 수 있는 레벨이 됐어요") }
             if players[i].level == RpgJobs.advanceLevel, players[i].job == 0 { toast("마을의 전직관을 찾아가 2차 전직을 하세요!") }
@@ -2622,6 +2648,7 @@ extension RpgWorld {
         players[i].plus = d.plus ?? [:]
         players[i].skills = d.skills ?? players[i].skills
         players[i].sp = d.sp ?? players[i].sp
+        (players[i].ap, players[i].stats) = RpgStats.clean(ap: d.ap, stats: d.stats, level: d.level)
         players[i].slots = d.slots ?? players[i].slots
         players[i].quests = d.quests ?? []
         players[i].bossLoot = d.bossLoot ?? [:]
