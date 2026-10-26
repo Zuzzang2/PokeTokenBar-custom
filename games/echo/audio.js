@@ -80,7 +80,7 @@
       door: () => { tone(220, 0.25, { slide: 440, vol: 0.06, type: 'sawtooth' }); },
       doorShut: () => tone(300, 0.2, { slide: 120, vol: 0.06, type: 'sawtooth' }),
       death: () => { noise(0.35, 0.25); tone(200, 0.4, { slide: 40, vol: 0.12, type: 'sawtooth' }); },
-      paradox: () => { noise(0.6, 0.3); tone(90, 0.6, { slide: 1200, vol: 0.1, type: 'sawtooth' }); },
+      crush: () => { noise(0.6, 0.3); tone(90, 0.6, { slide: 1200, vol: 0.1, type: 'sawtooth' }); },
       rewind: () => tone(1200, 0.55, { slide: 90, vol: 0.07, type: 'sawtooth' }),
       echo: () => [0, 4, 7].forEach((s, i) => tone(hz(s + 24), 0.5, { type: 'sine', vol: 0.06, at: ctx.currentTime + i * 0.06 })),
       erase: () => tone(500, 0.2, { slide: 200, vol: 0.06, type: 'triangle' }),

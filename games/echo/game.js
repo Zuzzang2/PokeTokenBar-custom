@@ -283,14 +283,14 @@
     }
 
     onDeath(w) {
-      const paradox = w.cause === 'paradox';
-      Sound.play(paradox ? 'paradox' : 'death');
-      this.cameras.main.shake(paradox ? 450 : 200, paradox ? 0.014 : 0.006);
-      if (paradox) {
+      const crush = w.cause === 'crush';
+      Sound.play(crush ? 'crush' : 'death');
+      this.cameras.main.shake(crush ? 450 : 200, crush ? 0.014 : 0.006);
+      if (crush) {
         this.cameras.main.flash(180, 255, 79, 216);
-        this.banner('PARADOX — 과거의 너와 같은 자리에 설 수는 없다', 1.6);
+        this.banner('닫히는 문에 끼였다', 1.6);
       }
-      this.burst(w.player, paradox ? COLOR.door : COLOR.spike, 34);
+      this.burst(w.player, crush ? COLOR.door : COLOR.spike, 34);
       this.mode = 'dying';
       this.wait = 40;
     }
