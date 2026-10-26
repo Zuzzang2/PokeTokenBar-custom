@@ -1,0 +1,85 @@
+import CoreGraphics
+import Foundation
+
+// SPIKE: wire types for 픽셀 모험 multiplayer. The host runs the one real `RpgWorld`; ~20 times a second it
+// sends everyone a public snapshot (players, monsters on occupied maps, projectiles, effects, drops,
+// toasts, chat) and, a few times a second, each player their private state (bag, skills, quests…).
+// Clients send their input (and where they stand on their own screen) and menu actions back.
+
+struct RpgPlayerPub: Codable, Sendable {
+    let id: Int
+    let name: String
+    let cls: RpgClass
+    let level: Int
+    let map: RpgMapID
+    let x: Double, y: Double
+    let fx: Double, fy: Double
+    let facingRight: Bool
+    let moving: Bool
+    let hp: Double
+    let mp: Double
+    let dead: Bool
+    let weapon: String
+    let weaponPlus: Int
+    let rage: Double, iron: Double, focus: Double, shield: Double, cyclone: Double
+    let invulnerable: Bool
+    let bubble: String?
+    let bubbleLeft: Double
+}
+
+struct RpgMobPub: Codable, Sendable {
+    let id: Int
+    let def: String
+    let map: RpgMapID
+    let x: Double, y: Double
+    let hp: Double
+    let dead: Bool
+    let diedAgo: Double
+    let airborne: Bool
+    let jx: Double?, jy: Double?
+    let phaseLeft: Double
+    let hurt: Bool
+    let stunLeft: Double
+    let slowLeft: Double
+    let dot: RpgElement?
+    let windup: Bool
+    let facingRight: Bool
+    let summoned: Bool
+}
+
+struct RpgSnapshot: Codable, Sendable {
+    let time: Double
+    let players: [RpgPlayerPub]
+    let mobs: [RpgMobPub]
+    let shots: [RpgShot]
+    let fx: [RpgFX]
+    let floaters: [RpgFloater]
+    let drops: [RpgDropped]
+    let traps: [RpgTrap]
+    let toasts: [RpgToast]
+    let chat: [RpgChat]
+    let shake: Double
+}
+
+struct RpgPrivate: Codable, Sendable {
+    let save: RpgSaveData
+    let hp: Double
+    let mp: Double
+    let cooldowns: [String: Double]
+    let offers: [RpgQuest]
+    let respawnIn: Double
+}
+
+enum RpgNetMessage: Codable, Sendable {
+    /// Presence: who I am and whether I am running a world others can join.
+    case hello(peer: String, hosting: Bool, name: String)
+    /// Client → host: my character, please add me.
+    case join(peer: String, save: RpgSaveData)
+    /// Host → client: you are player `id` in my world.
+    case welcome(peer: String, id: Int)
+    case input(peer: String, input: RpgInput)
+    case action(peer: String, action: RpgAction)
+    case chat(peer: String, text: String)
+    case snapshot(RpgSnapshot)
+    case privateState(peer: String, state: RpgPrivate)
+}

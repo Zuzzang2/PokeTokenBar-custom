@@ -1,0 +1,1002 @@
+import AppKit
+import QuartzCore
+
+// SPIKE: draws and drives `RpgWorld` for the local player. Low-res pixel frame (map, units, effects,
+// darkness with torch light) scaled up with nearest-neighbour, then a crisp HUD: status, buffs, quest
+// tracker, an eight-slot skill bar, toasts, damage numbers and the keyboard-driven windows (bag, shops,
+// forge, quest board, skills, key settings, 차원문). Arrow keys move; every other key is rebindable.
+
+@MainActor
+final class RpgView: NSView, NSTextFieldDelegate {
+    var onExit: (() -> Void)?
+    var onSave: ((RpgSaveData) -> Void)?
+    weak var driver: RpgDriver?
+    private var chatField: NSTextField?
+
+    private enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests }
+
+    private let world: RpgWorld
+    private let localID: Int
+    private var bindings = RpgKeyBindings.load()
+    private var keys = Set<UInt16>()
+    private var pressed = Set<UInt16>()
+    private var link: CADisplayLink?
+    private var lastTick: CFTimeInterval = 0
+    private var frameContext: CGContext?
+    private var darkContext: CGContext?
+    private var mapImages: [RpgMapID: CGImage] = [:]
+    private var origin = CGPoint.zero
+    private var scale: CGFloat = 3
+    private var panel = Panel.none
+    private var selection = 0
+    private var tab = 0
+    private var waitingKey = false
+    private var saveClock = 0.0
+
+    init(frame: NSRect, world: RpgWorld, localID: Int) {
+        self.world = world
+        self.localID = localID
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var isOpaque: Bool { true }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+        saveNow()
+    }
+
+    func saveNow() {
+        if let p = world.player(localID) { onSave?(RpgSaveStore.snapshot(p)) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil, link == nil {
+            let l = displayLink(target: self, selector: #selector(step(_:)))
+            l.add(to: .main, forMode: .common)
+            link = l
+            lastTick = CACurrentMediaTime()
+        } else if window == nil {
+            stop()
+        }
+    }
+
+    // MARK: actions and chat
+
+    private func act(_ action: RpgAction) {
+        if let driver { driver.send(action) } else { world.perform(action, for: localID) }
+    }
+
+    /// Return opens a text field (a real one, so Korean input composes properly); Return sends, Esc cancels.
+    private func openChat() {
+        guard chatField == nil else { return }
+        let field = NSTextField(frame: NSRect(x: 16, y: bounds.height - 150, width: min(460, bounds.width - 32), height: 26))
+        field.placeholderString = "채팅 입력 후 Enter (Esc 취소)"
+        field.font = .systemFont(ofSize: 14, weight: .semibold)
+        field.focusRingType = .none
+        field.bezelStyle = .roundedBezel
+        field.delegate = self
+        field.autoresizingMask = [.maxXMargin, .minYMargin]
+        addSubview(field)
+        window?.makeFirstResponder(field)
+        chatField = field
+        keys.removeAll()
+    }
+
+    private func closeChat() {
+        chatField?.removeFromSuperview()
+        chatField = nil
+        window?.makeFirstResponder(self)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            let text = chatField?.stringValue ?? ""
+            if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                if let driver { driver.chat(text) } else { world.say(localID, text) }
+            }
+            closeChat()
+            return true
+        }
+        if selector == #selector(NSResponder.cancelOperation(_:)) {
+            closeChat()
+            return true
+        }
+        return false
+    }
+
+    // MARK: input
+
+    private func held(_ codes: UInt16...) -> Bool { codes.contains { keys.contains($0) } }
+    private func tapped(_ a: RpgKeyAction) -> Bool { pressed.contains(bindings.code(a)) }
+
+    override func keyDown(with event: NSEvent) {
+        let code = event.keyCode
+        if panel != .none {
+            handlePanelKey(code, repeatKey: event.isARepeat)
+            return
+        }
+        keys.insert(code)
+        if !event.isARepeat { pressed.insert(code) }
+    }
+
+    override func keyUp(with event: NSEvent) { keys.remove(event.keyCode) }
+
+    override func resignFirstResponder() -> Bool {
+        keys.removeAll()
+        return true
+    }
+
+    private func open(_ p: Panel) {
+        panel = p
+        selection = 0
+        tab = 0
+        waitingKey = false
+        keys.removeAll()
+    }
+
+    private func close() {
+        panel = .none
+        waitingKey = false
+        saveNow()
+    }
+
+    private var me: RpgPlayer? { world.player(localID) }
+
+    private func panelCount() -> Int {
+        guard let p = me else { return 0 }
+        switch panel {
+        case .none: return 0
+        case .inventory: return sortedInventory(p).count
+        case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
+        case .smith: return 2
+        case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
+        case .skills: return p.cls.skills.count
+        case .keys: return RpgKeyAction.allCases.count
+        case .waypoint: return waypoints(p).count
+        case .quests: return p.quests.count
+        }
+    }
+
+    private func stock(_ s: RpgShop, _ p: RpgPlayer) -> [RpgItem] {
+        s == .skill ? s.stock.filter { if case .book(let id) = $0.kind { return RpgSkills.def(id)?.cls == p.cls }; return false } : s.stock
+    }
+
+    private func waypoints(_ p: RpgPlayer) -> [RpgMapID] { RpgMaps.waypoints.filter { p.visited.contains($0) } }
+
+    private func handlePanelKey(_ code: UInt16, repeatKey: Bool) {
+        guard let p = me else { return }
+        if waitingKey {
+            if code == 53 { waitingKey = false; return }
+            guard !RpgKeyBindings.reserved.contains(code) else { return }
+            let action = RpgKeyAction.allCases[selection]
+            bindings.bind(action, to: code)
+            bindings.save()
+            waitingKey = false
+            world.toast("\(action.title) → \(RpgKeyBindings.name(code))")
+            return
+        }
+        // The key that opened a window also closes it.
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.skills, .skills), (.keys, .keys), (.quests, .quests)]
+        if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
+        if panel == .skills, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
+            let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
+            if p.skills[skill.id] != nil {
+                act(.assign(slot: slot, skill: skill.id))
+                world.toast("\(skill.name) → 슬롯 \(bindings.label(.slot(slot)))")
+            } else {
+                world.toast("아직 배우지 않은 스킬이에요")
+            }
+            return
+        }
+        let count = panelCount()
+        switch code {
+        case 53: if !repeatKey { close() }
+        case 126: selection = max(0, selection - 1)
+        case 125: selection = min(max(0, count - 1), selection + 1)
+        case 123, 124, 48:
+            if !repeatKey { tab = tab == 0 ? 1 : 0; selection = 0 }
+        case 36:
+            guard !repeatKey else { return }
+            confirm(p)
+        case 51:
+            guard !repeatKey else { return }
+            switch panel {
+            case .board where tab == 1, .quests:
+                if p.quests.indices.contains(selection) { act(.abandonQuest(p.quests[selection].id)); world.toast("의뢰 포기") }
+            case .skills:
+                let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
+                if let slot = p.slots.firstIndex(of: skill.id) { act(.assign(slot: slot, skill: nil)) }
+            case .keys:
+                bindings = .defaults
+                bindings.save()
+                world.toast("키 설정을 기본값으로 되돌렸어요")
+            default: break
+            }
+        default: break
+        }
+        selection = min(selection, max(0, panelCount() - 1))
+    }
+
+    private func confirm(_ p: RpgPlayer) {
+        switch panel {
+        case .inventory:
+            let ids = sortedInventory(p)
+            if ids.indices.contains(selection) { act(.equip(ids[selection])) }
+        case .shop(let s):
+            if tab == 0 {
+                let items = stock(s, p)
+                if items.indices.contains(selection) { act(.buy(items[selection].id)) }
+            } else {
+                let ids = sortedInventory(p)
+                if ids.indices.contains(selection) { act(.sell(ids[selection])) }
+            }
+        case .smith:
+            act(.enhance(weapon: selection == 0))
+        case .board:
+            if tab == 0 {
+                let offers = world.boardOffers(for: localID)
+                if offers.indices.contains(selection) { act(.acceptQuest(offers[selection].id)) }
+            } else if p.quests.indices.contains(selection) {
+                if p.quests[selection].done { act(.claimQuest(p.quests[selection].id)) }
+                else { world.toast("아직 다 못 했어요 (\(p.quests[selection].progress)/\(p.quests[selection].count))") }
+            }
+        case .skills:
+            let skill = p.cls.skills[min(selection, p.cls.skills.count - 1)]
+            if p.skills[skill.id] != nil { act(.levelSkill(skill.id)) }
+            else { world.toast(skill.price > 0 ? "마법서점에서 스킬북을 살 수 있어요" : "몬스터가 떨어뜨리는 스킬북으로 배워요") }
+        case .keys:
+            waitingKey = true
+        case .waypoint:
+            let list = waypoints(p)
+            if list.indices.contains(selection) { act(.warp(list[selection])); close() }
+        case .quests, .none:
+            break
+        }
+    }
+
+    // MARK: loop
+
+    @objc private func step(_ sender: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        let dt = min(max(now - lastTick, 0), 1.0 / 30)
+        lastTick = now
+        var input = RpgInput()
+        if panel == .none {
+            input.move = CGVector(dx: (held(124) ? 1 : 0) - (held(123) ? 1 : 0), dy: (held(125) ? 1 : 0) - (held(126) ? 1 : 0))
+            input.attack = keys.contains(bindings.code(.attack))
+            for s in 0..<RpgWorld.slotCount where tapped(.slot(s)) { input.slots.insert(s) }
+            if tapped(.hpPotion) { act(.hpPotion) }
+            if tapped(.mpPotion) { act(.mpPotion) }
+            if tapped(.scroll) { act(.scroll) }
+            if tapped(.interact) {
+                if let place = world.nearbyPlace(for: localID) {
+                    switch place {
+                    case .shop(let s): open(.shop(s))
+                    case .smith: open(.smith)
+                    case .board: open(.board)
+                    }
+                } else if let portal = world.nearbyPortal(for: localID), portal.waypoint {
+                    open(.waypoint)
+                } else {
+                    act(.interact)
+                }
+            }
+            if tapped(.inventory) { open(.inventory) }
+            if tapped(.skills) { open(.skills) }
+            if tapped(.quests) { open(.quests) }
+            if tapped(.keys) { open(.keys) }
+            if pressed.contains(53) { saveNow(); onExit?() }
+            if pressed.contains(36) { openChat() }
+        }
+        pressed.removeAll()
+        if let d = driver, d.isClient {
+            // Client: walk locally right away, tell the host, and let snapshots fill in the rest.
+            world.predict(localID, input: input, dt: dt)
+            if let me {
+                input.pos = me.pos
+                input.facing = me.facing
+            }
+            for slot in input.slots { d.send(.cast(slot)) }
+            input.slots = []
+            d.sendInput(input)
+            world.mirrorTick(dt, localID: localID)
+        } else {
+            var all = driver?.remoteInputs() ?? [:]
+            all[localID] = input
+            world.step(dt, inputs: all)
+        }
+        saveClock += dt
+        if saveClock > 10 { saveClock = 0; saveNow() }
+        needsDisplay = true
+    }
+
+    // MARK: world drawing
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext, let me else { return }
+        scale = max(2, (bounds.height / 240).rounded())
+        let vw = Int((bounds.width / scale).rounded(.up)), vh = Int((bounds.height / scale).rounded(.up))
+        if frameContext?.width != vw || frameContext?.height != vh {
+            frameContext = KartArt.context(width: vw, height: vh)
+            darkContext = KartArt.context(width: vw, height: vh)
+        }
+        guard let f = frameContext else { return }
+        let map = world.map(me.map)
+        let size = map.pixelSize
+        func center(_ v: CGFloat, view: Int, size: CGFloat) -> CGFloat {
+            CGFloat(view) >= size ? size / 2 : min(max(v, CGFloat(view) / 2), size - CGFloat(view) / 2)
+        }
+        origin = CGPoint(x: (center(me.pos.x, view: vw, size: size.width) - CGFloat(vw) / 2).rounded(),
+                         y: (center(me.pos.y - 6, view: vh, size: size.height) - CGFloat(vh) / 2).rounded())
+        let t = world.time
+
+        KartArt.fill(f, KartArt.rgb(20, 18, 26), 0, 0, CGFloat(vw), CGFloat(vh))
+        f.saveGState()
+        f.translateBy(x: -origin.x, y: -origin.y)
+        if mapImages[me.map] == nil { mapImages[me.map] = RpgArt.renderMap(map) }
+        if let img = mapImages[me.map] { KartArt.draw(img, in: f, rect: CGRect(origin: .zero, size: size)) }
+
+        for portal in map.def.portals {
+            let p = RpgMap.center(portal.at)
+            if portal.hidden {
+                let d = hypot(p.x - me.pos.x, p.y - me.pos.y)
+                guard d < 56 else { continue }
+                f.setAlpha(max(0.15, 1 - d / 56))
+            }
+            RpgArt.portal(f, at: CGPoint(x: p.x, y: p.y + 4), time: t, locked: me.level < portal.minLevel, waypoint: portal.waypoint)
+            f.setAlpha(1)
+        }
+        for torch in map.torches {
+            let p = RpgMap.center(torch)
+            let flick = Int(t * 10 + Double(torch.x)) % 3
+            KartArt.fill(f, KartArt.rgb(255, 200, 60), p.x - 1, p.y - 7 - CGFloat(flick % 2), 3, 3)
+            KartArt.fill(f, KartArt.rgb(255, 250, 200), p.x, p.y - 6, 1, 1)
+        }
+        for trap in world.traps where trap.map == me.map { RpgArt.trap(f, at: trap.pos, time: t) }
+        for d in world.drops where d.map == me.map {
+            if d.gold > 0 { RpgArt.coin(f, at: d.pos, time: t) }
+            if let id = d.item, let item = RpgItems.item(id), let icon = RpgArt.icon(item) {
+                let bob = CGFloat((sin(t * 4 + Double(d.id)) * 1.5).rounded())
+                if item.rarity >= 2 {
+                    let c = item.rarity == 4 ? KartArt.rgb(255, 90, 140) : RpgArt.elem(item.element == .base ? .holy : item.element).mid
+                    f.setFillColor(c.copy(alpha: 0.35) ?? c)
+                    f.fillEllipse(in: CGRect(x: d.pos.x - 9, y: d.pos.y - 14 + bob, width: 18, height: 18))
+                }
+                KartArt.draw(icon, in: f, rect: CGRect(x: d.pos.x - 9, y: d.pos.y - 14 + bob, width: 18, height: 18))
+            }
+        }
+
+        enum Drawable { case player(RpgPlayer), mob(RpgMob), npc(RpgBuilding) }
+        var items: [(y: CGFloat, d: Drawable)] = []
+        for p in world.players where p.map == me.map { items.append((p.pos.y, .player(p))) }
+        for m in world.mobs[me.map] ?? [] where !m.dead || t - m.diedAt < 0.4 { items.append((m.pos.y, .mob(m))) }
+        if me.map == .town { for b in map.buildings where b.place != .board { items.append((b.door.y, .npc(b))) } }
+        for item in items.sorted(by: { $0.y < $1.y }) {
+            switch item.d {
+            case .player(let p): drawPlayer(p, in: f)
+            case .mob(let m): drawMob(m, in: f)
+            case .npc(let b): drawNPC(b, in: f)
+            }
+        }
+        drawShots(f, map: me.map)
+        drawEffects(f, map: me.map)
+        f.restoreGState()
+
+        if map.darkness > 0 { drawDarkness(f, map: map, me: me, vw: vw, vh: vh) }
+
+        if let frame = f.makeImage() {
+            ctx.interpolationQuality = .none
+            let s = world.shake
+            let jx = s > 0 ? CGFloat(Int.random(in: -1...1)) * CGFloat(s) * 2 : 0
+            let jy = s > 0 ? CGFloat(Int.random(in: -1...1)) * CGFloat(s) * 2 : 0
+            KartArt.draw(frame, in: ctx, rect: CGRect(x: jx, y: jy, width: CGFloat(vw) * scale, height: CGFloat(vh) * scale))
+        }
+        drawWorldText(me)
+        drawHUD(ctx, me)
+        drawPanel(ctx, me)
+    }
+
+    private func drawPlayer(_ p: RpgPlayer, in f: CGContext) {
+        let t = world.time
+        let tint = RpgArt.classTint(p.cls, weapon: p.weaponItem)
+        guard let img = RpgArt.sprite(p.cls.rawValue, tint: tint) else { return }
+        let bob: CGFloat = p.moving && Int(t * 8) % 2 == 0 ? 1 : 0
+        f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
+        f.fillEllipse(in: CGRect(x: p.pos.x - 6, y: p.pos.y - 2, width: 12, height: 4))
+        if t < p.rageUntil { RpgArt.aura(f, at: p.pos, time: t, color: KartArt.rgb(255, 90, 60)) }
+        if t < p.ironUntil { RpgArt.aura(f, at: p.pos, time: t + 1, color: KartArt.rgb(210, 220, 235)) }
+        if t < p.focusUntil { RpgArt.aura(f, at: p.pos, time: t + 2, color: KartArt.rgb(140, 240, 160)) }
+        if t < p.shieldUntil {
+            f.setStrokeColor(KartArt.rgb(140, 190, 255, 0.8))
+            f.strokeEllipse(in: CGRect(x: p.pos.x - 10, y: p.pos.y - 20, width: 20, height: 22))
+        }
+        if p.dead { f.setAlpha(0.35) } else if p.invulnerable > 0, Int(t * 20) % 2 == 0 { f.setAlpha(0.45) }
+        KartArt.draw(img, in: f, rect: CGRect(x: (p.pos.x - 8).rounded(), y: (p.pos.y - 15 - bob).rounded(), width: 16, height: 16), flipX: !p.facingRight)
+        f.setAlpha(1)
+        // Glint on a highly enhanced weapon.
+        if let w = p.weaponItem, (p.plus[w.id] ?? 0) >= 7, Int(t * 6) % 4 == 0 {
+            KartArt.fill(f, KartArt.rgb(255, 255, 255), p.pos.x + (p.facingRight ? 5 : -6), p.pos.y - 14, 1, 1)
+        }
+    }
+
+    private func drawMob(_ m: RpgMob, in f: CGContext) {
+        guard let img = RpgArt.sprite(m.def.sprite) else { return }
+        let t = world.time
+        let boss = m.def.behavior == .boss
+        let w = CGFloat(img.width), h = CGFloat(img.height)
+        var feet = m.pos
+        var lift: CGFloat = 0
+        if boss, m.airborne, let jt = m.jumpTarget {
+            feet = jt
+            lift = CGFloat(max(0, min(1, (m.phaseUntil - t) / 1.0))) * 90
+        }
+        let slime = m.def.sprite.contains("slime")
+        let hop: CGFloat = (slime && !boss) ? CGFloat(abs(sin(t * 6 + Double(m.id))) * 2).rounded() : 0
+        let fly: CGFloat = m.flies ? CGFloat(6 + sin(t * 8 + Double(m.id)) * 2).rounded() : 0
+        f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
+        f.fillEllipse(in: CGRect(x: feet.x - w * 0.35, y: feet.y - 2, width: w * 0.7, height: boss ? 8 : 4))
+        if m.dead { f.setAlpha(CGFloat(max(0, 1 - (t - m.diedAt) / 0.4))) }
+        if m.hurtFlash > 0 { f.setAlpha(0.5) }
+        let symmetric = slime || m.def.sprite.contains("bat")
+        let flip = m.def.sprite.contains("wolf") || m.def.sprite == "scorpion" ? m.facingRight : !m.facingRight
+        let rect = CGRect(x: (feet.x - w / 2).rounded(), y: (feet.y - h + 1 - hop - fly - lift).rounded(), width: w, height: h)
+        KartArt.draw(img, in: f, rect: rect, flipX: flip && !symmetric)
+        f.setAlpha(1)
+        if m.windup != nil { KartArt.fill(f, KartArt.rgb(255, 80, 80), feet.x - 1, rect.minY - 5, 2, 3) }
+        if t < m.stunUntil {
+            for k in 0..<3 {
+                let a = t * 6 + Double(k) * 2.1
+                KartArt.fill(f, KartArt.rgb(255, 240, 100), (feet.x + CGFloat(cos(a) * 6)).rounded(), (rect.minY - 2 + CGFloat(sin(a) * 2)).rounded(), 1, 1)
+            }
+        }
+        if m.dotTicks > 0, Int(t * 10) % 2 == 0 {
+            let c = m.dotElement == .poison ? KartArt.rgb(150, 230, 80) : KartArt.rgb(255, 130, 40)
+            KartArt.fill(f, c, feet.x - 3 + CGFloat(Int(t * 7) % 6), rect.minY + 4, 1, 2)
+        }
+        if t < m.slowUntil { KartArt.fill(f, KartArt.rgb(170, 238, 255), feet.x - 5, feet.y - 1, 10, 1) }
+        if !m.dead, !boss, m.hp < Double(m.def.hp) {
+            let bw: CGFloat = 14, x = (feet.x - bw / 2).rounded(), y = rect.minY - 4
+            KartArt.fill(f, KartArt.rgb(20, 20, 24), x - 1, y - 1, bw + 2, 4)
+            KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / Double(m.def.hp))).rounded(), 2)
+        }
+    }
+
+    private func drawNPC(_ b: RpgBuilding, in f: CGContext) {
+        let hair: CGColor = switch b.place {
+        case .shop(.weapon): KartArt.rgb(60, 60, 70)
+        case .shop(.armor): KartArt.rgb(170, 60, 40)
+        case .shop(.potion): KartArt.rgb(230, 200, 90)
+        case .shop(.skill): KartArt.rgb(150, 100, 220)
+        default: KartArt.rgb(90, 70, 50)
+        }
+        guard let img = RpgArt.sprite("villager", tint: ["H": hair]) else { return }
+        let p = b.door
+        f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
+        f.fillEllipse(in: CGRect(x: p.x - 6, y: p.y - 2, width: 12, height: 4))
+        let bob: CGFloat = Int(world.time * 2) % 2 == 0 ? 0 : 1
+        KartArt.draw(img, in: f, rect: CGRect(x: p.x - 8, y: p.y - 15 - bob, width: 16, height: 16))
+    }
+
+    private func drawShots(_ f: CGContext, map: RpgMapID) {
+        for s in world.shots where s.map == map {
+            let speed = max(1, hypot(s.vel.dx, s.vel.dy))
+            let ux = Double(s.vel.dx / speed), uy = Double(s.vel.dy / speed)
+            let e = RpgArt.elem(s.element)
+            let x = Double(s.pos.x), y = Double(s.pos.y)
+            switch s.kind {
+            case .arrow, .bigArrow, .mobArrow, .poisonArrow:
+                let len = s.kind == .bigArrow ? 12.0 : 7.0
+                if s.kind != .mobArrow {
+                    for k in 1...6 { RpgArt.dot(f, x - ux * (len + Double(k) * 1.6), y - uy * (len + Double(k) * 1.6), (k < 3 ? e.mid : e.edge).copy(alpha: 1 - Double(k) * 0.14) ?? e.mid) }
+                }
+                RpgArt.line(f, x - ux * len, y - uy * len, x, y, s.kind == .mobArrow ? KartArt.rgb(200, 190, 170) : KartArt.rgb(150, 100, 56))
+                RpgArt.dot(f, x + ux, y + uy, s.kind == .mobArrow ? KartArt.rgb(230, 226, 210) : e.core, s.kind == .bigArrow ? 2 : 1)
+                if s.kind == .bigArrow { RpgArt.disc(f, x, y, 3, e.mid.copy(alpha: 0.5) ?? e.mid) }
+            case .orb, .bossOrb:
+                let r = s.kind == .bossOrb ? 3.4 : 2.6
+                for k in 1...5 { RpgArt.dot(f, x - ux * Double(k) * 1.8, y - uy * Double(k) * 1.8, e.mid.copy(alpha: 1 - Double(k) * 0.18) ?? e.mid) }
+                RpgArt.disc(f, x, y, r, e.edge); RpgArt.disc(f, x, y, r * 0.6, e.mid); RpgArt.dot(f, x, y, e.core)
+            case .slimeBall:
+                RpgArt.disc(f, x, y, 3, KartArt.rgb(46, 140, 80)); RpgArt.disc(f, x - 0.5, y - 0.5, 2, KartArt.rgb(110, 220, 130))
+                RpgArt.dot(f, x - 1, y - 1, KartArt.rgb(240, 255, 240))
+            }
+        }
+    }
+
+    private func drawEffects(_ f: CGContext, map: RpgMapID) {
+        let t = world.time
+        for e in world.fx where e.map == map && t >= e.start {
+            let progress = max(0, min(0.999, (t - e.start) / e.duration))
+            let frame = Int(progress * 6)
+            switch e.kind {
+            case .slash(let angle, let radius): RpgArt.slash(f, at: e.pos, angle: angle, frame: frame, element: e.element, radius: radius)
+            case .burst(let radius): RpgArt.burst(f, at: e.pos, frame: frame, element: e.element, radius: radius)
+            case .ice(let radius): RpgArt.iceSpikes(f, at: e.pos, frame: frame, radius: radius)
+            case .meteor(let radius): RpgArt.meteor(f, at: e.pos, frame: frame, radius: radius)
+            case .chain(let points):
+                let el = RpgArt.elem(e.element)
+                for k in 0..<(points.count - 1) where frame < 5 {
+                    RpgArt.bolt(f, from: points[k], to: points[k + 1], seed: UInt64(frame * 13 + k), el)
+                    RpgArt.star(f, Double(points[k + 1].x), Double(points[k + 1].y), 2, el.edge, el.core)
+                }
+            case .strike:
+                let el = RpgArt.elem(.thunder)
+                if frame < 4 { RpgArt.bolt(f, from: CGPoint(x: e.pos.x + 4, y: e.pos.y - 70), to: e.pos, seed: UInt64(frame * 7 + Int(e.pos.x)), el) }
+                RpgArt.burst(f, at: e.pos, frame: frame, element: .thunder, radius: 22)
+            case .rain(let radius): RpgArt.arrowRain(f, at: e.pos, frame: Int(progress * 30) % 6, radius: radius, seed: UInt64(Int(progress * 30)))
+            case .spark(let crit): RpgArt.hitSpark(f, at: e.pos, frame: Int(progress * 4), crit: crit, element: e.element)
+            case .levelUp: RpgArt.levelUp(f, at: e.pos, frame: Int(progress * 12) % 6, element: e.element)
+            case .telegraph(let radius):
+                let k = CGFloat(progress)
+                f.setFillColor(KartArt.rgb(0, 0, 0, 0.15 + 0.35 * k))
+                f.fillEllipse(in: CGRect(x: e.pos.x - radius * k, y: e.pos.y - radius * 0.5 * k, width: radius * 2 * k, height: radius * k))
+                RpgArt.ring(f, Double(e.pos.x), Double(e.pos.y), radius, KartArt.rgb(255, 80, 80), squash: 0.5)
+            }
+        }
+    }
+
+    /// Dark places: a veil with soft holes around the player, torches, blasts and portals.
+    private func drawDarkness(_ f: CGContext, map: RpgMap, me: RpgPlayer, vw: Int, vh: Int) {
+        guard let d = darkContext else { return }
+        d.setBlendMode(.normal)
+        d.clear(CGRect(x: 0, y: 0, width: vw, height: vh))
+        d.setFillColor(KartArt.rgb(8, 6, 14, CGFloat(map.darkness)))
+        d.fill(CGRect(x: 0, y: 0, width: vw, height: vh))
+        d.setBlendMode(.destinationOut)
+        func light(_ p: CGPoint, _ r: CGFloat) {
+            let c = CGPoint(x: p.x - origin.x, y: p.y - origin.y)
+            for k in stride(from: 1.0, through: 0.35, by: -0.13) {
+                d.setFillColor(KartArt.rgb(0, 0, 0, 0.22))
+                d.fillEllipse(in: CGRect(x: c.x - r * k, y: c.y - r * k * 0.8, width: r * 2 * k, height: r * 1.6 * k))
+            }
+        }
+        let flicker = CGFloat(sin(world.time * 9) * 2)
+        light(CGPoint(x: me.pos.x, y: me.pos.y - 6), 62)
+        for t in map.torches { light(RpgMap.center(t), 40 + flicker) }
+        for e in world.fx where e.map == me.map { light(e.pos, 36) }
+        for s in world.shots where s.map == me.map { light(s.pos, s.fromPlayer ? 18 : 12) }
+        for p in map.def.portals where !p.hidden { light(RpgMap.center(p.at), 26) }
+        if map.def.kind == .volcano {
+            for y in 0..<map.height { for x in 0..<map.width where map.at(x, y) == .lava && (x + y) % 3 == 0 { light(RpgMap.center(RpgTile(x: x, y: y)), 22) } }
+        }
+        d.setBlendMode(.normal)
+        if let veil = d.makeImage() { KartArt.draw(veil, in: f, rect: CGRect(x: 0, y: 0, width: vw, height: vh)) }
+    }
+
+    // MARK: HUD
+
+    private func screen(_ p: CGPoint) -> CGPoint { CGPoint(x: (p.x - origin.x) * scale, y: (p.y - origin.y) * scale) }
+
+    private func text(_ s: String, at p: CGPoint, size: CGFloat, color: NSColor = .white, weight: NSFont.Weight = .heavy,
+                      align: NSTextAlignment = .left, mono: Bool = false) {
+        let font = mono ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.9)
+        shadow.shadowOffset = NSSize(width: 0, height: -2)
+        let str = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: color, .shadow: shadow])
+        let w = str.size().width
+        let x = align == .center ? p.x - w / 2 : (align == .right ? p.x - w : p.x)
+        str.draw(at: NSPoint(x: x, y: p.y))
+    }
+
+    private func box(_ ctx: CGContext, _ rect: CGRect, alpha: CGFloat = 0.55) {
+        ctx.setFillColor(NSColor.black.withAlphaComponent(alpha).cgColor)
+        ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        ctx.fillPath()
+    }
+
+    private func bar(_ ctx: CGContext, _ rect: CGRect, _ frac: Double, _ color: NSColor, label: String? = nil) {
+        ctx.setFillColor(NSColor(white: 0.12, alpha: 1).cgColor)
+        ctx.fill(rect)
+        ctx.setFillColor(color.cgColor)
+        ctx.fill(CGRect(x: rect.minX, y: rect.minY, width: rect.width * CGFloat(max(0, min(1, frac))), height: rect.height))
+        if let label { text(label, at: CGPoint(x: rect.midX, y: rect.minY - 2), size: 10, weight: .bold, align: .center, mono: true) }
+    }
+
+    private static let gold = NSColor(red: 1, green: 0.85, blue: 0.3, alpha: 1)
+    private static let dim = NSColor(white: 0.75, alpha: 1)
+
+    private func drawWorldText(_ me: RpgPlayer) {
+        let map = world.map(me.map)
+        if me.map == .town {
+            for b in map.buildings {
+                let s = screen(CGPoint(x: b.door.x, y: b.door.y - (b.place == .board ? 34 : 22)))
+                text(b.place.title, at: CGPoint(x: s.x, y: s.y - 12), size: 12, color: NSColor(red: 1, green: 0.92, blue: 0.6, alpha: 1), weight: .bold, align: .center)
+            }
+        }
+        for portal in map.def.portals where !portal.hidden || hypot(RpgMap.center(portal.at).x - me.pos.x, RpgMap.center(portal.at).y - me.pos.y) < 40 {
+            let s = screen(CGPoint(x: RpgMap.center(portal.at).x, y: RpgMap.center(portal.at).y - 20))
+            let locked = me.level < portal.minLevel
+            let label = portal.waypoint ? "차원문" : "\(RpgMaps.def(portal.to).name) \(RpgMaps.def(portal.to).levelText)"
+            text(label, at: CGPoint(x: s.x, y: s.y - 14), size: 11,
+                 color: locked ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : (portal.waypoint ? Self.gold : NSColor(red: 0.7, green: 0.85, blue: 1, alpha: 1)),
+                 weight: .bold, align: .center)
+        }
+        // Other players: name tags; everyone: chat bubbles.
+        for p in world.players where p.map == me.map {
+            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - 18))
+            var top = head.y
+            if p.id != localID {
+                top -= 18
+                text("Lv\(p.level) \(p.name)", at: CGPoint(x: head.x, y: top), size: 11,
+                     color: NSColor(red: 0.6, green: 0.85, blue: 1, alpha: 1), weight: .bold, align: .center)
+            }
+            if let b = p.bubble, world.time < p.bubbleUntil {
+                let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+                let str = NSAttributedString(string: b, attributes: [.font: font, .foregroundColor: NSColor.black])
+                let w = min(260, str.size().width + 16), h = str.size().height + 8
+                let r = CGRect(x: head.x - w / 2, y: top - h - 6, width: w, height: h)
+                if let ctx = NSGraphicsContext.current?.cgContext {
+                    ctx.setFillColor(NSColor.white.withAlphaComponent(0.95).cgColor)
+                    ctx.addPath(CGPath(roundedRect: r, cornerWidth: 7, cornerHeight: 7, transform: nil))
+                    ctx.fillPath()
+                    ctx.move(to: CGPoint(x: head.x - 5, y: r.maxY)); ctx.addLine(to: CGPoint(x: head.x + 5, y: r.maxY))
+                    ctx.addLine(to: CGPoint(x: head.x, y: r.maxY + 6)); ctx.fillPath()
+                }
+                str.draw(with: CGRect(x: r.minX + 8, y: r.minY + 4, width: w - 16, height: h - 6), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+            }
+        }
+        for fl in world.floaters where fl.map == me.map {
+            let s = screen(fl.pos)
+            let a = CGFloat(min(1, fl.life / 0.3))
+            let (color, size): (NSColor, CGFloat) = switch fl.style {
+            case .damage: (.white, 13)
+            case .crit: (NSColor(red: 1, green: 0.75, blue: 0.2, alpha: 1), 17)
+            case .hurt: (NSColor(red: 1, green: 0.35, blue: 0.35, alpha: 1), 14)
+            case .heal: (NSColor(red: 0.45, green: 1, blue: 0.5, alpha: 1), 13)
+            case .gold: (Self.gold, 12)
+            case .xp: (NSColor(red: 0.7, green: 0.6, blue: 1, alpha: 1), 11)
+            case .poison: (NSColor(red: 0.6, green: 0.95, blue: 0.3, alpha: 1), 12)
+            case .info: (.white, 12)
+            }
+            text(fl.text, at: s, size: size, color: color.withAlphaComponent(a), align: .center)
+        }
+    }
+
+    private func drawHUD(_ ctx: CGContext, _ me: RpgPlayer) {
+        let t = world.time
+        box(ctx, CGRect(x: 10, y: 10, width: 262, height: 96))
+        text("\(me.name)  ·  \(me.cls.name) Lv\(me.level)", at: CGPoint(x: 20, y: 14), size: 14)
+        bar(ctx, CGRect(x: 20, y: 40, width: 240, height: 12), me.hp / me.maxHP, NSColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1),
+            label: "\(Int(me.hp)) / \(Int(me.maxHP))")
+        bar(ctx, CGRect(x: 20, y: 58, width: 240, height: 10), me.mp / me.maxMP, NSColor(red: 0.3, green: 0.55, blue: 1, alpha: 1),
+            label: "\(Int(me.mp)) / \(Int(me.maxMP))")
+        let need = RpgMaps.xpNeeded(me.level)
+        bar(ctx, CGRect(x: 20, y: 74, width: 150, height: 6), me.level >= RpgMaps.maxLevel ? 1 : Double(me.xp) / Double(need), NSColor(red: 0.65, green: 0.5, blue: 1, alpha: 1))
+        text("\(me.gold) G", at: CGPoint(x: 260, y: 80), size: 13, color: Self.gold, align: .right, mono: true)
+        text("XP \(me.xp)/\(need)" + (me.sp > 0 ? "   SP \(me.sp)" : ""), at: CGPoint(x: 20, y: 82), size: 9,
+             color: me.sp > 0 ? NSColor(red: 0.6, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .semibold, mono: true)
+
+        // Buffs.
+        var buffs: [(String, Double, NSColor)] = []
+        if t < me.rageUntil { buffs.append(("분노", me.rageUntil - t, NSColor(red: 1, green: 0.45, blue: 0.35, alpha: 1))) }
+        if t < me.ironUntil { buffs.append(("철벽", me.ironUntil - t, NSColor(white: 0.9, alpha: 1))) }
+        if t < me.focusUntil { buffs.append(("집중", me.focusUntil - t, NSColor(red: 0.55, green: 1, blue: 0.6, alpha: 1))) }
+        if t < me.shieldUntil { buffs.append(("실드", me.shieldUntil - t, NSColor(red: 0.55, green: 0.75, blue: 1, alpha: 1))) }
+        if t < me.cycloneUntil { buffs.append(("회오리", me.cycloneUntil - t, NSColor(red: 0.9, green: 0.9, blue: 0.5, alpha: 1))) }
+        for (k, b) in buffs.enumerated() {
+            text("\(b.0) \(Int(b.1.rounded(.up)))s", at: CGPoint(x: 14 + CGFloat(k) * 66, y: 110), size: 11, color: b.2, weight: .bold)
+        }
+
+        // Map name and quest tracker.
+        let def = world.map(me.map).def
+        box(ctx, CGRect(x: bounds.width - 200, y: 10, width: 190, height: 42))
+        text(def.name, at: CGPoint(x: bounds.width - 105, y: 12), size: 15, align: .center)
+        text(def.levelText, at: CGPoint(x: bounds.width - 105, y: 32), size: 10, color: Self.dim, weight: .semibold, align: .center)
+        if !me.quests.isEmpty {
+            box(ctx, CGRect(x: bounds.width - 200, y: 58, width: 190, height: 14 + CGFloat(me.quests.count) * 18))
+            for (k, q) in me.quests.enumerated() {
+                let name = RpgMonsters.def(q.monster).name
+                text(q.done ? "✓ \(name) 완료" : "\(name) \(q.progress)/\(q.count)", at: CGPoint(x: bounds.width - 190, y: 64 + CGFloat(k) * 18), size: 11,
+                     color: q.done ? NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1) : .white, weight: .bold)
+            }
+        }
+
+        if let boss = (world.mobs[me.map] ?? []).first(where: { $0.def.behavior == .boss && !$0.dead }) {
+            let w = min(520, bounds.width - 520)
+            let r = CGRect(x: bounds.midX - w / 2, y: 34, width: w, height: 14)
+            text("\(boss.def.name)  Lv\(boss.def.level)", at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
+            bar(ctx, r, boss.hp / Double(boss.def.hp), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
+        }
+
+        for (k, toast) in world.toasts.filter({ $0.to == nil || $0.to == localID }).suffix(4).enumerated() {
+            text(toast.text, at: CGPoint(x: bounds.midX, y: 92 + CGFloat(k) * 20), size: 14, color: NSColor(red: 1, green: 0.95, blue: 0.75, alpha: 1), align: .center)
+        }
+
+        if panel == .none {
+            let interact = bindings.label(.interact)
+            if let place = world.nearbyPlace(for: localID) {
+                hint("\(interact)  \(place.title) 이용하기")
+            } else if let portal = world.nearbyPortal(for: localID) {
+                if portal.waypoint { hint("\(interact)  차원문 열기") }
+                else { hint(me.level < portal.minLevel ? "Lv\(portal.minLevel) 이상만 들어갈 수 있어요" : "\(interact)  \(RpgMaps.def(portal.to).name)(으)로 이동") }
+            }
+        }
+
+        // Online status and chat log.
+        if let d = driver {
+            let n = d.onlineCount
+            text(n > 1 ? "● 온라인 \(n)명 · \(d.statusLabel)" : "● 혼자 · 같은 Wi-Fi 동료를 찾는 중", at: CGPoint(x: 14, y: 128), size: 11,
+                 color: n > 1 ? NSColor(red: 0.5, green: 1, blue: 0.6, alpha: 1) : Self.dim, weight: .bold)
+        }
+        let recent = world.chatLog.filter { world.time - $0.at < 30 }.suffix(6)
+        for (k, line) in recent.enumerated() {
+            let y = bounds.height - 160 - CGFloat(recent.count - k) * 18
+            text("\(line.name): \(line.text)", at: CGPoint(x: 16, y: y), size: 12, color: NSColor(white: 1, alpha: 0.9), weight: .semibold)
+        }
+        if chatField == nil, panel == .none {
+            text("Enter 채팅", at: CGPoint(x: 16, y: bounds.height - 150), size: 10, color: NSColor(white: 1, alpha: 0.4), weight: .semibold)
+        }
+
+        drawHotbar(ctx, me)
+        let b = bindings
+        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   키설정 \(b.label(.keys))   나가기 Esc",
+             at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
+
+        if me.dead {
+            box(ctx, CGRect(x: bounds.midX - 160, y: bounds.midY - 40, width: 320, height: 64), alpha: 0.7)
+            text("쓰러졌다…", at: CGPoint(x: bounds.midX, y: bounds.midY - 36), size: 22, align: .center)
+            text("잠시 후 마을에서 부활합니다", at: CGPoint(x: bounds.midX, y: bounds.midY - 6), size: 13, color: Self.dim, align: .center)
+        }
+    }
+
+    private func hint(_ s: String) {
+        guard let me else { return }
+        let p = screen(CGPoint(x: me.pos.x, y: me.pos.y + 6))
+        text(s, at: CGPoint(x: p.x, y: p.y + 4), size: 13, color: NSColor(red: 1, green: 0.95, blue: 0.6, alpha: 1), align: .center)
+    }
+
+    private func drawHotbar(_ ctx: CGContext, _ me: RpgPlayer) {
+        let size: CGFloat = 50, gap: CGFloat = 5
+        let total = CGFloat(11) * size + CGFloat(10) * gap + 12
+        let y = bounds.height - size - 32
+        var x = bounds.midX - total / 2
+        for s in 0..<RpgWorld.slotCount {
+            let r = CGRect(x: x, y: y, width: size, height: size)
+            box(ctx, r, alpha: 0.65)
+            if let id = me.slots[s], let def = RpgSkills.def(id) {
+                let lv = me.skills[id] ?? 1
+                ctx.setFillColor(RpgArt.elem(def.cls == .mage && id == "m_blast" ? me.element : .base).mid)
+                ctx.fill(CGRect(x: x + 4, y: y + size - 6, width: size - 8, height: 2))
+                let short = def.name.count > 4 ? String(def.name.prefix(4)) : def.name
+                text(short, at: CGPoint(x: x + size / 2, y: y + 17), size: 10, weight: .bold, align: .center)
+                text("Lv\(lv)", at: CGPoint(x: x + size / 2, y: y + 31), size: 8, color: Self.dim, weight: .semibold, align: .center)
+                if me.mp < Double(def.mp) { ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor); ctx.fill(r) }
+                let cd = me.cooldowns[id] ?? 0
+                if cd > 0 {
+                    let frac = CGFloat(cd / def.cooldown)
+                    ctx.setFillColor(NSColor.black.withAlphaComponent(0.6).cgColor)
+                    ctx.fill(CGRect(x: x, y: y + size * (1 - frac), width: size, height: size * frac))
+                    text(String(format: "%.0f", cd.rounded(.up)), at: CGPoint(x: x + size / 2, y: y + 14), size: 17, align: .center)
+                }
+            }
+            text(bindings.label(.slot(s)), at: CGPoint(x: x + 3, y: y + 1), size: 10, color: Self.gold)
+            x += size + gap
+        }
+        x += 12
+        let consumables: [(RpgKeyAction, String, Int)] = [
+            (.hpPotion, "hp0", ["hp0", "hp1", "hp2", "hp3"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
+            (.mpPotion, "mp0", ["mp0", "mp1"].reduce(0) { $0 + (me.inventory[$1] ?? 0) }),
+            (.scroll, "scroll", me.inventory["scroll"] ?? 0),
+        ]
+        for (action, icon, count) in consumables {
+            let r = CGRect(x: x, y: y, width: size, height: size)
+            box(ctx, r, alpha: 0.65)
+            if let item = RpgItems.item(icon), let img = RpgArt.icon(item) {
+                ctx.interpolationQuality = .none
+                KartArt.draw(img, in: ctx, rect: CGRect(x: x + 8, y: y + 8, width: 34, height: 34))
+            }
+            text(bindings.label(action), at: CGPoint(x: x + 3, y: y + 1), size: 10, color: Self.gold)
+            text("\(count)", at: CGPoint(x: x + size - 4, y: y + size - 17), size: 12, align: .right, mono: true)
+            if count == 0 { ctx.setFillColor(NSColor.black.withAlphaComponent(0.5).cgColor); ctx.fill(r) }
+            x += size + gap
+        }
+    }
+
+    // MARK: windows
+
+    private func sortedInventory(_ p: RpgPlayer) -> [String] {
+        func order(_ i: RpgItem) -> Int {
+            switch i.kind {
+            case .weapon: return 0
+            case .armor: return 1
+            case .book: return 2
+            case .stone: return 3
+            case .potionHP: return 4
+            case .potionMP: return 5
+            case .scroll: return 6
+            }
+        }
+        return p.inventory.keys.sorted { a, b in
+            let ia = RpgItems.item(a), ib = RpgItems.item(b)
+            let ka = ia.map(order) ?? 9, kb = ib.map(order) ?? 9
+            if ka != kb { return ka < kb }
+            if (ia?.rarity ?? 0) != (ib?.rarity ?? 0) { return (ia?.rarity ?? 0) > (ib?.rarity ?? 0) }
+            return a < b
+        }
+    }
+
+    private func itemLine(_ item: RpgItem, _ p: RpgPlayer) -> String {
+        var parts: [String] = []
+        let plus = p.plus[item.id] ?? 0
+        if item.attack > 0 { parts.append("공격력 +\(Int(RpgItems.boosted(item.attack, plus: plus)))") }
+        if item.defense > 0 { parts.append("방어력 +\(Int(RpgItems.boosted(item.defense, plus: plus)))") }
+        if item.heal > 0 { parts.append(item.kind == .potionMP ? "MP +\(item.heal)" : "HP +\(item.heal)") }
+        switch item.kind {
+        case .scroll: parts.append("마을로 즉시 귀환")
+        case .stone: parts.append("대장간에서 장비 강화에 사용")
+        case .book(let id):
+            if let s = RpgSkills.def(id) { parts.append("\(s.cls.name) · Lv\(s.minLevel)+ · \(s.desc)") }
+        case .weapon(let cls): parts.append("\(cls.name) 전용")
+        default: break
+        }
+        if item.element != .base, item.isEquipment { parts.append(item.element.effectName) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func frame(_ ctx: CGContext, title: String, hint: String, tabs: [String] = []) -> CGRect {
+        let w = min(680, bounds.width - 40), h = min(500, bounds.height - 110)
+        let r = CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2 - 20, width: w, height: h)
+        box(ctx, r, alpha: 0.88)
+        text(title, at: CGPoint(x: r.minX + 16, y: r.minY + 10), size: 18)
+        for (k, tabTitle) in tabs.enumerated() {
+            text(tabTitle, at: CGPoint(x: r.minX + 160 + CGFloat(k) * 90, y: r.minY + 13), size: 14,
+                 color: k == tab ? Self.gold : NSColor(white: 0.5, alpha: 1))
+        }
+        text(hint, at: CGPoint(x: r.midX, y: r.maxY - 24), size: 11, color: Self.dim, weight: .semibold, align: .center)
+        return CGRect(x: r.minX + 8, y: r.minY + 42, width: r.width - 16, height: r.height - 74)
+    }
+
+    /// A scrolling list of rows; `row` draws one row's content into its rect.
+    private func list(_ ctx: CGContext, count: Int, in rect: CGRect, rowH: CGFloat = 46, row: (Int, CGRect) -> Void) {
+        let visible = max(1, Int(rect.height / rowH))
+        let first = max(0, min(selection - visible / 2, count - visible))
+        for i in first..<min(count, first + visible) {
+            let r = CGRect(x: rect.minX, y: rect.minY + CGFloat(i - first) * rowH, width: rect.width, height: rowH - 4)
+            if i == selection {
+                ctx.setFillColor(NSColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.18).cgColor)
+                ctx.addPath(CGPath(roundedRect: r, cornerWidth: 6, cornerHeight: 6, transform: nil))
+                ctx.fillPath()
+            }
+            row(i, r)
+        }
+        if count == 0 { text("비어 있어요", at: CGPoint(x: rect.midX, y: rect.minY + 20), size: 13, color: Self.dim, align: .center) }
+    }
+
+    private func itemRow(_ ctx: CGContext, _ id: String, _ r: CGRect, _ p: RpgPlayer, right: String?, color: NSColor = RpgView.gold) {
+        guard let item = RpgItems.item(id) else { return }
+        if let icon = RpgArt.icon(item) {
+            ctx.interpolationQuality = .none
+            KartArt.draw(icon, in: ctx, rect: CGRect(x: r.minX + 4, y: r.minY + 3, width: 36, height: 36))
+        }
+        let plus = p.plus[id] ?? 0
+        let equipped = id == p.weapon || id == p.armor
+        text((plus > 0 ? "+\(plus) " : "") + item.name + (equipped ? "  [장착 중]" : ""), at: CGPoint(x: r.minX + 48, y: r.minY + 4), size: 13,
+             color: RpgArt.rarityColors[item.rarity], weight: .bold)
+        text(itemLine(item, p), at: CGPoint(x: r.minX + 48, y: r.minY + 22), size: 10, color: Self.dim, weight: .semibold)
+        if let right { text(right, at: CGPoint(x: r.maxX - 8, y: r.minY + 4), size: 13, color: color, align: .right, mono: true) }
+        if let c = p.inventory[id] { text("×\(c)", at: CGPoint(x: r.maxX - 8, y: r.minY + 22), size: 11, align: .right, mono: true) }
+    }
+
+    private func drawPanel(_ ctx: CGContext, _ p: RpgPlayer) {
+        switch panel {
+        case .none:
+            return
+        case .inventory:
+            let area = frame(ctx, title: "가방", hint: "↑↓ 선택   Enter 장착 · 사용 · 스킬북 읽기   \(bindings.label(.inventory))/Esc 닫기")
+            let ids = sortedInventory(p)
+            let listRect = CGRect(x: area.minX, y: area.minY, width: area.width * 0.62, height: area.height)
+            list(ctx, count: ids.count, in: listRect) { i, r in itemRow(ctx, ids[i], r, p, right: nil) }
+            let sx = area.minX + area.width * 0.65, sy = area.minY + 4
+            let lines: [(String, String)] = [
+                ("직업", p.cls.name), ("레벨", "\(p.level)"), ("HP", "\(Int(p.hp)) / \(Int(p.maxHP))"), ("MP", "\(Int(p.mp)) / \(Int(p.maxMP))"),
+                ("공격력", "\(Int(p.attack(at: world.time)))"), ("방어력", "\(Int(p.defense))"), ("치명타", "\(Int(p.critChance(at: world.time) * 100))%"),
+                ("속성", p.element == .base ? "없음" : p.element.effectName),
+                ("무기", (p.weaponItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
+                ("갑옷", (p.armorItem.map { ((p.plus[$0.id] ?? 0) > 0 ? "+\(p.plus[$0.id]!) " : "") + $0.name } ?? "-")),
+                ("골드", "\(p.gold) G"), ("강화석", "\(p.inventory["stone"] ?? 0)"), ("스킬 포인트", "\(p.sp)"),
+                ("플레이", "\(Int(p.playTime / 60))분"),
+            ]
+            for (k, line) in lines.enumerated() {
+                text(line.0, at: CGPoint(x: sx, y: sy + CGFloat(k) * 22), size: 12, color: Self.dim, weight: .semibold)
+                text(line.1, at: CGPoint(x: area.maxX - 6, y: sy + CGFloat(k) * 22), size: 12, align: .right)
+            }
+        case .shop(let s):
+            let area = frame(ctx, title: s.title, hint: "↑↓ 선택   ←→ 사기·팔기   Enter 거래   Esc 나가기", tabs: ["사기", "팔기"])
+            text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)
+            if tab == 0 {
+                let items = stock(s, p)
+                list(ctx, count: items.count, in: area) { i, r in
+                    let it = items[i]
+                    itemRow(ctx, it.id, r, p, right: "\(it.price) G", color: p.gold >= it.price ? Self.gold : NSColor(red: 1, green: 0.4, blue: 0.4, alpha: 1))
+                }
+            } else {
+                let ids = sortedInventory(p)
+                list(ctx, count: ids.count, in: area) { i, r in itemRow(ctx, ids[i], r, p, right: "+\(RpgItems.item(ids[i])?.sellPrice ?? 0) G") }
+            }
+        case .smith:
+            let area = frame(ctx, title: "대장간 — 장비 강화", hint: "↑↓ 선택   Enter 강화   Esc 나가기")
+            let rows: [String?] = [p.weapon, p.armor]
+            list(ctx, count: 2, in: area, rowH: 90) { i, r in
+                guard let id = rows[i], let item = RpgItems.item(id) else {
+                    text("장착한 갑옷이 없어요", at: CGPoint(x: r.minX + 16, y: r.minY + 10), size: 13, color: Self.dim)
+                    return
+                }
+                itemRow(ctx, id, r, p, right: nil)
+                let plus = p.plus[id] ?? 0
+                if plus >= RpgItems.maxPlus {
+                    text("최대 강화 완료", at: CGPoint(x: r.minX + 48, y: r.minY + 46), size: 12, color: Self.gold)
+                } else {
+                    let cost = RpgItems.enhanceCost(item, plus: plus)
+                    let chance = Int(RpgItems.enhanceChance(plus) * 100)
+                    text("+\(plus) → +\(plus + 1)   성공 \(chance)%   \(cost.gold) G · 강화석 \(cost.stones)개 (보유 \(p.inventory["stone"] ?? 0))",
+                         at: CGPoint(x: r.minX + 48, y: r.minY + 46), size: 12, color: .white, weight: .bold)
+                    text(plus >= 7 ? "실패하면 단계가 1 떨어져요" : "실패해도 단계는 유지돼요", at: CGPoint(x: r.minX + 48, y: r.minY + 64), size: 10,
+                         color: plus >= 7 ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : Self.dim, weight: .semibold)
+                }
+            }
+        case .board:
+            let area = frame(ctx, title: "의뢰소", hint: "↑↓ 선택   ←→ 탭   Enter 수락·보상 받기   Delete 포기   Esc 나가기", tabs: ["새 의뢰", "진행 중 \(p.quests.count)/3"])
+            let quests = tab == 0 ? world.boardOffers(for: localID) : p.quests
+            list(ctx, count: quests.count, in: area, rowH: 58) { i, r in questRow(ctx, quests[i], r, active: tab == 1) }
+        case .quests:
+            let area = frame(ctx, title: "의뢰 목록", hint: "완료한 의뢰는 마을 의뢰소에서 보상을 받아요   Delete 포기   \(bindings.label(.quests))/Esc 닫기")
+            list(ctx, count: p.quests.count, in: area, rowH: 58) { i, r in questRow(ctx, p.quests[i], r, active: true) }
+        case .skills:
+            let area = frame(ctx, title: "스킬  (SP \(p.sp))", hint: "↑↓ 선택   Enter 스킬 레벨업   슬롯 키(\(bindings.label(.slot(0)))…\(bindings.label(.slot(7))))를 눌러 배치   Delete 슬롯에서 빼기")
+            let skills = p.cls.skills
+            list(ctx, count: skills.count, in: area, rowH: 52) { i, r in
+                let s = skills[i]
+                let lv = p.skills[s.id]
+                let learned = lv != nil
+                let slot = p.slots.firstIndex(of: s.id).map { " [\(bindings.label(.slot($0)))]" } ?? ""
+                text("\(s.name)\(learned ? "  Lv\(lv!)/\(s.maxLevel)" : "  (미습득)")\(slot)", at: CGPoint(x: r.minX + 12, y: r.minY + 4), size: 14,
+                     color: learned ? (s.isUltimate ? RpgArt.rarityColors[3] : .white) : NSColor(white: 0.5, alpha: 1), weight: .bold)
+                let power = s.power > 0 ? " · 위력 \(Int(RpgSkills.damage(s, level: lv ?? 1) * 100))%" : ""
+                let source = learned ? "" : (s.price > 0 ? " · 마법서점 \(s.price)G" : (s.isUltimate ? " · 보스 드랍" : " · 몬스터 드랍"))
+                text("\(s.desc) · MP \(s.mp) · 쿨 \(Int(s.cooldown))초 · Lv\(s.minLevel)+\(power)\(source)", at: CGPoint(x: r.minX + 12, y: r.minY + 25), size: 10,
+                     color: Self.dim, weight: .semibold)
+            }
+        case .keys:
+            let area = frame(ctx, title: "키 설정", hint: waitingKey ? "바꿀 키를 누르세요 (Esc 취소)" : "↑↓ 선택   Enter 키 바꾸기   Delete 기본값으로   \(bindings.label(.keys))/Esc 닫기")
+            let actions = RpgKeyAction.allCases
+            list(ctx, count: actions.count, in: area, rowH: 26) { i, r in
+                text(actions[i].title, at: CGPoint(x: r.minX + 12, y: r.minY + 3), size: 13, weight: .bold)
+                let label = (waitingKey && i == selection) ? "…" : bindings.label(actions[i])
+                text(label, at: CGPoint(x: r.maxX - 12, y: r.minY + 3), size: 13, color: Self.gold, align: .right, mono: true)
+            }
+        case .waypoint:
+            let area = frame(ctx, title: "차원문", hint: "가 본 지역으로 바로 이동해요   ↑↓ 선택   Enter 이동   Esc 닫기")
+            let list = waypoints(p)
+            self.list(ctx, count: list.count, in: area, rowH: 36) { i, r in
+                let def = RpgMaps.def(list[i])
+                text(def.name, at: CGPoint(x: r.minX + 12, y: r.minY + 6), size: 14, weight: .bold)
+                text(def.levelText, at: CGPoint(x: r.maxX - 12, y: r.minY + 6), size: 12, color: Self.dim, align: .right)
+            }
+        }
+    }
+
+    private func questRow(_ ctx: CGContext, _ q: RpgQuest, _ r: CGRect, active: Bool) {
+        let def = RpgMonsters.def(q.monster)
+        let boss = def.behavior == .boss
+        if let img = RpgArt.sprite(def.sprite) {
+            ctx.interpolationQuality = .none
+            let h: CGFloat = boss ? 40 : 34
+            KartArt.draw(img, in: ctx, rect: CGRect(x: r.minX + 6, y: r.minY + 6, width: h * CGFloat(img.width) / CGFloat(img.height), height: h))
+        }
+        let title = boss ? "[보스] \(def.name) 토벌" : "\(def.name) \(q.count)마리 처치"
+        text(title + (active ? "  \(q.progress)/\(q.count)" : "") + (q.done ? "  완료!" : ""), at: CGPoint(x: r.minX + 56, y: r.minY + 6), size: 14,
+             color: q.done ? NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1) : .white, weight: .bold)
+        let book = q.book.flatMap(RpgItems.item).map { " · \($0.name)" } ?? ""
+        text("보상: \(q.gold)G · 경험치 \(q.xp) · 강화석 \(q.stones)\(book)   (Lv\(def.level) 지역)", at: CGPoint(x: r.minX + 56, y: r.minY + 28), size: 10,
+             color: Self.dim, weight: .semibold)
+    }
+}

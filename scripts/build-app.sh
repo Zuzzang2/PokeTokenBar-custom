@@ -72,6 +72,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <string>_ptb-plaza2._udp</string>
         <string>_ptb-kart1._tcp</string>
         <string>_ptb-kart1._udp</string>
+        <string>_ptb-rpg1._tcp</string>
+        <string>_ptb-rpg1._udp</string>
     </array>
 </dict>
 </plist>
