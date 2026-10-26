@@ -38,6 +38,7 @@ struct RpgSaveData: Codable, Sendable {
     var bestCombo: Int?
     var achievements: [String]?
     var bestFloor: Int?
+    var story: Int?
     var ring: String?
     var amulet: String?
     var helmet: String?
@@ -101,7 +102,7 @@ enum RpgSaveStore {
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
                            plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job, tier: p.tier,
-                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor,
+                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor, story: p.story,
                            ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots)
     }
 
@@ -132,6 +133,7 @@ enum RpgSaveStore {
         p.bestCombo = min(max(s.bestCombo ?? 0, 0), 10_000)
         p.achievements = Set((s.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         p.bestFloor = min(max(s.bestFloor ?? 0, 0), 1000)
+        p.story = min(max(s.story ?? 0, 0), RpgStory.steps.count)
         p.ring = s.ring.flatMap { RpgItems.item($0)?.kind == .ring ? $0 : nil }
         p.amulet = s.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
         p.helmet = s.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }

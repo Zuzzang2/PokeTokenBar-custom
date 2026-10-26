@@ -166,7 +166,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .skills: return tab == 4 ? RpgStats.names.count : skillRows(p, tab: tab).count
         case .keys: return RpgKeyAction.allCases.count
         case .waypoint: return tab == 0 ? waypoints(p).count : RpgRegions.all.count
-        case .quests: return p.quests.count
+        case .quests: return tab == 0 ? p.quests.count : 1
         case .codex: return tab == 0 ? Self.codexMonsters.count : RpgAchievements.all.count
         case .trade: return world.tradeView(for: localID) != nil ? tradeBag(p).count : tradeRows(p).count
         case .party: return tab == 0 ? partyRows(p).count : inviteCandidates(p).count
@@ -237,6 +237,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
                 if rows.indices.contains(selection) {
                     if rows[selection] == -1 { act(.declineInvite) } else { act(.leaveParty) }
                 }
+            case .quests where tab == 1: break
             case .board where tab == 1, .quests:
                 if p.quests.indices.contains(selection) { act(.abandonQuest(p.quests[selection].id)); world.toast("의뢰 포기") }
             case .skills where tab == 1:
@@ -313,6 +314,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             let rows = tradeRows(p)
             guard world.tradeView(for: localID) == nil, rows.indices.contains(selection) else { return }
             if rows[selection] == -1 { act(.tradeAccept) } else { act(.tradeRequest(rows[selection])) }
+        case .quests where tab == 1:
+            act(.claimStory)
         case .quests, .codex, .none:
             break
         }
@@ -1247,7 +1250,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             let quests = tab == 0 ? world.boardOffers(for: localID) : p.quests
             list(ctx, count: quests.count, in: area, rowH: 58) { i, r in questRow(ctx, quests[i], r, active: tab == 1) }
         case .quests:
-            let area = frame(ctx, title: "의뢰 목록", hint: "완료한 의뢰는 마을 의뢰소에서 보상을 받아요   Delete 포기   \(bindings.label(.quests))/Esc 닫기")
+            if tab == 1 { drawStory(ctx, p); return }
+            let area = frame(ctx, title: "의뢰 목록", hint: "완료한 의뢰는 마을 의뢰소에서 보상을 받아요   Delete 포기   ←→ 탭   \(bindings.label(.quests))/Esc 닫기", tabs: ["의뢰", "스토리"])
             list(ctx, count: p.quests.count, in: area, rowH: 58) { i, r in questRow(ctx, p.quests[i], r, active: true) }
         case .skills:
             drawSkills(ctx, p)

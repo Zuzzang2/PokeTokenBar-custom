@@ -679,6 +679,7 @@ statChecks()
 tierChecks()
 regionChecks()
 combatChecks()
+storyChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

@@ -71,6 +71,8 @@ enum RpgAction: Codable, Sendable {
     case promote
     /// Take the armor/ring/amulet/helmet/boots in slot 1-5 (see `RpgEquipSlot`) off and back into the bag.
     case unequip(Int)
+    /// Claim the reward of the current 스토리 step.
+    case claimStory
     /// Take every point back for gold (`RpgStats.resetCost`).
     case resetStats
 }
@@ -168,6 +170,8 @@ struct RpgPlayer {
     var eliteKills = 0
     var bestCombo = 0
     var bestFloor = 0
+    /// Index of the next 스토리 step (`RpgStory.steps`).
+    var story = 0
     var achievements: Set<String> = []
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
@@ -190,7 +194,7 @@ struct RpgPlayer {
     func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
     func armorDefense() -> Double { armorItem.map { RpgItems.boosted($0.defense, plus: plus[$0.id] ?? 0) } ?? 0 }
     func attack(at time: Double) -> Double {
-        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1) * (1 + (ringItem?.bonusAttack ?? 0)) * RpgStats.attackFactor(stats)
+        let base = (Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()) * (jobDef?.attack ?? 1) * (1 + (ringItem?.bonusAttack ?? 0)) * RpgStats.attackFactor(stats) * RpgBalance.attackFactor(cls, level: level)
         var buff = time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1
         if time < frenzyUntil { buff = max(buff, 1.4) }
         if buffActive("atk", time) { buff *= 1.3 }
@@ -501,6 +505,8 @@ final class RpgWorld {
             craft(i, recipeID)
         case .promote:
             promote(i)
+        case .claimStory:
+            claimStory(i)
         case .unequip(let slot):
             switch slot {
             case 1: if let old = players[i].armor { players[i].inventory[old, default: 0] += 1; players[i].armor = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
@@ -2422,6 +2428,30 @@ extension RpgWorld {
     }
 }
 
+// MARK: - 스토리
+
+extension RpgWorld {
+    fileprivate func claimStory(_ i: Int) {
+        let n = players[i].story
+        guard RpgStory.steps.indices.contains(n) else { toast("모든 이야기를 끝냈어요!"); return }
+        let step = RpgStory.steps[n]
+        guard RpgStory.done(step, players[i]) else { toast("아직 목표를 이루지 못했어요: \(RpgStory.goalText(step))"); return }
+        players[i].story = n + 1
+        players[i].gold += step.gold
+        players[i].inventory["stone", default: 0] += step.stones
+        var got = "\(step.gold)G · 강화석 \(step.stones)개"
+        if let id = RpgStory.prizeItem(step, players[i].cls), let item = RpgItems.item(id) {
+            players[i].inventory[id, default: 0] += 1
+            got += " · \(item.name)"
+        }
+        grantXP(players[i].id, step.xp)
+        effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.0)
+        toast("스토리 완료: \(step.title)! (\(got))")
+        if RpgStory.steps.indices.contains(n + 1) { toast("다음 이야기: \(RpgStory.steps[n + 1].title)") } else { toast("이야기의 끝에 도달했어요. 당신은 전설이에요!", to: nil) }
+        checkAchievements(i)
+    }
+}
+
 // MARK: - 무한의 탑
 
 extension RpgWorld {
@@ -2808,6 +2838,7 @@ extension RpgWorld {
         players[i].eliteKills = min(max(d.eliteKills ?? 0, 0), 10_000_000)
         players[i].bestCombo = min(max(d.bestCombo ?? 0, 0), 10_000)
         players[i].bestFloor = min(max(d.bestFloor ?? 0, 0), 1000)
+        players[i].story = min(max(d.story ?? 0, 0), RpgStory.steps.count)
         players[i].achievements = Set((d.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         players[i].hp = s.hp
         players[i].mp = s.mp

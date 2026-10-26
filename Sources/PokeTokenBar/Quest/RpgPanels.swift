@@ -336,6 +336,35 @@ extension RpgView {
              at: CGPoint(x: area.minX + 12, y: area.minY + 4 * 60 + 12), size: 13, weight: .bold)
     }
 
+    // MARK: story
+
+    func drawStory(_ ctx: CGContext, _ p: RpgPlayer) {
+        let total = RpgStory.steps.count
+        let area = frame(ctx, title: "스토리  \(min(p.story, total))/\(total)", hint: "Enter 보상 받기   ←→ 탭   \(bindings.label(.quests))/Esc 닫기", tabs: ["의뢰", "스토리"])
+        guard RpgStory.steps.indices.contains(p.story) else {
+            text("모든 이야기를 끝냈어요. 당신은 전설이에요!", at: CGPoint(x: area.midX, y: area.minY + 60), size: 16, color: Self.gold, align: .center)
+            return
+        }
+        let step = RpgStory.steps[p.story]
+        let (cur, goal) = RpgStory.progress(step, p)
+        let done = cur >= goal
+        let green = NSColor(red: 0.5, green: 1, blue: 0.5, alpha: 1)
+        box(ctx, CGRect(x: area.minX, y: area.minY, width: area.width, height: 210), alpha: 0.45)
+        text("제 \(p.story + 1)장  \(step.title)", at: CGPoint(x: area.minX + 16, y: area.minY + 12), size: 20, color: Self.gold, weight: .bold)
+        text(step.text, at: CGPoint(x: area.minX + 16, y: area.minY + 50), size: 14, weight: .semibold)
+        text("목표: \(RpgStory.goalText(step))", at: CGPoint(x: area.minX + 16, y: area.minY + 100), size: 15, color: done ? green : .white, weight: .bold)
+        bar(ctx, CGRect(x: area.minX + 16, y: area.minY + 130, width: area.width - 32, height: 14), Double(cur) / Double(max(1, goal)), done ? green : Self.gold, label: "\(cur)/\(goal)")
+        let item = RpgStory.prizeItem(step, p.cls).flatMap(RpgItems.item).map { " · \($0.name)" } ?? ""
+        text("보상: \(step.gold)G · 경험치 \(step.xp) · 강화석 \(step.stones)개\(item)", at: CGPoint(x: area.minX + 16, y: area.minY + 164), size: 13, color: Self.dim, weight: .semibold)
+        text(done ? "Enter 를 눌러 보상을 받으세요!" : "목표를 이루면 이곳에서 보상을 받아요", at: CGPoint(x: area.minX + 16, y: area.minY + 186), size: 12, color: done ? green : Self.dim, weight: .bold)
+        // The chapters after this one, so the road ahead shows.
+        var y = area.minY + 226
+        for k in (p.story + 1)..<min(total, p.story + 5) {
+            text("\(k + 1)장  \(RpgStory.steps[k].title)  —  \(RpgStory.goalText(RpgStory.steps[k]))", at: CGPoint(x: area.minX + 16, y: y), size: 12, color: NSColor(white: 0.55, alpha: 1), weight: .semibold)
+            y += 20
+        }
+    }
+
     // MARK: skill icons
 
     enum Glyph { case shot, burst, rain, chain, line, buff, heal, trap, turret, summon, slash }
