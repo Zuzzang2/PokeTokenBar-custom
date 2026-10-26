@@ -37,7 +37,7 @@ docs/*
 .no-review-gate
 .env.*
 
-# Node dependencies (games/echo loads Phaser from node_modules as an offline fallback)
+# Node dependencies
 node_modules/
 
 # Playwright MCP screenshots and logs
