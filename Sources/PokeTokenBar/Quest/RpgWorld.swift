@@ -448,7 +448,7 @@ final class RpgWorld {
     /// A fresh monster; ordinary ones have a small chance to be a golden elite.
     private func newMob(id: Int, def: RpgMonsterDef, at p: CGPoint, canBeElite: Bool = true) -> RpgMob {
         let elite = canBeElite && def.behavior != .boss && rng.int(100) < Self.eliteChance
-        var mob = RpgMob(id: id, def: def, pos: p, home: p, hp: Double(def.hp) * (elite ? Self.eliteHP : 1))
+        var mob = RpgMob(id: id, def: def, pos: p, home: p, hp: def.fightHP * (elite ? Self.eliteHP : 1))
         if elite { mob.elite = true; mob.hpScale = Self.eliteHP }
         return mob
     }
@@ -852,8 +852,8 @@ final class RpgWorld {
         list.removeAll { $0.summoned }
         for k in list.indices {
             list[k].targetID = nil
-            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].hpScale = 1; list[k].contributors = []; list[k].engagedAt = 0; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
-            if list[k].elite, !list[k].dead { list[k].hpScale = Self.eliteHP; list[k].hp = Double(list[k].def.hp) * Self.eliteHP }
+            if !list[k].dead { list[k].hp = list[k].def.fightHP; list[k].hpScale = 1; list[k].contributors = []; list[k].engagedAt = 0; list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
+            if list[k].elite, !list[k].dead { list[k].hpScale = Self.eliteHP; list[k].hp = list[k].def.fightHP * Self.eliteHP }
         }
         mobs[id] = list
         pending.removeAll { $0.map == id }
@@ -1865,7 +1865,7 @@ final class RpgWorld {
         players[i].invulnerable = 0.55
         players[i].hurtFlash = 0.2
         players[i].lastHurt = time
-        float("-\(Int(dmg))", players[i].map, players[i].pos, .hurt)
+        float("-\(Int(dmg))", players[i].map, CGPoint(x: players[i].pos.x, y: players[i].pos.y - 14), .hurt)
         shake = max(shake, 0.6)
         let dx = Double(players[i].pos.x - p.x), dy = Double(players[i].pos.y - p.y), d = max(1, hypot(dx, dy))
         let shove = CGPoint(x: players[i].pos.x + CGFloat(dx / d * 6), y: players[i].pos.y + CGFloat(dy / d * 6))
@@ -2130,7 +2130,7 @@ final class RpgWorld {
 
     /// Bosses cycle through their move list; below 40% HP everything comes faster and harder.
     private func bossThink(_ mob: inout RpgMob, _ target: RpgPlayer, _ dt: Double, _ mapID: RpgMapID, _ spawned: inout [RpgMob]) {
-        let enraged = mob.hp < Double(mob.def.hp) * mob.hpScale * 0.4
+        let enraged = mob.hp < mob.def.fightHP * mob.hpScale * 0.4
         // Eight minutes after the first hit the boss goes berserk: triple damage, double speed.
         let berserk = mob.engagedAt > 0 && time - mob.engagedAt > Self.berserkAfter
         let pace = berserk ? 0.45 : (enraged ? 0.7 : 0.9)
@@ -2170,7 +2170,7 @@ final class RpgWorld {
                         let a = Double(k) / 3 * .pi * 2
                         let p = CGPoint(x: mob.pos.x + CGFloat(cos(a) * 34), y: mob.pos.y + CGFloat(sin(a) * 22))
                         let def = RpgMonsters.def(mob.def.minion)
-                        var s = RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp))
+                        var s = RpgMob(id: newID(), def: def, pos: p, home: p, hp: def.fightHP)
                         s.targetID = target.id
                         s.aggroUntil = time + 30
                         s.summoned = true
@@ -2502,11 +2502,11 @@ extension RpgWorld {
         for def in wave.defs {
             let boss = def.behavior == .boss
             let p = boss ? CGPoint(x: m.pixelSize.width / 2, y: m.pixelSize.height / 2 - 24) : randomSpawn(m)
-            var mob = RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp))
+            var mob = RpgMob(id: newID(), def: def, pos: p, home: p, hp: def.fightHP)
             var scale = growth
             if wave.elite, !boss { mob.elite = true; scale *= Self.eliteHP }
             mob.hpScale = scale
-            mob.hp = Double(def.hp) * scale
+            mob.hp = def.fightHP * scale
             list.append(mob)
         }
         mobs[.tower] = list

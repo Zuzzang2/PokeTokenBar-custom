@@ -423,6 +423,8 @@ struct RpgMonsterDef: Sendable {
     var bossStyle: RpgBossStyle = .slime
     var minion: String = "slime"
     var element: RpgElement = .base
+    /// HP a spawned monster actually has: the authored `hp`, with bosses thickened by `RpgBalance.bossHPFactor`.
+    var fightHP: Double { Double(hp) * (behavior == .boss ? RpgBalance.bossHPFactor(level: level) : 1) }
 }
 
 enum RpgMonsters {

@@ -18,6 +18,21 @@ enum RpgBalance {
     ]
 
 
+    /// Boss HP multiplier by boss level: players outgrow the authored boss curve late, so the Lv80-100 bosses are thickened until a solo
+    /// fight lasts about as long as at Lv50-65 (fitted with `BOSS=1 scripts/rpg-balance.sh`).
+    static let bossHP: [(Int, Double)] = [(20, 1.0), (35, 1.0), (50, 1.0), (65, 1.2), (80, 2.0), (100, 2.7)]
+
+    static func bossHPFactor(level: Int) -> Double { interpolate(bossHP, level) }
+
+    private static func interpolate(_ pts: [(Int, Double)], _ level: Int) -> Double {
+        guard let first = pts.first else { return 1 }
+        if level <= first.0 { return first.1 }
+        for (a, b) in zip(pts, pts.dropFirst()) where level <= b.0 {
+            return a.1 + (b.1 - a.1) * Double(level - a.0) / Double(b.0 - a.0)
+        }
+        return pts.last!.1
+    }
+
     static func attackFactor(_ cls: RpgClass, level: Int) -> Double {
         guard let pts = attack[cls], let first = pts.first else { return 1 }
         if level <= first.0 { return first.1 }

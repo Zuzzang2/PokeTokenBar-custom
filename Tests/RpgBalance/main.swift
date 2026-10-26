@@ -106,6 +106,73 @@ func run(_ cls: RpgClass, level: Int) -> Result {
 }
 
 func pad(_ s: String, _ n: Int) -> String { s.count >= n ? s : s + String(repeating: " ", count: n - s.count) }
+// MARK: boss duels
+
+/// The boss room whose boss is closest to `level` (never more than 8 above it).
+func bossFor(level: Int) -> (RpgMapDef, RpgMonsterDef)? {
+    var best: (RpgMapDef, RpgMonsterDef)?
+    for def in RpgMaps.all where def.kind == .boss && def.id != .tower {
+        guard let sp = def.monsters.first, RpgMonsters.def(sp.monster).behavior == .boss else { continue }
+        let b = RpgMonsters.def(sp.monster)
+        guard b.level <= level + 8 else { continue }
+        if best == nil || abs(b.level - level) < abs(best!.1.level - level) { best = (def, b) }
+    }
+    return best
+}
+
+/// Solo duel against the boss room's boss: seconds to kill (nil = not within the limit) and deaths on the way.
+func duel(_ cls: RpgClass, level: Int, limit: Double) -> (Double?, Int, String) {
+    guard let (def, boss) = bossFor(level: level) else { return (nil, 0, "-") }
+    let host = RpgWorld(player: RpgSaveStore.newPlayer(name: "host", cls: .warrior, id: 1))
+    var p = build(cls, level: level, mapID: def.id, id: 2)
+    p.pos = RpgMap.center(def.portals.first { !$0.waypoint }?.at ?? RpgTile(x: 14, y: 17))
+    host.addPlayer(p)
+    if level >= RpgJobs.advanceLevel { host.perform(.advance(1), for: 2) }
+    for _ in 0..<2 { host.perform(.promote, for: 2) }
+    var t = 0.0, deaths = 0, deadBefore = false, lastPos = CGPoint.zero, stuck = 0
+    while t < limit {
+        guard let me = host.player(2) else { break }
+        if me.dead { if !deadBefore { deaths += 1 }; deadBefore = true } else { deadBefore = false }
+        if let b = (host.mobs[me.map] ?? []).first(where: { $0.def.id == boss.id }), b.dead { return (t, deaths, boss.name) }
+        let target = (host.mobs[me.map] ?? []).filter { !$0.dead && $0.def.id == boss.id }.first
+        var input = RpgInput()
+        stuck = hypot(me.pos.x - lastPos.x, me.pos.y - lastPos.y) < 0.5 ? stuck + 1 : 0
+        lastPos = me.pos
+        if let target, !me.dead {
+            let dx = target.pos.x - me.pos.x, dy = target.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
+            let want: CGFloat = ranged.contains(cls) ? 90 : 16
+            var ux = dx / d, uy = dy / d
+            var go: CGFloat = d > 80 ? 80 : max(0, d - want)
+            if stuck >= 3 { let a = Double.random(in: 0..<(2 * .pi)); ux = CGFloat(cos(a)); uy = CGFloat(sin(a)); go = 40 }
+            input.pos = CGPoint(x: me.pos.x + ux * go, y: me.pos.y + uy * go)
+            input.facing = CGVector(dx: dx / d, dy: dy / d)
+            input.attack = true
+            if d < 180 { for (slot, sk) in me.slots.enumerated() where sk != nil { input.slots.insert(slot) } }
+        }
+        if me.hp < me.maxHP * 0.45 { host.perform(.hpPotion, for: 2) }
+        if me.mp < me.maxMP * 0.25 { host.perform(.mpPotion, for: 2) }
+        host.step(1.0 / 30, inputs: [2: input])
+        t += 1.0 / 30
+    }
+    return (nil, deaths, boss.name)
+}
+
+if ProcessInfo.processInfo.environment["BOSS"] != nil {
+    let bossLevels = [20, 35, 50, 65, 80, 100]
+    print("solo boss duel: seconds to kill (deaths), limit 300 s")
+    print(pad("class", 10) + bossLevels.map { pad("Lv\($0)", 16) }.joined())
+    for cls in RpgClass.allCases {
+        var row = pad(cls.name, 10)
+        for l in bossLevels {
+            let (t, d, _) = duel(cls, level: l, limit: 300)
+            row += pad((t.map { "\(Int($0))s" } ?? ">300s") + " (\(d))", 16)
+        }
+        print(row)
+    }
+    print("bosses:", bossLevels.map { l in bossFor(level: l).map { "Lv\($0.1.level) \($0.1.name)" } ?? "-" }.joined(separator: " | "))
+    exit(0)
+}
+
 var table: [RpgClass: [Int: Result]] = [:]
 let trials = Int(ProcessInfo.processInfo.environment["TRIALS"] ?? "") ?? 3
 for cls in RpgClass.allCases {

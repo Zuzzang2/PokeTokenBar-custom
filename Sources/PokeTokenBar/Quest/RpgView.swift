@@ -606,10 +606,10 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.fill(f, c, feet.x - 3 + CGFloat(Int(t * 7) % 6), rect.minY + 4, 1, 2)
         }
         if t < m.slowUntil { KartArt.fill(f, KartArt.rgb(170, 238, 255), feet.x - 5, feet.y - 1, 10, 1) }
-        if !m.dead, !boss, m.hp < Double(m.def.hp) * m.hpScale {
+        if !m.dead, !boss, m.hp < m.def.fightHP * m.hpScale {
             let bw: CGFloat = 14, x = (feet.x - bw / 2).rounded(), y = rect.minY - 4
             KartArt.fill(f, KartArt.rgb(20, 20, 24), x - 1, y - 1, bw + 2, 4)
-            KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / (Double(m.def.hp) * m.hpScale))).rounded(), 2)
+            KartArt.fill(f, KartArt.rgb(240, 70, 70), x, y, (bw * CGFloat(max(0, m.hp) / (m.def.fightHP * m.hpScale))).rounded(), 2)
         }
     }
 
@@ -625,9 +625,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
         guard let img = RpgArt.sprite("villager", tint: ["H": hair]) else { return }
         let p = b.door
         f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
-        f.fillEllipse(in: CGRect(x: p.x - 6, y: p.y - 2, width: 12, height: 4))
+        f.fillEllipse(in: CGRect(x: p.x - 8, y: p.y - 2, width: 16, height: 4))
         let bob: CGFloat = Int(world.time * 2) % 2 == 0 ? 0 : 1
-        KartArt.draw(img, in: f, rect: CGRect(x: p.x - 8, y: p.y - 15 - bob, width: 16, height: 16))
+        KartArt.draw(img, in: f, rect: CGRect(x: p.x - 12, y: p.y - 23 - bob, width: 24, height: 24))
     }
 
     private func drawShots(_ f: CGContext, map: RpgMapID) {
@@ -920,7 +920,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             let w = min(520, bounds.width - 520)
             let r = CGRect(x: bounds.midX - w / 2, y: 34, width: w, height: 14)
             text("\(boss.def.name)  Lv\(boss.def.level)" + (boss.hpScale > 1 ? "  · 레이드 \(Int((boss.hpScale - 1) / 0.9 + 1.5))인" : ""), at: CGPoint(x: bounds.midX, y: 12), size: 14, color: NSColor(red: 1, green: 0.6, blue: 0.5, alpha: 1), align: .center)
-            bar(ctx, r, boss.hp / (Double(boss.def.hp) * boss.hpScale), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
+            bar(ctx, r, boss.hp / (boss.def.fightHP * boss.hpScale), NSColor(red: 0.85, green: 0.25, blue: 0.3, alpha: 1), label: "\(Int(max(0, boss.hp)))")
             if boss.engagedAt > 0 {
                 let left = RpgWorld.berserkAfter - (world.time - boss.engagedAt)
                 text(left > 0 ? String(format: "광폭화까지 %d:%02d", Int(left) / 60, Int(left) % 60) : "광폭화! 공격력 3배", at: CGPoint(x: bounds.midX, y: 50), size: 12,
