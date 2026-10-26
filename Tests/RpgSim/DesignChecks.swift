@@ -53,6 +53,25 @@ func designChecks() {
             }
         }
         check(weaponFail == 0, "every weapon is drawable in the hand at every angle (\(weaponFail) failed)")
+        let weaponHoles = RpgItems.all.compactMap { item -> String? in
+            guard case .weapon(let cls) = item.kind else { return nil }
+            let holes = RpgArt.heroWeaponHoles(item, cls: cls)
+            return holes.isEmpty ? nil : "\(item.id) \(String(holes.sorted()))"
+        }
+        check(weaponHoles.isEmpty, "every held weapon letter has a colour (\(weaponHoles.prefix(3)))")
+        var bodyHoles: [String] = []
+        for cls in RpgClass.allCases {
+            for job in 0...2 where job == 0 || RpgJobs.def(cls, job) != nil {
+                var p = RpgSaveStore.newPlayer(name: "h", cls: cls, id: 3, look: [10, 4, 9])
+                (p.armor, p.helmet, p.boots, p.job, p.tier) = ("armor11", "helmet11", "boots11", job, job == 0 ? 0 : 3)
+                let holes = RpgArt.heroPaletteHoles(p)
+                if !holes.isEmpty { bodyHoles.append("\(cls.rawValue)/\(job) \(String(holes.sorted()))") }
+                p.armor = nil; p.helmet = nil; p.boots = nil
+                let bare = RpgArt.heroPaletteHoles(p)
+                if !bare.isEmpty { bodyHoles.append("\(cls.rawValue)/\(job) bare \(String(bare.sorted()))") }
+            }
+        }
+        check(bodyHoles.isEmpty, "every body-part letter has a colour for every class, job and gear (\(bodyHoles.prefix(3)))")
         check(RpgClass.allCases.allSatisfy { RpgArt.heroHeight($0) >= 20 } && RpgArt.heroHeight(.mage) > RpgArt.heroHeight(.warrior),
               "hero heights cover hats (name tags and bubbles sit above them)")
     }

@@ -11,7 +11,7 @@ import CoreGraphics
 //
 // Hero palette letters (see `heroPalette`):
 //   K outline · S/s skin · H/h/I hair (main/shade/light) · o eye · w eye shine · x blush · X white
-//   Q/q outfit accent (customizable) · U/u armour piece (tier colours) · J/j/! helmet metal/shade/gem · B/b boots
+//   Q/q outfit accent (customizable) · U/u/* armour piece (tier colours, gem) · J/j/! helmet metal/shade/gem · B/b boots
 //   1/2 sleeves and 3 hands, 5/6 trousers — mapped per class to its own letters
 //   class letters follow the old 16×16 sprites so `RpgJobs.tint` recolours them per advanced job:
 //   warrior M/m plate, R/r tabard, Y trim · archer G/g · mage P/p, Y · rogue Z/z, R · cleric W, Y, C
@@ -26,7 +26,8 @@ enum RpgLook {
         let name: String
         let main: RGB
         let shade: RGB
-        let light: RGB
+        /// Hair highlight (hair only).
+        var light: RGB = (255, 255, 255)
     }
 
     static let hair: [Swatch] = [
@@ -43,23 +44,23 @@ enum RpgLook {
         Swatch(name: "빨강", main: (214, 52, 62), shade: (142, 26, 42), light: (255, 124, 124)),
     ]
     static let skin: [Swatch] = [
-        Swatch(name: "밝은", main: (255, 226, 200), shade: (228, 178, 150), light: (255, 240, 226)),
-        Swatch(name: "기본", main: (244, 196, 152), shade: (206, 146, 112), light: (255, 222, 188)),
-        Swatch(name: "황갈", main: (222, 164, 116), shade: (176, 118, 80), light: (240, 192, 146)),
-        Swatch(name: "갈색", main: (170, 112, 74), shade: (124, 76, 48), light: (198, 140, 100)),
-        Swatch(name: "짙은", main: (116, 76, 52), shade: (82, 50, 34), light: (146, 102, 74)),
+        Swatch(name: "밝은", main: (255, 226, 200), shade: (228, 178, 150)),
+        Swatch(name: "기본", main: (244, 196, 152), shade: (206, 146, 112)),
+        Swatch(name: "황갈", main: (222, 164, 116), shade: (176, 118, 80)),
+        Swatch(name: "갈색", main: (170, 112, 74), shade: (124, 76, 48)),
+        Swatch(name: "짙은", main: (116, 76, 52), shade: (82, 50, 34)),
     ]
     static let accent: [Swatch] = [
-        Swatch(name: "빨강", main: (216, 58, 58), shade: (146, 32, 40), light: (255, 132, 120)),
-        Swatch(name: "파랑", main: (62, 112, 216), shade: (36, 66, 150), light: (130, 176, 255)),
-        Swatch(name: "초록", main: (66, 170, 86), shade: (36, 110, 54), light: (140, 226, 140)),
-        Swatch(name: "금색", main: (242, 194, 62), shade: (190, 132, 30), light: (255, 236, 150)),
-        Swatch(name: "보라", main: (152, 82, 204), shade: (96, 46, 142), light: (206, 150, 250)),
-        Swatch(name: "청록", main: (40, 182, 182), shade: (24, 116, 124), light: (130, 236, 226)),
-        Swatch(name: "분홍", main: (242, 122, 172), shade: (182, 70, 122), light: (255, 190, 216)),
-        Swatch(name: "흰색", main: (240, 240, 236), shade: (178, 184, 202), light: (255, 255, 255)),
-        Swatch(name: "검정", main: (62, 60, 76), shade: (34, 32, 46), light: (110, 108, 130)),
-        Swatch(name: "주황", main: (250, 142, 42), shade: (196, 90, 24), light: (255, 200, 120)),
+        Swatch(name: "빨강", main: (216, 58, 58), shade: (146, 32, 40)),
+        Swatch(name: "파랑", main: (62, 112, 216), shade: (36, 66, 150)),
+        Swatch(name: "초록", main: (66, 170, 86), shade: (36, 110, 54)),
+        Swatch(name: "금색", main: (242, 194, 62), shade: (190, 132, 30)),
+        Swatch(name: "보라", main: (152, 82, 204), shade: (96, 46, 142)),
+        Swatch(name: "청록", main: (40, 182, 182), shade: (24, 116, 124)),
+        Swatch(name: "분홍", main: (242, 122, 172), shade: (182, 70, 122)),
+        Swatch(name: "흰색", main: (240, 240, 236), shade: (178, 184, 202)),
+        Swatch(name: "검정", main: (62, 60, 76), shade: (34, 32, 46)),
+        Swatch(name: "주황", main: (250, 142, 42), shade: (196, 90, 24)),
     ]
 
     /// The look a class starts with (and that characters from before customization get).
@@ -128,6 +129,8 @@ extension RpgArt {
         let moving = !p.dead && (p.moving || speed > 24)
         var pose = RpgHeroPose(action: .idle, view: view, flip: flip, moving: moving, step: moving ? Int(walked / heroStride) % 4 : 0, t: time, aim: aim)
         let attackAge = time - p.attackAt, castAge = time - p.castAt
+        let attacking = attackAge >= 0 && attackAge < heroAttackTime(p, time: time)
+        let casting = castAge >= 0 && castAge < heroCastTime
         if p.dead {
             pose.action = .dead
         } else if p.hurtFlash > 0.05 {
@@ -135,10 +138,11 @@ extension RpgArt {
             pose.t = max(0, 0.2 - p.hurtFlash)
         } else if p.dash != nil || speed > 210 {
             pose.action = .dash
-        } else if castAge >= 0, castAge < heroCastTime, castAge <= max(attackAge, 0) || attackAge < 0 || attackAge >= heroAttackTime(p, time: time) {
+        } else if casting, !(attacking && attackAge < castAge) {
+            // Of a swing and a cast both still playing, the newer one shows.
             pose.action = .cast
             pose.t = castAge
-        } else if attackAge >= 0, attackAge < heroAttackTime(p, time: time) {
+        } else if attacking {
             pose.action = .attack
             pose.t = attackAge
         }
@@ -186,8 +190,8 @@ extension RpgArt {
 
     fileprivate static let headBase: [HeroPart] = [
         part(7, [
-            ".....KKKKKK.....", "....KSSSSSSK....", "...KSSSSSSSSK...", "..KSSSSSSSSSSK..", "..KSSSSSSSSSSK..", "..KSSSSSSooSSK..",
-            "..KSSSSSSwoSSK..", "..KSSSSSSooSSK..", "..KsSSSSSSSxSK..", "...KsSSSSSSSK...", "....KKsSSSSK....", "......KKKKK.....",
+            ".....KKKKKK.....", "....KSSSSSSK....", "...KSSSSSSSSK...", "..KSSSSSSSSSSK..", "..KSSSSSSSSSSK..", "..KSSSSSooSSSK..",
+            "..KSSSSSwoSSSK..", "..KSSSSSooSSSK..", "..KsSSSSSSxSSK..", "...KsSSSSSSSK...", "....KKsSSSSK....", "......KKKKK.....",
         ]),
         part(7, [
             ".....KKKKKK.....", "....KSSSSSSK....", "...KSSSSSSSSK...", "..KSSSSSSSSSSK..", "..KSSSSSSSSSSK..", "..KSSooSSooSSK..",
@@ -200,7 +204,7 @@ extension RpgArt {
     ]
 
     /// Eye pixels (canvas x, y of each eye's top-left; eyes are 2×3) per view.
-    fileprivate static let eyeSpots: [[(Int, Int)]] = [[(17, 12)], [(13, 12), (17, 12)], []]
+    fileprivate static let eyeSpots: [[(Int, Int)]] = [[(16, 12)], [(13, 12), (17, 12)], []]
 
     // MARK: legs — x 8, y 22; per view: stand, walk 0-3, dash
 
@@ -242,7 +246,7 @@ extension RpgArt {
         [ // front
             part(18, ["..KKKK....KKKK..", ".KUUUuK..KuUUUK.", ".KuuuK....KuuuK.", "..KKK......KKK.."]),
             part(18, ["..KKKK....KKKK..", ".KUUUuKKKKuUUUK.", ".KuuuKUUUUKuuuK.", "..KKKKUuuUKKKK..", "......KUUK......", ".......KK......."]),
-            part(17, [".KKKK......KKKK.", "KUUUuK....KuUUUK", "KuUuuKKKKKKuuUuK", ".KuuKUUUUUUKuuK.", "..KKKUu!!uUKKK..", "......KUUK......", ".......KK......."]),
+            part(17, [".KKKK......KKKK.", "KUUUuK....KuUUUK", "KuUuuKKKKKKuuUuK", ".KuuKUUUUUUKuuK.", "..KKKUu**uUKKK..", "......KUUK......", ".......KK......."]),
         ],
         [ // back
             part(18, ["..KKKK....KKKK..", ".KUUUuK..KuUUUK.", ".KuuuK....KuuuK.", "..KKK......KKK.."]),
@@ -266,7 +270,7 @@ extension RpgArt {
             sleeve: ("M", "m"), hand: "L", pants: ("V", "v"), boots: steelBoots, back: .cape, grip: .sword,
             head: [
                 part(4, ["....K..K........", "...KHKKHK.......", "..KHHHHHHKK.....", ".KHHHHHHHHHK....", ".KHHHIIHHHHHK...", ".KHHIHHHHHHHHK..",
-                         ".KHHHHHHHHHHHHK.", ".KHHHHHHHHhSSK..", ".KHHHHHHK.......", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
+                         ".KHHHHHHHHHHHHK.", ".KHHHHHHHHhSSK..", ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
                 part(4, ["......K...K.....", ".....KHK.KHKK...", "....KHHHKHHHHK..", "...KHHIIHHHHHHK.", "..KHHIHHHHHHHHK.", ".KHHIHHHHHHHHHK.",
                          ".KHHHHHHHHHHHHK.", ".KHhHHHhhHHHhHK.", ".KHK...hh...KHK.", ".KHK........KHK.", ".KhK........KhK.", "..K..........K.."]),
                 part(4, [".....K...K......", "...KKHK.KHK.....", "..KHHHHKHHHK....", ".KHHHHHHIIHHK...", ".KHHHHHHHHIHHK..", ".KHHHHHHHHHIHHK.",
@@ -274,7 +278,7 @@ extension RpgArt {
             ],
             helm: [
                 part(2, ["....KK..........", "...KQQK.........", "..KQqQQK........", "...KQqK.KK......", ".....KKJJJK.....", "...KKJJJXXJK....",
-                         "..KJJJJXJJJJK...", ".KJJJJXJJJJJJK..", ".KJJJJJJJJJJJJK.", ".KjjjjjjjJ!JjjK.", ".KJJJJJJK...jK..", ".KJJJJJK........",
+                         "..KJJJJXJJJJK...", ".KJJJJXJJJJJJK..", ".KJJJJJJJJJJJJK.", ".KjjjjjjjJ!JjjK.", ".KJJJJJK....jK..", ".KJJJJJK........",
                          ".KjJJJK.........", "..KjjK..........", "...KK..........."]),
                 part(2, [".......KK.......", "......KQQK......", ".....KQQqQK.....", "......KQqK......", ".....KJJJJK.....", "...KKJJXXJJKK...",
                          "..KJJJXJJJJJJK..", ".KJJJXJJJJJJJJK.", ".KJJJJJJJJJJJJK.", ".KjjjjJ!!JjjjjK.", ".KJjK..jj..KjJK.", ".KJK...jj...KJK.",
@@ -295,7 +299,7 @@ extension RpgArt {
             sleeve: ("G", "g"), hand: "L", pants: ("T", "t"), boots: leather, bare: ("G", "g", "Y"), back: .quiver, grip: .bow,
             head: [
                 part(4, ["....KKKK........", "...KGGGGKK......", "..KGGGGNNGK.....", ".KGGGGNGGGGK....", ".KGGGGGGGGGGK...", "KGGGGGGGGGGGGK..",
-                         "KGGGGGGGGJJJJK..", "KGGGGGGGKHHIHK..", "KgGGGGGGK...hK..", "KgGGGGGK........", ".KgGGGK.........", ".KgGGK..........",
+                         "KGGGGGGGGJJJJK..", "KGGGGGGGKHHIHK..", "KgGGGGGK....hK..", "KgGGGGGK........", ".KgGGGK.........", ".KgGGK..........",
                          "..KgK...........", "...K............"]),
                 part(4, ["......KKKK......", "....KKGGGGKK....", "...KGGGNNGGGK...", "..KGGGNGGGGGGK..", "..KGGNGGGGGGGK..", ".KGGGGGGGGGGGGK.",
                          ".KGGGJJJJJJGGGK.", ".KGGKHHIHHHKGGK.", ".KGKh......hKGK.", ".KGK........KGK.", ".KgK........KgK.", ".KgK........KgK.",
@@ -316,7 +320,7 @@ extension RpgArt {
             head: [
                 part(0, ["...KK...........", "...KPK..........", "....KPK.........", "....KPPK........", ".....KPPK.......", ".....KPPPK......",
                          "....KPPPYPK.....", "...KPPPPPNPK....", "...KJJJJJ!JJK...", "KKpPPPPPPPPPPpKK", "KppppppppppppppK", ".KHHHHHHHHIHSK..",
-                         ".KHHHHHHK.......", ".KHHHHHHK.......", ".KHHHHHK........", ".KHhHHK.........", ".KhhHK..........", "..KhK...........", "...K............"]),
+                         ".KHHHHHK........", ".KHHHHHK........", ".KHHHHHK........", ".KHhHHK.........", ".KhhHK..........", "..KhK...........", "...K............"]),
                 part(0, ["..........KK....", ".........KPK....", "........KPPK....", ".......KPPK.....", "......KPPPK.....", ".....KPPPPPK....",
                          ".....KPYPPPK....", "....KPPPPPNPK...", "...KJJJ!JJJJJK..", ".KKpPPPPPPPPPpKK", "KppppppppppppppK", ".KKHHHIHHHHHHKK.",
                          "..KHh......hHK..", "..KH........HK..", ".KHH........HHK.", ".KHH........HHK.", ".KHhK......KhHK.", "..KhK......KhK..", "...K........K..."]),
@@ -339,7 +343,7 @@ extension RpgArt {
             sleeve: ("Z", "z"), hand: "n", pants: ("z", "n"), boots: (rgb(70, 60, 64), rgb(46, 40, 44)), bare: ("z", "n", "R"), back: .scarf, grip: .dagger,
             head: [
                 part(5, [".....KKKK.......", "...KKZZZZKK.....", "..KZZZZNNZZK....", ".KZZZZZNZZZZK...", ".KZZZZZZZZZZZK..", "KZZZZZZZZZZZZZK.",
-                         "KZZZZZZZZKHHHK..", "KZZZZZZZK...HK..", "KzZZZZZK........", "KzZZZZK.........", ".KzZZKjjjjjjjK..", "..KKKKjjjjjjK...", "......KKKKKK...."]),
+                         "KZZZZZZZZKHHHK..", "KZZZZZZK....HK..", "KzZZZZZK........", "KzZZZZK.........", ".KzZZKjjjjjjjK..", "..KKKKjjjjjjK...", "......KKKKKK...."]),
                 part(5, ["......KKKK......", "....KKZZZZKK....", "...KZZZNNZZZK...", "..KZZZNZZZZZZK..", ".KZZZZZZZZZZZZK.", ".KZZZZZZZZZZZZK.",
                          ".KZZKHHHIHHKZZK.", ".KZKH......HKZK.", ".KZK........KZK.", ".KzK........KzK.", ".KzKjjjjjjjjKzK.", "..KKjjjjjjjjKK..", "....KKKKKKKK...."]),
                 part(5, ["......KKKK......", "....KKZZZZKK....", "...KZZZZZZZZK...", "..KZZZZZZNZZZK..", ".KZZZZZZNZZZZZK.", ".KZZZZZZZZZZZZK.",
@@ -356,7 +360,7 @@ extension RpgArt {
             sleeve: ("W", "V"), hand: "S", pants: ("C", "c"), boots: (rgb(200, 170, 120), rgb(150, 120, 80)), robe: true, back: .none, grip: .mace,
             head: [
                 part(2, ["...TYYYYT.......", "..Y......Y......", "...TYYYYT.......", "................", ".....KKKKK......", "...KKHHHHHKK....",
-                         "..KHHHHHIIHHK...", ".KHHHHHIHHHHHK..", ".KHHHHHHHHHHHHK.", ".KHHHHHHHHhSSK..", ".KHHHHHHK.......", ".KHHHHHHK.......",
+                         "..KHHHHHIIHHK...", ".KHHHHHIHHHHHK..", ".KHHHHHHHHHHHHK.", ".KHHHHHHHHhSSK..", ".KHHHHHK........", ".KHHHHHK........",
                          ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", ".KhhHK..........", "..KKK..........."]),
                 part(2, ["....TYYYYYYT....", "...Y........Y...", "....TYYYYYYT....", "................", "......KKKK......", "....KKHHHHKK....",
                          "...KHHHIIHHHK...", "..KHHHIHHHHHHK..", ".KHHHIHHHHHHHHK.", ".KHHHHhSShHHHHK.", ".KHHK......KHHK.", ".KHHK......KHHK.",
@@ -368,7 +372,7 @@ extension RpgArt {
             helm: [
                 part(0, ["...TYYYYT.......", "..Y......Y......", "...TYYYYT.......", "......KK........", ".....KJJK.......", "....KJJJJK......",
                          "...KJJ!JJJK.....", "...KJ!!!JJK.....", "..KJJJ!JJJJK....", ".KjJJJJJJJJJK...", ".KjjjjjjjjjjjK..", ".KHHHHHHHHhSSK..",
-                         ".KHHHHHHK.......", ".KHHHHHHK.......", ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", ".KhhHK..........", "..KKK..........."]),
+                         ".KHHHHHK........", ".KHHHHHK........", ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", ".KhhHK..........", "..KKK..........."]),
                 part(0, ["....TYYYYYYT....", "...Y........Y...", "....TYYYYYYT....", ".......KK.......", "......KJJK......", ".....KJJJJK.....",
                          "....KJJ!!JJK....", "...KJ!!!!!!JK...", "..KJJJJ!!JJJJK..", ".KjJJJJ!!JJJJjK.", ".KjjjjjjjjjjjjK.", ".KHHHHhSShHHHHK.",
                          ".KHHK......KHHK.", ".KHHK......KHHK.", ".KHHK......KHHK.", ".KHHK......KHHK.", ".KhhK......KhhK.", ".KhhK......KhhK.", "..KK........KK.."]),
@@ -407,7 +411,7 @@ extension RpgArt {
             sleeve: ("E", "e"), hand: "S", pants: ("e", "a"), boots: (rgb(70, 56, 90), rgb(46, 36, 60)), bare: ("A", "a", "O"), robe: true, back: .none, grip: .rod,
             head: [
                 part(3, ["...KK...........", "...KAK..........", "...KaAKKKK......", "....KAAAAAKK....", "...KAAANNAAAK...", "..KAAAANAAAAAK..",
-                         ".KAAAAJJJJJ!JK..", ".KAAAAAAAAAAAAK.", ".KAAAAAAAKHHIK..", ".KAAAAAAK...HK..", ".KaAAAAK........", "KaAAAAK.........",
+                         ".KAAAAJJJJJ!JK..", ".KAAAAAAAAAAAAK.", ".KAAAAAAAKHHIK..", ".KAAAAAK....HK..", ".KaAAAAK........", "KaAAAAK.........",
                          "KaaAAK..........", ".KaaK...........", "..KK............"]),
                 part(3, ["..KK........KK..", "..KAK......KAK..", "..KaAKKKKKKAaK..", "...KAAAAAAAAK...", "..KAANNAAAAAAK..", ".KAANAAAAAAAAAK.",
                          ".KAJJJJ!!JJJJAK.", ".KAAAAAAAAAAAAK.", ".KAAKHHIHHHKAAK.", ".KAKH......HKAK.", ".KAK........KAK.", ".KaK........KaK.",
@@ -431,7 +435,7 @@ extension RpgArt {
             sleeve: ("F", "N"), hand: "z", pants: ("F", "N"), boots: (rgb(84, 80, 92), rgb(56, 52, 64)), back: .pack, grip: .gun,
             head: [
                 part(4, ["...K..K.........", "..KHKKHKK.......", "..KHHHHHHKK.....", ".KHHHHIIHHHK....", ".KHHHIHHHHHHK...", ".KZZZZZZZZZZZZK.",
-                         ".KHHHHHHHZKOOKK.", ".KHHHHHHHZKOXK..", ".KHHHHHHK.......", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
+                         ".KHHHHHHHZKOOKK.", ".KHHHHHHHZKOXK..", ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
                 part(4, ["....K..K..K.....", "...KHKKHKKHK....", "...KHHHHHHHHK...", "..KHHIHHHHHHHK..", ".KHHIHHHHHHHHHK.", ".KZZZZZZZZZZZZK.",
                          ".KZKOOKZZKOOKZK.", ".KHKOXKHHKOXKHK.", ".KHHK......KHHK.", ".KHK........KHK.", ".KhK........KhK.", "..K..........K.."]),
                 part(4, [".....K..K..K....", "....KHKKHKKHK...", "...KHHHHHHHHK...", "..KHHHHHHHIHHK..", ".KHHHHHHHHHIHHK.", ".KZZZZZZZZZZZZK.",
@@ -439,7 +443,7 @@ extension RpgArt {
             ],
             helm: [
                 part(4, [".....KKKK.......", "...KKJJJJKK.....", "..KJJJJXXJJK....", ".KJJJJXJJJJJK...", ".KJJJJJJJJJ!JK..", "KjjjjjjjjjjjjjjK",
-                         ".KHHHHHHHZKOOKK.", ".KHHHHHHHZKOXK..", ".KHHHHHHK.......", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
+                         ".KHHHHHHHZKOOKK.", ".KHHHHHHHZKOXK..", ".KHHHHHK........", ".KHHHHHK........", ".KhHHHK.........", "..KhhK..........", "...KK..........."]),
                 part(4, ["......KKKK......", "....KKJJJJKK....", "...KJJXJJJJJK...", "..KJJXJJ!JJJJK..", ".KJJJJJJJJJJJJK.", "KjjjjjjjjjjjjjjK",
                          ".KZKOOKZZKOOKZK.", ".KHKOXKHHKOXKHK.", ".KHHK......KHHK.", ".KHK........KHK.", ".KhK........KhK.", "..K..........K.."]),
                 part(4, ["......KKKK......", "....KKJJJJKK....", "...KJJJJJJJJK...", "..KJJJJJJJXJJK..", ".KJJJJJJJJXJJJK.", "KjjjjjjjjjjjjjjK",
@@ -585,6 +589,7 @@ extension RpgArt {
 
     fileprivate static func heroPalette(_ k: HeroLookKey) -> [Character: CGColor] {
         if let p = heroPalettes[k] { return p }
+        if heroPalettes.count > 300 { heroPalettes.removeAll(keepingCapacity: true) }
         guard let art = heroClasses[k.cls] else { return [:] }
         var c = art.colors.merging(RpgJobs.tint(k.cls, k.job)) { _, new in new }
         for (letter, from, f) in art.derived { if let base = c[from] { c[letter] = scaled(base, f) } }
@@ -597,18 +602,16 @@ extension RpgArt {
         c["S"] = col(skin.main); c["s"] = col(skin.shade)
         c["x"] = mix(col(skin.main), rgb(240, 96, 110), 0.35)
         c["Q"] = col(acc.main); c["q"] = col(acc.shade)
-        if let a = k.armor.flatMap(RpgItems.item) {
-            let ic = iconColors(a)
-            c["U"] = ic["B"]; c["u"] = ic["E"]
-            c["!"] = ic["E"]
-        }
+        let armor = k.armor.flatMap(RpgItems.item).map(iconColors)
+        c["U"] = armor?["B"] ?? leather.0; c["u"] = armor?["E"] ?? leather.1
+        c["*"] = scaled(c["u"] ?? outline, 1.35)
         if let h = k.helmet.flatMap(RpgItems.item) {
             let ic = iconColors(h)
             let metal = ic["B"] ?? rgb(200, 200, 210)
             c["J"] = metal; c["j"] = scaled(metal, 0.7); c["!"] = ic["J"] ?? metal
         } else {
             let bare = art.bare
-            c["J"] = c[bare.0]; c["j"] = c[bare.1]; c["!"] = c[bare.2]
+            c["J"] = c[bare.0] ?? c["Q"]; c["j"] = c[bare.1] ?? c["q"]; c["!"] = c[bare.2] ?? c["Q"]
         }
         if let b = k.boots.flatMap(RpgItems.item) {
             let metal = iconColors(b)["B"] ?? art.boots?.0 ?? leather.0
@@ -667,27 +670,24 @@ extension RpgArt {
         }
     }
 
-    /// Bresenham points between two 2×2 arm blocks.
-    fileprivate static func armLine(_ a: (Int, Int), _ b: (Int, Int)) -> [(Int, Int)] {
-        var pts: [(Int, Int)] = []
+    /// Bresenham walk from `a` to `b` (inclusive), without allocating.
+    fileprivate static func walkLine(_ a: (Int, Int), _ b: (Int, Int), _ visit: (Int, Int) -> Void) {
         var x = a.0, y = a.1
         let dx = abs(b.0 - a.0), dy = -abs(b.1 - a.1), sx = a.0 < b.0 ? 1 : -1, sy = a.1 < b.1 ? 1 : -1
         var err = dx + dy
         while true {
-            pts.append((x, y))
+            visit(x, y)
             if x == b.0 && y == b.1 { break }
             let e2 = 2 * err
             if e2 >= dy { err += dy; x += sx }
             if e2 <= dx { err += dx; y += sy }
         }
-        return pts
     }
 
     /// An outlined arm: sleeve blocks from the shoulder, a 2×2 hand at the end. `emit(x, y, w, h, letter)`.
     fileprivate static func arm(from s: (Int, Int), to h: (Int, Int), sleeve: Character, hand: Character, _ emit: (Int, Int, Int, Int, Character) -> Void) {
-        let pts = armLine(s, h)
-        for p in pts { emit(p.0 - 1, p.1 - 1, 4, 4, "K") }
-        for (i, p) in pts.enumerated() { emit(p.0, p.1, 2, 2, i == pts.count - 1 ? hand : sleeve) }
+        walkLine(s, h) { x, y in emit(x - 1, y - 1, 4, 4, "K") }
+        walkLine(s, h) { x, y in emit(x, y, 2, 2, x == h.0 && y == h.1 ? hand : sleeve) }
     }
 
     fileprivate static func heroLookKey(_ p: RpgPlayer) -> HeroLookKey {
@@ -711,6 +711,8 @@ extension RpgArt {
 
     fileprivate static func heroBody(_ k: HeroFrameKey) -> CGImage? {
         if let img = heroFrames[k] { return img }
+        // ponytail: whole-cache reset at a ceiling (frames rebuild in microseconds); an LRU if sessions ever thrash it.
+        if heroFrames.count > 4000 { heroFrames.removeAll(keepingCapacity: true) }
         guard let art = heroClasses[k.look.cls] else { return nil }
         let pal = heroPalette(k.look)
         let n = heroSize
@@ -777,11 +779,8 @@ extension RpgArt {
                 switch tone {
                 case 1: out = white
                 case 2:
-                    if ch == "K" { out = ghostLine } else {
-                        let k = c.components ?? [1, 1, 1]
-                        let l = 0.3 * k[0] + 0.59 * k[1] + 0.11 * k[2]
-                        out = CGColor(srgbRed: 0.62 + l * 0.34, green: 0.74 + l * 0.24, blue: 0.94, alpha: 0.85)
-                    }
+                    // Ghost: the hero's own colours washed toward a pale spirit blue.
+                    out = ch == "K" ? ghostLine : (mix(c, rgb(190, 225, 255), 0.6).copy(alpha: 0.85) ?? c)
                 default: out = c
                 }
                 KartArt.fill(ctx, out, CGFloat(x), CGFloat(y), 1, 1)
@@ -805,9 +804,9 @@ extension RpgArt {
                  HeldWeapon(grid: ["....KKK............", "...KGGGKKKKKKKKKK..", "KKKKGJGBBBBBBBBBBK.", "KJHHGJGXBBBBBBBBBBK", "KKKKGJGEEEEEEEEEEK.",
                                    "...KGGGKKKKKKKKKK..", "....KKK............"], pivot: (2, 3))),
         .dagger: (HeldWeapon(grid: ["...K.......", "KKKGKKKKK..", "KHHGBBBBXK.", "KKKGEEEKK..", "...K......."], pivot: (1, 2)),
-                  HeldWeapon(grid: ["...KK.........", "KKKGGKKKKKK...", "KHHGJBBBBBBXK.", "KKKGGEEEEEKK..", "...KK........."], pivot: (1, 2))),
+                  HeldWeapon(grid: ["...KK.........", "KKKGGKKKKKK...", "KHHGOBBBBBBXK.", "KKKGGEEEEEKK..", "...KK........."], pivot: (1, 2))),
         .mace: (HeldWeapon(grid: ["..........KKK.", ".........KBWBK", "KKKKKKKKKBBBEK", "KHHHHHHHGBBEEK", "KKKKKKKKKBEEK.", ".........KKK.."], pivot: (2, 3)),
-                HeldWeapon(grid: ["..........K.K.K.", ".........KBKBKBK", "........KBWBBBEK", "KKKKKKKKGBBJBBEK", "KHHHHHHHGBBBBEEK", "KKKKKKKKGBBBBEK.",
+                HeldWeapon(grid: ["..........K.K.K.", ".........KBKBKBK", "........KBWBBBEK", "KKKKKKKKGBBOBBEK", "KHHHHHHHGBBBBEEK", "KKKKKKKKGBBBBEK.",
                                   "........KBKBKBK.", ".........K.K.K.."], pivot: (2, 4))),
         .claw: (HeldWeapon(grid: ["..KKKK...", ".KGBBWK..", ".KGKKKK..", ".KGBBBWK.", ".KGKKKK..", ".KGBBWK..", "..KKKK..."], pivot: (1, 3)),
                 HeldWeapon(grid: ["..KKKKK...", ".KGBBBWK..", ".KOKKKKK..", ".KGBBBBBWK", ".KOKKKKK..", ".KGBBBWK..", "..KKKKK..."], pivot: (1, 3))),
@@ -824,28 +823,58 @@ extension RpgArt {
     /// The bow: limbs as `)` with the string pulled `draw` pixels back and an arrow nocked while drawn.
     fileprivate static func bowGrid(big: Bool, draw: Int) -> HeldWeapon {
         let limbs = big
-            ? ["KK.......", "KBK......", ".KBK.....", "..KBbK...", "...KBbK..", "...KBbK..", "....KBbK.", "....KBbK.", "....KGGK.", "....KGGK.", "....KGGK.",
-               "....KBbK.", "....KBbK.", "...KBbK..", "...KBbK..", "..KBbK...", ".KBK.....", "KBK......", "KK......."]
-            : [".KKK....", ".KBBK...", "..KBbK..", "...KBbK.", "...KBbK.", "....KBbK", "....KBbK", "....KGGK", "....KGGK", "....KGGK",
-               "....KBbK", "....KBbK", "...KBbK.", "...KBbK.", "..KBbK..", ".KBBK...", ".KKK...."]
-        let mid = big ? 9 : 8, top = big ? 2 : 1, bottom = big ? 16 : 15
+            ? ["KK......", "KBK.....", ".KBK....", "..KBbK..", "..KBbK..", "...KBbK.", "...KBbK.", "....KBbK", "....KGGK", "....KGGK", "....KGGK",
+               "....KBbK", "...KBbK.", "...KBbK.", "..KBbK..", "..KBbK..", ".KBK....", "KBK.....", "KK......"]
+            : ["KKK....", "KBBK...", ".KBbK..", "..KBbK.", "..KBbK.", "...KBbK", "...KGGK", "...KGGK", "...KGGK", "...KBbK", "..KBbK.", "..KBbK.",
+               ".KBbK..", "KBBK...", "KKK...."]
+        let mid = big ? 9 : 7, top = big ? 2 : 1, bottom = big ? 16 : 13, string = big ? 2 : 1
         let w = 19, off = 4
         var rows = limbs.map { Array(String(repeating: ".", count: off) + $0 + String(repeating: ".", count: w - off - $0.count)) }
-        let nock = (off + 2 - draw, mid)
-        for (a, b) in [((off + 2, top), nock), (nock, (off + 2, bottom))] {
-            for p in armLine(a, b) where rows[p.1][p.0] == "." || p == nock { rows[p.1][p.0] = "W" }
+        let nock = (off + string - draw, mid)
+        for (a, b) in [((off + string, top), nock), (nock, (off + string, bottom))] {
+            walkLine(a, b) { x, y in if rows[y][x] == "." || (x, y) == nock { rows[y][x] = "W" } }
         }
         if draw > 0 {
-            // A nocked arrow: shaft through the bow, steel head in front, white fletching at the string.
+            // A nocked arrow: shaft past the grip, steel head in front, white fletching at the string.
             let tip = min(w - 1, nock.0 + 13)
             for x in (nock.0 + 1)..<tip where rows[mid][x] == "." || rows[mid][x] == "W" { rows[mid][x] = "L" }
             rows[mid][tip] = "A"; rows[mid - 1][tip - 1] = "A"; rows[mid + 1][tip - 1] = "A"
             rows[mid - 1][nock.0] = "X"; rows[mid + 1][nock.0] = "X"
         }
-        return HeldWeapon(grid: rows.map { String($0) }, pivot: (off + 5, mid))
+        return HeldWeapon(grid: rows.map { String($0) }, pivot: (off + (big ? 5 : 4), mid))
     }
 
     fileprivate static func heroGrip(_ cls: RpgClass) -> HeroGrip { heroClasses[cls]?.grip ?? .sword }
+
+    fileprivate static func heldTemplate(_ grip: HeroGrip, big: Bool, draw: Int) -> HeldWeapon? {
+        grip == .bow ? bowGrid(big: big, draw: draw) : heldWeapons[grip].map { big ? $0.1 : $0.0 }
+    }
+
+    /// An item's icon colours plus what only the held art uses: arrow, bow limb shade, the summoner's glowing crystal.
+    fileprivate static func heldColors(_ item: RpgItem) -> [Character: CGColor] {
+        var colors = iconColors(item)
+        colors["L"] = rgb(150, 100, 56); colors["A"] = rgb(220, 226, 236); colors["X"] = rgb(255, 255, 255)
+        if let limb = colors["B"] { colors["b"] = scaled(limb, 0.72) }
+        let spirit = elem(item.element == .base ? .cosmic : item.element)
+        colors["@"] = spirit.mid; colors["%"] = spirit.core
+        return colors
+    }
+
+    /// Letters of a weapon's held art (normal and late size, bow drawn) that its colours leave unpainted: holes when drawn.
+    static func heroWeaponHoles(_ item: RpgItem, cls: RpgClass) -> Set<Character> {
+        let colors = heldColors(item)
+        return Set([false, true].compactMap { heldTemplate(heroGrip(cls), big: $0, draw: 3) }.flatMap { $0.grid.joined() }.filter { $0 != "." && colors[$0] == nil })
+    }
+
+    /// Letters of any body part a hero could wear (all views, frames, gear and wings) that its palette leaves unpainted.
+    static func heroPaletteHoles(_ p: RpgPlayer) -> Set<Character> {
+        guard let art = heroClasses[p.cls] else { return ["?"] }
+        let pal = heroPalette(heroLookKey(p))
+        var parts: [RpgGrid] = headBase.map(\.g) + legs.flatMap { $0 } + art.head.map(\.g) + (art.helm ?? []).map(\.g) + art.torso.map(\.g)
+        parts += armorParts.flatMap { $0 }.map(\.g) + (backParts[art.back] ?? []).flatMap { $0 }.map(\.g)
+        if p.job != 0, p.tier >= 3 { parts += wingParts.flatMap { $0 }.map(\.g) }
+        return Set(parts.flatMap { $0.joined() }.filter { $0 != "." && pal[$0] == nil })
+    }
 
     /// Late weapons (tier 9+, or region gear of that power) are drawn bigger with an aura.
     static func heroBigWeapon(_ item: RpgItem) -> Bool { item.tier >= 9 || item.attack >= 170 }
@@ -865,15 +894,10 @@ extension RpgArt {
         let step = ((Int((angle / (2 * .pi) * Double(steps)).rounded()) % steps) + steps) % steps
         let key = WeaponKey(id: item.id, draw: draw, step: step)
         if let hit = weaponCache[key] { return (hit.0, hit.1) }
+        if weaponCache.count > 3000 { weaponCache.removeAll(keepingCapacity: true) }
         let big = heroBigWeapon(item)
-        let held: HeldWeapon
-        if grip == .bow { held = bowGrid(big: big, draw: draw) } else if let pair = heldWeapons[grip] { held = big ? pair.1 : pair.0 } else { return nil }
-        var colors = iconColors(item)
-        colors["L"] = rgb(150, 100, 56); colors["A"] = rgb(220, 226, 236); colors["X"] = rgb(255, 255, 255)
-        if let limb = colors["B"] { colors["b"] = scaled(limb, 0.72) }
-        // The summoner's crystal glows in the weapon's element (spirit violet when plain).
-        let spirit = elem(item.element == .base ? .cosmic : item.element)
-        colors["@"] = spirit.mid; colors["%"] = spirit.core
+        guard let held = heldTemplate(grip, big: big, draw: draw) else { return nil }
+        let colors = heldColors(item)
         // Index the template (padded by a transparent pixel so Scale2x sees the edges).
         var table: [CGColor] = [rgb(0, 0, 0, 0)]
         var index: [Character: Int] = [:]
@@ -966,7 +990,7 @@ extension RpgArt {
         case .dagger: return [0.5, 1.0, 2.14][v]
         case .mace: return [-0.6, -0.95, -2.19][v]
         case .claw: return [0.3, 1.4, 1.74][v]
-        case .bow: return [-0.15, 0, .pi][v]
+        case .bow: return [0.9, 0, .pi][v]
         case .staff: return [-1.2, -1.4, -1.74][v]
         case .rod: return [-0.7, -0.95, -2.19][v]
         case .gun: return [0.35, 1.2, 1.94][v]
@@ -1001,7 +1025,7 @@ extension RpgArt {
         let s = weaponShoulder[v]
         let sx = Double(s.0), sy = Double(s.1)
         // Bows and staves are held out in front so they read clear of the body.
-        let restHand: (Double, Double) = v == 0 ? (g == .bow || g == .staff ? (sx + 3, sy + 2) : (sx + 1, sy + 3)) : (sx, sy + 3)
+        let restHand: (Double, Double) = v == 0 ? (g == .bow ? (sx + 3, sy + 3) : g == .staff ? (sx + 3, sy + 2) : (sx + 1, sy + 3)) : (sx, sy + 3)
         let rest = restAngle(g, v)
         var h = HeroHold(hand: restHand, angle: rest)
         let sweep = pose.flip ? -1.0 : 1.0
@@ -1033,8 +1057,9 @@ extension RpgArt {
                 let a = pose.aim + sweep * Double(k - 1) * 0.45
                 h = HeroHold(hand: reach(a, 1.5 + 4.5 * ext), angle: a)
             case .bow:
+                // Bow arm out at eye level, the string pulled back to the cheek for the next shot.
                 let drawn = t < 0.07 ? 0 : min(3, 1 + Int((t - 0.07) / max(0.05, attackTime * 0.5) * 3))
-                h = HeroHold(hand: reach(pose.aim, 4), angle: pose.aim, draw: drawn)
+                h = HeroHold(hand: (sx + cos(pose.aim) * 5.5, sy - 1 + sin(pose.aim) * 5.5), angle: pose.aim, draw: drawn)
             case .gun:
                 let kick = max(0, 1 - t / 0.08)
                 h = HeroHold(hand: reach(pose.aim, 4.5 - 1.5 * kick), angle: pose.aim - 0.35 * kick, flash: t < 0.05 ? 1 : 0)
@@ -1085,8 +1110,6 @@ extension RpgArt {
         }
     }
 
-    /// Draws a hero standing at `p.pos`: body frame, weapon and weapon arm, and the small extras (familiar, aura motes,
-    /// element sparks, ring and amulet glints). `alpha` < 1 for stealth, afterimages and the like.
     fileprivate static func heroFrameKey(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, tone: Int? = nil) -> HeroFrameKey {
         let seed = Double(p.id % 7) * 0.37
         let bits = heroBits(pose, time: time, seed: seed)
@@ -1103,6 +1126,8 @@ extension RpgArt {
         heroWeapon(item, grip: heroGrip(cls), angle: angle, draw: draw)?.image
     }
 
+    /// Draws a hero standing at `p.pos`: body frame, weapon and weapon arm, and the small extras (familiar, aura motes,
+    /// element sparks, ring and amulet glints). `alpha` < 1 for stealth, afterimages and the like.
     static func drawHero(_ c: CGContext, _ p: RpgPlayer, pose: RpgHeroPose, time: Double, alpha: CGFloat = 1, extras: Bool = true) {
         guard let art = heroClasses[p.cls] else { return }
         let key = heroFrameKey(p, pose: pose, time: time)
@@ -1120,7 +1145,7 @@ extension RpgArt {
         defer { c.restoreGState() }
         c.setAlpha(alpha * (ghost ? 0.8 : 1))
         let glow = heroGlow(p.cls, palette: pal)
-        if pose.action == .cast, art.robe || p.cls == .cleric {
+        if pose.action == .cast, art.robe {
             // Casters stand in a turning rune circle.
             let r = 9 + ease(pose.t / 0.1) * 3
             ring(c, ax, ay, r, glow.copy(alpha: 0.75) ?? glow, squash: 0.38)
@@ -1185,8 +1210,8 @@ extension RpgArt {
             }
         }
         // Ring and amulet of legendary rarity or better twinkle now and then.
-        if let ring = p.ringItem, ring.rarity >= 3, (time + seed).truncatingRemainder(dividingBy: 1.4) < 0.24 {
-            star(c, Double(wx(Double(hx) + 1.5)), Double(wy(Double(hy) + 1.5)), 1, rarityGlint(ring.rarity), rgb(255, 255, 255))
+        if let worn = p.ringItem, worn.rarity >= 3, (time + seed).truncatingRemainder(dividingBy: 1.4) < 0.24 {
+            star(c, Double(wx(Double(hx) + 1.5)), Double(wy(Double(hy) + 1.5)), 1, rarityGlint(worn.rarity), rgb(255, 255, 255))
         }
         if let amulet = p.amuletItem, amulet.rarity >= 3, (time + seed + 0.7).truncatingRemainder(dividingBy: 1.9) < 0.24 {
             star(c, Double(wx(16)), Double(wy(19 + Double(bits.bob))), 1, rarityGlint(amulet.rarity), rgb(255, 255, 255))
@@ -1220,7 +1245,7 @@ extension RpgArt {
     /// Height of a class's tallest frame above the feet (hats and halos included), for name tags and chat bubbles.
     static func heroHeight(_ cls: RpgClass) -> CGFloat {
         guard let art = heroClasses[cls] else { return 24 }
-        let top = art.head.map { part in part.y + (part.g.firstIndex { $0.contains { $0 != "." } } ?? 0) }.min() ?? 7
+        let top = (art.head + (art.helm ?? [])).map { part in part.y + (part.g.firstIndex { $0.contains { $0 != "." } } ?? 0) }.min() ?? 7
         return CGFloat(heroAnchor.y - top)
     }
 
@@ -1321,12 +1346,15 @@ extension RpgArt {
         for puff in m.dust {
             let a = (time - puff.at) / 0.35
             guard a >= 0, a < 1 else { continue }
-            let col = rgb(236, 226, 206, 0.75 * (1 - a))
+            let col = rgb(238, 228, 204, 0.8 * (1 - a))
             let back: Double = p.facingRight ? -1 : 1
-            dot(c, Double(puff.pos.x) + back * (2 + a * 5), Double(puff.pos.y) - a * 3, col)
-            dot(c, Double(puff.pos.x) + back * (4 + a * 7), Double(puff.pos.y) - 1 - a * 2, col)
-            if a < 0.5 { dot(c, Double(puff.pos.x) + back * 3, Double(puff.pos.y) + 1, col) }
+            let px = Double(puff.pos.x), py = Double(puff.pos.y)
+            dot(c, px + back * (2 + a * 5), py - a * 3, col, a < 0.4 ? 2 : 1)
+            dot(c, px + back * (5 + a * 7), py - 1 - a * 2, col)
+            dot(c, px - back * (1 + a * 3), py - a * 2, col)
+            if a < 0.5 { dot(c, px + back * 3, py + 1, col) }
         }
+        heroPillar(c, p, motion: m, time: time)
         let n = m.trail.count
         for (i, at) in m.trail.enumerated() where hypot(at.x - p.pos.x, at.y - p.pos.y) > 3 {
             var ghost = p
@@ -1350,29 +1378,41 @@ extension RpgArt {
         }
     }
 
-    /// Over the hero: the level-up pillar (bigger and in the hero's colour for a job advance).
+    /// Behind the hero: the column of light of a level-up (wider and in the hero's colour for a job advance).
+    fileprivate static func heroPillar(_ c: CGContext, _ p: RpgPlayer, motion m: RpgHeroTracker.Motion, time: Double) {
+        let age = time - m.burstAt, life = m.burstBig ? 1.6 : 1.2
+        guard age >= 0, age < life else { return }
+        let k = age / life, fade = 1 - k
+        let x = Double(p.pos.x.rounded()), y = Double(p.pos.y.rounded())
+        let tone = m.burstBig ? heroGlow(p.cls, palette: heroPalette(heroLookKey(p))) : rgb(255, 214, 90)
+        let half = ((m.burstBig ? 9.0 : 7.0) * (k < 0.12 ? k / 0.12 : 1) * (0.35 + 0.65 * fade)).rounded()
+        guard half >= 1 else { return }
+        for dx in stride(from: -half, through: half, by: 1) {
+            let edge = abs(dx) / half
+            let core = edge < 0.25
+            for row in 0..<26 {
+                let a = fade * (core ? 0.9 : 0.75 * (1 - edge * 0.6)) * (1 - Double(row) / 26)
+                c.setFillColor((core ? rgb(255, 255, 235) : tone).copy(alpha: a) ?? tone)
+                c.fill(CGRect(x: x + dx, y: y + 1 - Double(row + 1) * 2.2, width: 1, height: 2.2))
+            }
+        }
+    }
+
+    /// Over the hero: rings and sparks of a level-up or job advance (the light column is drawn behind, with the ground).
     static func drawHeroBurst(_ c: CGContext, _ p: RpgPlayer, motion m: RpgHeroTracker.Motion, time: Double) {
         let age = time - m.burstAt, life = m.burstBig ? 1.6 : 1.2
         guard age >= 0, age < life else { return }
-        let k = age / life
+        let k = age / life, fade = 1 - k
         let x = Double(p.pos.x.rounded()), y = Double(p.pos.y.rounded())
-        let gold = rgb(255, 226, 110), core = rgb(255, 255, 230)
-        let tone = m.burstBig ? heroGlow(p.cls, palette: heroPalette(heroLookKey(p))) : gold
-        let fade = 1 - k
-        // A column of light that opens then thins out.
-        let w = (m.burstBig ? 14.0 : 10.0) * (k < 0.15 ? k / 0.15 : 1) * (0.4 + 0.6 * fade)
-        for row in 0..<34 {
-            let a = fade * 0.45 * (1 - Double(row) / 34)
-            c.setFillColor(tone.copy(alpha: a) ?? tone)
-            c.fill(CGRect(x: (x - w / 2).rounded(), y: y - 2 - Double(row) * 1.5, width: w.rounded(), height: 2))
-        }
-        ring(c, x, y, 6 + k * (m.burstBig ? 20 : 14), (k < 0.5 ? core : tone).copy(alpha: fade) ?? tone, squash: 0.4)
-        if m.burstBig { ring(c, x, y, 3 + k * 12, tone.copy(alpha: fade) ?? tone, squash: 0.4) }
-        for i in 0..<(m.burstBig ? 10 : 7) {
-            let rise = (k * 1.4 + Double(i) * 0.13).truncatingRemainder(dividingBy: 1)
-            let sx = x + sin(Double(i) * 2.3) * (5 + Double(i % 3) * 3)
-            let sy = y - 4 - rise * 36
-            star(c, sx, sy, i % 3 == 0 ? 2 : 1, tone.copy(alpha: fade) ?? tone, core)
+        let core = rgb(255, 255, 230)
+        let tone = m.burstBig ? heroGlow(p.cls, palette: heroPalette(heroLookKey(p))) : rgb(255, 214, 90)
+        ring(c, x, y, 5 + k * (m.burstBig ? 22 : 15), (k < 0.4 ? core : tone).copy(alpha: fade) ?? tone, squash: 0.4)
+        if m.burstBig || k < 0.5 { ring(c, x, y, 3 + k * 10, tone.copy(alpha: fade) ?? tone, squash: 0.4) }
+        for i in 0..<(m.burstBig ? 12 : 8) {
+            let rise = (k * 1.3 + Double(i) * 0.11).truncatingRemainder(dividingBy: 1)
+            let side = sin(Double(i) * 2.3)
+            let sx = x + side * (4 + rise * 9 + Double(i % 3) * 2), sy = y - 4 - rise * 34
+            star(c, sx, sy, i % 3 == 0 ? 2 : 1, tone.copy(alpha: fade * (1 - rise * 0.6)) ?? tone, core)
         }
     }
 }
