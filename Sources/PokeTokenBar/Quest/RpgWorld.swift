@@ -1,23 +1,43 @@
 import CoreGraphics
 import Foundation
 
-// SPIKE: the 픽셀 모험 simulation. Players act through `RpgInput` (held movement, attack and skill
-// presses, one-shot actions) so a lobby host can later feed remote players' inputs in the same way.
-// Monsters of a map only live while someone is on it. Pixel coordinates, y down, positions are feet.
+// SPIKE: the 픽셀 모험 simulation. Players act through `RpgInput` (held movement and attack, pressed
+// skill slots) and `RpgAction`s (shops, quests, enhancement, travel) so a lobby host can later feed
+// remote players the same way. Monsters of a map only live while someone is on it. Pixel coordinates,
+// y down; unit positions are their feet.
 
 struct RpgInput {
     var move = CGVector.zero
     var attack = false
-    var skill1 = false
-    var skill2 = false
+    /// Skill slots pressed this frame (8 slots).
+    var slots: Set<Int> = []
 }
 
 enum RpgAction {
     case interact, hpPotion, mpPotion, scroll
     case equip(String)
-    case use(String)
     case buy(String)
     case sell(String)
+    case levelSkill(String)
+    case assign(slot: Int, skill: String?)
+    case enhance(weapon: Bool)
+    case acceptQuest(String)
+    case claimQuest(String)
+    case abandonQuest(String)
+    case warp(RpgMapID)
+}
+
+struct RpgQuest: Codable, Sendable, Equatable {
+    var id = UUID().uuidString
+    let monster: String
+    let count: Int
+    var progress = 0
+    let gold: Int
+    let xp: Int
+    let stones: Int
+    let book: String?
+
+    var done: Bool { progress >= count }
 }
 
 struct RpgPlayer {
@@ -32,13 +52,19 @@ struct RpgPlayer {
     var inventory: [String: Int] = [:]
     var weapon: String
     var armor: String?
+    var plus: [String: Int] = [:]
+    var skills: [String: Int] = [:]
+    var sp = 0
+    var slots: [String?] = Array(repeating: nil, count: 8)
+    var quests: [RpgQuest] = []
+    var visited: Set<RpgMapID> = [.town]
     var map: RpgMapID = .town
     var pos: CGPoint
     var facing = CGVector(dx: 0, dy: 1)
     var facingRight = true
     var moving = false
     var attackTimer = 0.0
-    var skillTimers = [0.0, 0.0]
+    var cooldowns: [String: Double] = [:]
     var invulnerable = 0.0
     var hurtFlash = 0.0
     var dash: (to: CGPoint, hit: Set<Int>, damage: Double)?
@@ -47,15 +73,29 @@ struct RpgPlayer {
     var lastHurt = -10.0
     var potionTimer = 0.0
     var playTime = 0.0
+    var rageUntil = 0.0
+    var ironUntil = 0.0
+    var focusUntil = 0.0
+    var shieldUntil = 0.0
+    var cycloneUntil = 0.0
+    var nextCyclone = 0.0
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
     var element: RpgElement { weaponItem?.element ?? .base }
     var maxHP: Double { Double(cls.baseHP + cls.hpPerLevel * (level - 1)) }
     var maxMP: Double { Double(cls.baseMP + cls.mpPerLevel * (level - 1)) }
-    var attack: Double { Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + Double(weaponItem?.attack ?? 0) }
-    var defense: Double { Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + Double(armorItem?.defense ?? 0) }
-    var attackInterval: Double { cls.attackInterval * (element == .wind ? 0.7 : 1) }
+    func weaponAttack() -> Double { weaponItem.map { RpgItems.boosted($0.attack, plus: plus[$0.id] ?? 0) } ?? 0 }
+    func armorDefense() -> Double { armorItem.map { RpgItems.boosted($0.defense, plus: plus[$0.id] ?? 0) } ?? 0 }
+    func attack(at time: Double) -> Double {
+        let base = Double(cls.baseAttack) + cls.attackPerLevel * Double(level - 1) + weaponAttack()
+        return base * (time < rageUntil ? 1.3 + 0.03 * Double((skills["w_rage"] ?? 1) - 1) : 1)
+    }
+    var defense: Double { Double(cls.baseDefense) + cls.defensePerLevel * Double(level - 1) + armorDefense() }
+    func attackInterval(at time: Double) -> Double {
+        cls.attackInterval * (element == .wind ? 0.7 : 1) * (time < focusUntil ? 0.77 : 1)
+    }
+    func critChance(at time: Double) -> Double { cls.critChance + (time < focusUntil ? 0.4 : 0) }
 }
 
 struct RpgMob {
@@ -76,23 +116,26 @@ struct RpgMob {
     var wanderTo: CGPoint?
     var nextWander = 0.0
     var facingRight = false
-    var burnTicks = 0
-    var burnDamage = 0.0
-    var nextBurn = 0.0
+    var dotTicks = 0
+    var dotDamage = 0.0
+    var dotElement = RpgElement.fire
+    var nextDot = 0.0
     var slowUntil = 0.0
     var stunUntil = 0.0
     var phase = 0
     var phaseUntil = 0.0
     var jumpTarget: CGPoint?
     var airborne = false
+    var chargeDir: CGVector?
     var lastHitBy: Int?
+    var summoned = false
 
     var radius: CGFloat { def.behavior == .boss ? 14 : 6 }
     var flies: Bool { def.behavior == .flyer }
 }
 
 struct RpgShot {
-    enum Kind { case arrow, orb, bigArrow, mobArrow, slimeBall }
+    enum Kind { case arrow, orb, bigArrow, mobArrow, slimeBall, bossOrb, poisonArrow }
     var pos: CGPoint
     var vel: CGVector
     let map: RpgMapID
@@ -115,7 +158,9 @@ struct RpgFX {
         case chain([CGPoint])
         case spark(crit: Bool)
         case levelUp
-        case telegraph(radius: Double, until: Double)
+        case telegraph(radius: Double)
+        case rain(radius: Double)
+        case strike
     }
     let kind: Kind
     let map: RpgMapID
@@ -125,8 +170,31 @@ struct RpgFX {
     let duration: Double
 }
 
+/// A hit that lands later: skill waves, meteor marks, boss telegraphs.
+struct RpgPending {
+    let at: Double
+    let map: RpgMapID
+    let pos: CGPoint
+    let radius: Double
+    let damage: Double
+    let ownerID: Int
+    let fromPlayer: Bool
+    let element: RpgElement
+    let stun: Double
+    let fx: RpgFX.Kind?
+}
+
+struct RpgTrap {
+    let map: RpgMapID
+    let pos: CGPoint
+    let ownerID: Int
+    let damage: Double
+    let expires: Double
+    let armedAt: Double
+}
+
 struct RpgFloater {
-    enum Style { case damage, crit, hurt, heal, gold, xp, info }
+    enum Style { case damage, crit, hurt, heal, gold, xp, info, poison }
     let text: String
     let map: RpgMapID
     var pos: CGPoint
@@ -144,25 +212,32 @@ struct RpgDropped {
 }
 
 final class RpgWorld {
-    static let townSpawn = RpgTile(x: 15, y: 16)
+    static let townSpawn = RpgTile(x: 15, y: 10)
+    static let slotCount = 8
 
     private(set) var maps: [RpgMapID: RpgMap] = [:]
     private(set) var players: [RpgPlayer] = []
     private(set) var mobs: [RpgMapID: [RpgMob]] = [:]
     private(set) var shots: [RpgShot] = []
     private(set) var fx: [RpgFX] = []
+    private(set) var pending: [RpgPending] = []
+    private(set) var traps: [RpgTrap] = []
     private(set) var floaters: [RpgFloater] = []
     private(set) var drops: [RpgDropped] = []
     private(set) var toasts: [(text: String, at: Double)] = []
+    private(set) var offers: [RpgQuest] = []
     private(set) var time = 0.0
     private(set) var shake = 0.0
+    private var offersAt = -1000.0
     private var nextID = 1
     private var rng = KartRNG(seed: UInt64.random(in: 1...UInt64.max))
 
     init(player: RpgPlayer) {
-        players = [player]
-        _ = map(player.map)
-        spawnMobsIfNeeded(player.map)
+        var p = player
+        p.visited.insert(p.map)
+        players = [p]
+        _ = map(p.map)
+        spawnMobsIfNeeded(p.map)
     }
 
     func map(_ id: RpgMapID) -> RpgMap {
@@ -174,7 +249,6 @@ final class RpgWorld {
 
     func player(_ id: Int) -> RpgPlayer? { players.first { $0.id == id } }
     private func pIndex(_ id: Int) -> Int? { players.firstIndex { $0.id == id } }
-
     private func newID() -> Int { nextID += 1; return nextID }
     private func rand(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * Double(rng.int(10_000)) / 10_000 }
     private func dist(_ a: CGPoint, _ b: CGPoint) -> Double { Double(hypot(a.x - b.x, a.y - b.y)) }
@@ -188,8 +262,8 @@ final class RpgWorld {
         floaters.append(RpgFloater(text: text, map: map, pos: CGPoint(x: p.x, y: p.y - 18), life: style == .info ? 1.4 : 0.9, style: style))
     }
 
-    private func effect(_ kind: RpgFX.Kind, _ map: RpgMapID, _ p: CGPoint, _ e: RpgElement, duration: Double = 0.3) {
-        fx.append(RpgFX(kind: kind, map: map, pos: p, element: e, start: time, duration: duration))
+    private func effect(_ kind: RpgFX.Kind, _ map: RpgMapID, _ p: CGPoint, _ e: RpgElement, duration: Double = 0.3, delay: Double = 0) {
+        fx.append(RpgFX(kind: kind, map: map, pos: p, element: e, start: time + delay, duration: duration))
     }
 
     // MARK: monsters
@@ -216,20 +290,23 @@ final class RpgWorld {
     // MARK: actions
 
     func perform(_ action: RpgAction, for id: Int) {
-        guard let i = pIndex(id), !players[i].dead else { return }
+        guard let i = pIndex(id) else { return }
+        if players[i].dead { return }
         switch action {
         case .interact:
-            if let portal = nearbyPortal(for: id) { travel(i, through: portal) }
+            if let portal = nearbyPortal(for: id), !portal.waypoint { travel(i, to: portal.to, at: portal.arrive, minLevel: portal.minLevel) }
         case .hpPotion:
-            let pick = ["hp1", "hp0"].first { (players[i].inventory[$0] ?? 0) > 0 && (($0 == "hp1" && players[i].maxHP - players[i].hp > 90) || $0 == "hp0") }
-                ?? ["hp0", "hp1"].first { (players[i].inventory[$0] ?? 0) > 0 }
-            if let pick { use(pick, i) } else { toast("빨간 물약이 없어요") }
+            let missing = players[i].maxHP - players[i].hp
+            let order = ["hp0", "hp1", "hp2", "hp3"].filter { (players[i].inventory[$0] ?? 0) > 0 }
+            // The smallest potion that covers what is missing, else the biggest one carried.
+            let pick = order.first { Double(RpgItems.item($0)?.heal ?? 0) >= missing } ?? order.last
+            if let pick { use(pick, i) } else { toast("HP 물약이 없어요") }
         case .mpPotion:
-            if (players[i].inventory["mp0"] ?? 0) > 0 { use("mp0", i) } else { toast("파란 물약이 없어요") }
+            let order = ["mp0", "mp1"].filter { (players[i].inventory[$0] ?? 0) > 0 }
+            let missing = players[i].maxMP - players[i].mp
+            if let pick = order.first(where: { Double(RpgItems.item($0)?.heal ?? 0) >= missing }) ?? order.last { use(pick, i) } else { toast("MP 물약이 없어요") }
         case .scroll:
             if (players[i].inventory["scroll"] ?? 0) > 0 { use("scroll", i) } else { toast("귀환 주문서가 없어요") }
-        case .use(let item):
-            use(item, i)
         case .equip(let item):
             equip(item, i)
         case .buy(let item):
@@ -243,7 +320,42 @@ final class RpgWorld {
             players[i].inventory[item] = have - 1 == 0 ? nil : have - 1
             players[i].gold += it.sellPrice
             toast("\(it.name) 판매 (+\(it.sellPrice)G)")
+        case .levelSkill(let skill):
+            guard let def = RpgSkills.def(skill), let lv = players[i].skills[skill] else { return }
+            guard players[i].sp > 0 else { toast("스킬 포인트가 없어요 (레벨업마다 1)"); return }
+            guard lv < def.maxLevel else { toast("이미 최대 레벨이에요"); return }
+            players[i].sp -= 1
+            players[i].skills[skill] = lv + 1
+            toast("\(def.name) Lv\(lv + 1)")
+        case .assign(let slot, let skill):
+            guard slot >= 0, slot < Self.slotCount else { return }
+            if let skill { for k in players[i].slots.indices where players[i].slots[k] == skill { players[i].slots[k] = nil } }
+            players[i].slots[slot] = skill
+        case .enhance(let weapon):
+            enhance(i, weapon: weapon)
+        case .acceptQuest(let qid):
+            guard let k = offers.firstIndex(where: { $0.id == qid }) else { return }
+            guard players[i].quests.count < 3 else { toast("의뢰는 3개까지 받을 수 있어요"); return }
+            players[i].quests.append(offers.remove(at: k))
+            toast("의뢰 수락!")
+        case .claimQuest(let qid):
+            guard let k = players[i].quests.firstIndex(where: { $0.id == qid }), players[i].quests[k].done else { return }
+            let q = players[i].quests.remove(at: k)
+            players[i].gold += q.gold
+            players[i].inventory["stone", default: 0] += q.stones
+            if let b = q.book { players[i].inventory[b, default: 0] += 1 }
+            toast("의뢰 완료! +\(q.gold)G, 강화석 \(q.stones)개" + (q.book.flatMap(RpgItems.item).map { ", \($0.name)" } ?? ""))
+            grantXP(players[i].id, q.xp)
+        case .abandonQuest(let qid):
+            players[i].quests.removeAll { $0.id == qid }
+        case .warp(let target):
+            guard players[i].visited.contains(target), let arrive = arrival(for: target) else { return }
+            travel(i, to: target, at: arrive, minLevel: 1)
         }
+    }
+
+    private func arrival(for map: RpgMapID) -> RpgTile? {
+        RpgMaps.all.lazy.flatMap(\.portals).first { $0.to == map && !$0.waypoint }?.arrive
     }
 
     private func use(_ item: String, _ i: Int) {
@@ -262,15 +374,24 @@ final class RpgWorld {
         case .scroll:
             moveToTown(i)
             toast("마을로 귀환했어요")
-        case .weapon, .armor:
+        case .book(let skill):
+            guard let def = RpgSkills.def(skill) else { return }
+            guard def.cls == players[i].cls else { toast("\(def.cls.name) 스킬북이에요 (상점에 팔 수 있어요)"); return }
+            guard players[i].skills[skill] == nil else { toast("이미 배운 스킬이에요"); return }
+            guard players[i].level >= def.minLevel else { toast("Lv\(def.minLevel)부터 배울 수 있어요"); return }
+            players[i].skills[skill] = 1
+            if let free = players[i].slots.firstIndex(where: { $0 == nil }) { players[i].slots[free] = skill }
+            effect(.levelUp, players[i].map, players[i].pos, .cosmic, duration: 1.0)
+            toast("새 스킬 습득: \(def.name)!")
+        case .weapon, .armor, .stone:
             equip(item, i)
             return
         }
         consume(item, i)
     }
 
-    private func consume(_ item: String, _ i: Int) {
-        let left = (players[i].inventory[item] ?? 0) - 1
+    private func consume(_ item: String, _ i: Int, _ n: Int = 1) {
+        let left = (players[i].inventory[item] ?? 0) - n
         players[i].inventory[item] = left > 0 ? left : nil
     }
 
@@ -289,8 +410,31 @@ final class RpgWorld {
             consume(item, i)
             players[i].armor = item
             toast("\(it.name) 장착!")
+        case .stone:
+            toast("강화석은 대장간에서 써요")
         default:
             use(item, i)
+        }
+    }
+
+    private func enhance(_ i: Int, weapon: Bool) {
+        guard let id = weapon ? players[i].weapon : players[i].armor, let item = RpgItems.item(id) else { toast("장착한 장비가 없어요"); return }
+        let plus = players[i].plus[id] ?? 0
+        guard plus < RpgItems.maxPlus else { toast("최대 강화 단계예요"); return }
+        let cost = RpgItems.enhanceCost(item, plus: plus)
+        guard players[i].gold >= cost.gold else { toast("골드가 부족해요 (\(cost.gold)G)"); return }
+        guard (players[i].inventory["stone"] ?? 0) >= cost.stones else { toast("강화석이 부족해요 (\(cost.stones)개)"); return }
+        players[i].gold -= cost.gold
+        consume("stone", i, cost.stones)
+        if Double(rng.int(10_000)) / 10_000 < RpgItems.enhanceChance(plus) {
+            players[i].plus[id] = plus + 1
+            toast("강화 성공! \(item.name) +\(plus + 1)")
+            effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1)
+        } else if plus >= 7 {
+            players[i].plus[id] = plus - 1
+            toast("강화 실패… +\(plus - 1)로 떨어졌어요")
+        } else {
+            toast("강화 실패… (단계 유지)")
         }
     }
 
@@ -299,24 +443,26 @@ final class RpgWorld {
         return map(p.map).def.portals.first { dist(RpgMap.center($0.at), p.pos) < 16 }
     }
 
-    func nearbyShop(for id: Int) -> RpgShop? {
+    func nearbyPlace(for id: Int) -> RpgPlace? {
         guard let p = player(id), p.map == .town else { return nil }
-        return map(.town).buildings.first { dist($0.door, p.pos) < 22 }?.shop
+        return map(.town).buildings.first { dist($0.door, p.pos) < 22 }?.place
     }
 
-    private func travel(_ i: Int, through portal: RpgPortal) {
-        guard players[i].level >= portal.minLevel else {
-            toast("강한 기운이 느껴진다… (Lv\(portal.minLevel) 이상)")
+    private func travel(_ i: Int, to target: RpgMapID, at arrive: RpgTile, minLevel: Int) {
+        guard players[i].level >= minLevel else {
+            toast("강한 기운이 느껴진다… (Lv\(minLevel) 이상)")
             return
         }
         let from = players[i].map
-        players[i].map = portal.to
-        players[i].pos = RpgMap.center(portal.arrive)
+        players[i].map = target
+        players[i].pos = RpgMap.center(arrive)
         players[i].dash = nil
-        spawnMobsIfNeeded(portal.to)
+        let first = players[i].visited.insert(target).inserted
+        spawnMobsIfNeeded(target)
         leaveMapIfEmpty(from)
-        let def = RpgMaps.def(portal.to)
+        let def = RpgMaps.def(target)
         toast("\(def.name) — \(def.levelText)")
+        if first, RpgMaps.waypoints.contains(target) { toast("차원문에 \(def.name)이(가) 등록됐어요") }
     }
 
     private func moveToTown(_ i: Int) {
@@ -327,14 +473,42 @@ final class RpgWorld {
         leaveMapIfEmpty(from)
     }
 
-    /// Nobody left on a map: the boss heals, monsters forget their targets.
+    /// Nobody left on a map: bosses heal, monsters forget their targets.
     private func leaveMapIfEmpty(_ id: RpgMapID) {
         guard !players.contains(where: { $0.map == id }), var list = mobs[id] else { return }
+        list.removeAll { $0.summoned }
         for k in list.indices {
             list[k].targetID = nil
-            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false }
+            if !list[k].dead { list[k].hp = Double(list[k].def.hp); list[k].pos = list[k].home; list[k].phase = 0; list[k].airborne = false; list[k].chargeDir = nil }
         }
         mobs[id] = list
+        pending.removeAll { $0.map == id }
+        traps.removeAll { $0.map == id }
+    }
+
+    // MARK: quests
+
+    /// Offers on the board, refreshed every five minutes or when taken.
+    func boardOffers(for id: Int) -> [RpgQuest] {
+        guard let p = player(id) else { return [] }
+        if offers.count < 3 || time - offersAt > 300 {
+            offersAt = time
+            offers = (0..<3).compactMap { _ in makeQuest(level: p.level, cls: p.cls) }
+        }
+        return offers
+    }
+
+    private func makeQuest(level: Int, cls: RpgClass) -> RpgQuest? {
+        let normal = RpgMonsters.all.filter { $0.behavior != .boss && $0.behavior != .coward && $0.level >= level - 5 && $0.level <= level + 3 }
+        let bosses = RpgMonsters.all.filter { $0.behavior == .boss && $0.level >= level - 4 && $0.level <= level + 6 }
+        let bossTurn = !bosses.isEmpty && rng.int(4) == 0
+        guard let m = bossTurn ? bosses[rng.int(bosses.count)] : (normal.isEmpty ? nil : normal[rng.int(normal.count)]) else { return nil }
+        let count = bossTurn ? 1 : 12 + rng.int(4) * 6
+        let avgGold = (m.gold.lowerBound + m.gold.upperBound) / 2
+        let books = RpgSkills.all.filter { !$0.starter && $0.cls == cls && $0.minLevel <= level + 6 }
+        let book = !books.isEmpty && rng.int(100) < (bossTurn ? 50 : 12) ? "book_\(books[rng.int(books.count)].id)" : nil
+        return RpgQuest(monster: m.id, count: count, gold: count * avgGold * (bossTurn ? 1 : 2), xp: count * m.xp * (bossTurn ? 1 : 1) / 2,
+                        stones: (bossTurn ? 4 : 1) + level / 12, book: book)
     }
 
     // MARK: step
@@ -345,36 +519,35 @@ final class RpgWorld {
         for i in players.indices { stepPlayer(i, dt, inputs[players[i].id] ?? RpgInput()) }
         for mapID in Set(players.map(\.map)) { stepMobs(mapID, dt) }
         stepShots(dt)
+        stepPending()
+        stepTraps()
         pickups()
         for k in floaters.indices { floaters[k].life -= dt; floaters[k].pos.y -= CGFloat(dt * 18) }
         floaters.removeAll { $0.life <= 0 }
         fx.removeAll { time - $0.start > $0.duration }
         toasts.removeAll { time - $0.at > 3.5 }
-        drops.removeAll { time - $0.at > 90 }
+        drops.removeAll { time - $0.at > 120 }
     }
 
     private func stepPlayer(_ i: Int, _ dt: Double, _ input: RpgInput) {
         var p = players[i]
         p.playTime += dt
         p.attackTimer = max(0, p.attackTimer - dt)
-        p.skillTimers = p.skillTimers.map { max(0, $0 - dt) }
+        for (k, v) in p.cooldowns where v > 0 { p.cooldowns[k] = max(0, v - dt) }
         p.invulnerable = max(0, p.invulnerable - dt)
         p.hurtFlash = max(0, p.hurtFlash - dt)
         p.potionTimer = max(0, p.potionTimer - dt)
         if p.dead {
+            players[i] = p
             if time >= p.respawnAt {
-                p.dead = false
-                p.hp = p.maxHP
-                p.mp = p.maxMP
-                players[i] = p
+                players[i].dead = false
+                players[i].hp = players[i].maxHP
+                players[i].mp = players[i].maxMP
                 moveToTown(i)
                 toast("마을에서 부활했어요")
-            } else {
-                players[i] = p
             }
             return
         }
-        // Regeneration when out of combat, much faster in town.
         if time - p.lastHurt > 5 {
             let k = p.map == .town ? 0.12 : 0.015
             p.hp = min(p.maxHP, p.hp + p.maxHP * k * dt)
@@ -389,9 +562,11 @@ final class RpgWorld {
             if !blocked { p.pos = next }
             players[i] = p
             var hit = dash.hit
-            for v in mobIDs(near: p.pos, radius: 16, map: p.map) where !hit.contains(v) {
-                hit.insert(v)
-                damageMob(v, map: p.map, base: dash.damage, by: p.id, element: p.element, skill: true)
+            if dash.damage > 0 {
+                for v in mobIDs(near: p.pos, radius: 16, map: p.map) where !hit.contains(v) {
+                    hit.insert(v)
+                    damageMob(v, map: p.map, base: dash.damage, by: p.id, element: p.element, skill: true)
+                }
             }
             players[i].dash = (d <= step || blocked) ? nil : (dash.to, hit, dash.damage)
             return
@@ -410,107 +585,217 @@ final class RpgWorld {
             if m.canStand(ny) { p.pos = ny }
         }
         players[i] = p
-        if input.attack, players[i].attackTimer <= 0 { basicAttack(i) }
-        if input.skill1 { castSkill(i, 0) }
-        if input.skill2 { castSkill(i, 1) }
-    }
-
-    private func facingAngle(_ p: RpgPlayer) -> Double { Double(atan2(p.facing.dy, p.facing.dx)) }
-
-    private func basicAttack(_ i: Int) {
-        let p = players[i]
-        players[i].attackTimer = p.attackInterval
-        let angle = facingAngle(p)
-        switch p.cls {
-        case .warrior:
-            let center = CGPoint(x: p.pos.x, y: p.pos.y - 6)
-            effect(.slash(angle: angle, radius: 11), p.map, center, p.element, duration: 0.3)
-            for v in mobIDs(inArcOf: p, range: 26, cosLimit: 0.2) {
-                damageMob(v, map: p.map, base: p.attack, by: p.id, element: p.element, skill: false)
+        // 회오리검 ticks while it lasts.
+        if time < p.cycloneUntil, time >= p.nextCyclone {
+            players[i].nextCyclone = time + 0.25
+            let lv = p.skills["w_cyclone"] ?? 1
+            let def = RpgSkills.def("w_cyclone")!
+            effect(.slash(angle: time * 9, radius: 18), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 5), p.element, duration: 0.25)
+            for v in mobIDs(near: p.pos, radius: 30, map: p.map) {
+                damageMob(v, map: p.map, base: p.attack(at: time) * RpgSkills.damage(def, level: lv), by: p.id, element: p.element, skill: true)
             }
-        case .archer:
-            fire(from: p, angle: angle, kind: .arrow, damage: p.attack, speed: 230, range: 170)
-        case .mage:
-            fire(from: p, angle: angle, kind: .orb, damage: p.attack * 1.15, speed: 170, range: 140)
+        }
+        if input.attack, players[i].attackTimer <= 0 { basicAttack(i) }
+        for slot in input.slots.sorted() {
+            if let skill = players[i].slots[slot] { castSkill(i, skill) }
         }
     }
 
-    private func fire(from p: RpgPlayer, angle: Double, kind: RpgShot.Kind, damage: Double, speed: Double, range: Double) {
-        let v = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
-        shots.append(RpgShot(pos: CGPoint(x: p.pos.x + CGFloat(cos(angle) * 6), y: p.pos.y - 7 + CGFloat(sin(angle) * 6)), vel: v, map: p.map,
-                             fromPlayer: true, ownerID: p.id, damage: damage, element: p.element, kind: kind, life: range / speed))
+    private func facingAngle(_ p: RpgPlayer) -> Double { Double(atan2(p.facing.dy, p.facing.dx)) }
+    private func ahead(_ p: RpgPlayer, _ d: Double) -> CGPoint {
+        let a = facingAngle(p)
+        return CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d))
     }
 
-    private func castSkill(_ i: Int, _ slot: Int) {
+    private func basicAttack(_ i: Int) {
         let p = players[i]
-        guard p.skillTimers[slot] <= 0 else { return }
-        let cost = Double(p.cls.skillCost[slot])
-        guard p.mp >= cost else { toast("MP가 부족해요"); return }
-        players[i].mp -= cost
-        players[i].skillTimers[slot] = p.cls.skillCooldown[slot]
+        players[i].attackTimer = p.attackInterval(at: time)
+        let angle = facingAngle(p)
+        let atk = p.attack(at: time)
+        switch p.cls {
+        case .warrior:
+            effect(.slash(angle: angle, radius: 11), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 6), p.element, duration: 0.3)
+            for v in mobIDs(inArcOf: p, range: 26, cosLimit: 0.2) { damageMob(v, map: p.map, base: atk, by: p.id, element: p.element, skill: false) }
+        case .archer:
+            fire(from: p, angle: angle, kind: .arrow, damage: atk, speed: 230, range: 170)
+        case .mage:
+            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.15, speed: 170, range: 140)
+        }
+    }
+
+    private func fire(from p: RpgPlayer, angle: Double, kind: RpgShot.Kind, damage: Double, speed: Double, range: Double, element: RpgElement? = nil) {
+        let v = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
+        shots.append(RpgShot(pos: CGPoint(x: p.pos.x + CGFloat(cos(angle) * 6), y: p.pos.y - 7 + CGFloat(sin(angle) * 6)), vel: v, map: p.map,
+                             fromPlayer: true, ownerID: p.id, damage: damage, element: element ?? p.element, kind: kind, life: range / speed))
+    }
+
+    private func schedule(_ delay: Double, _ map: RpgMapID, _ pos: CGPoint, radius: Double, damage: Double, owner: Int, fromPlayer: Bool = true,
+                          element: RpgElement, stun: Double = 0, fx: RpgFX.Kind?) {
+        pending.append(RpgPending(at: time + delay, map: map, pos: pos, radius: radius, damage: damage, ownerID: owner, fromPlayer: fromPlayer,
+                                  element: element, stun: stun, fx: fx))
+    }
+
+    private func castSkill(_ i: Int, _ skill: String) {
+        let p = players[i]
+        guard let def = RpgSkills.def(skill), let lv = p.skills[skill] else { return }
+        guard (p.cooldowns[skill] ?? 0) <= 0 else { return }
+        guard p.mp >= Double(def.mp) else { toast("MP가 부족해요"); return }
         let angle = facingAngle(p)
         let e = p.element
-        switch (p.cls, slot) {
-        case (.warrior, 0):
+        let atk = p.attack(at: time)
+        let power = atk * RpgSkills.damage(def, level: lv)
+        var refund = false
+        switch skill {
+        case "w_whirl":
             let c = CGPoint(x: p.pos.x, y: p.pos.y - 4)
-            effect(.burst(radius: 30), p.map, c, e, duration: 0.3)
+            effect(.burst(radius: 30), p.map, c, e)
             effect(.slash(angle: angle, radius: 16), p.map, c, e)
             effect(.slash(angle: angle + .pi, radius: 16), p.map, c, e)
-            for v in mobIDs(near: p.pos, radius: 32, map: p.map) { damageMob(v, map: p.map, base: p.attack * 1.8, by: p.id, element: e, skill: true) }
-        case (.warrior, 1):
+            hitArea(p.pos, 32, p, power, e)
+        case "w_dash":
             var to = p.pos
             for s in stride(from: 6.0, through: 76, by: 6) {
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(angle) * s), y: p.pos.y + CGFloat(sin(angle) * s))
                 if map(p.map).canStand(c) { to = c } else { break }
             }
-            players[i].dash = (to, [], p.attack * 2.0)
+            players[i].dash = (to, [], power)
             players[i].invulnerable = 0.3
             effect(.slash(angle: angle, radius: 13), p.map, CGPoint(x: to.x, y: to.y - 6), e)
-        case (.archer, 0):
-            for d in [-0.26, 0.0, 0.26] { fire(from: p, angle: angle + d, kind: .arrow, damage: p.attack * 0.95, speed: 240, range: 170) }
-        case (.archer, 1):
-            fire(from: p, angle: angle, kind: .bigArrow, damage: p.attack * 2.6, speed: 320, range: 230)
-        case (.mage, 0):
-            let target = CGPoint(x: p.pos.x + CGFloat(cos(angle) * 56), y: p.pos.y + CGFloat(sin(angle) * 56))
-            mageBlast(at: target, p)
-        case (.mage, 1):
+        case "w_quake":
+            for k in 1...7 {
+                let c = ahead(p, Double(k) * 16)
+                schedule(Double(k) * 0.045, p.map, c, radius: 14, damage: power, owner: p.id, element: e, fx: .burst(radius: 12))
+            }
+            shake = max(shake, 0.8)
+        case "w_rage":
+            players[i].rageUntil = time + 12
+            effect(.levelUp, p.map, p.pos, .fire, duration: 1)
+            toast("분노! 공격력 상승")
+        case "w_iron":
+            players[i].ironUntil = time + 10
+            effect(.levelUp, p.map, p.pos, .base, duration: 1)
+            toast("철벽! 받는 피해 감소")
+        case "w_cyclone":
+            players[i].cycloneUntil = time + 3.5
+            players[i].nextCyclone = time
+        case "w_slam":
+            effect(.burst(radius: 44), p.map, ahead(p, 14), e, duration: 0.4)
+            shake = max(shake, 1.5)
+            for v in mobIDs(near: ahead(p, 14), radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
+        case "w_ult":
+            let targets = (mobs[p.map] ?? []).filter { !$0.dead && !$0.airborne && dist($0.pos, p.pos) < 170 }.sorted { dist($0.pos, p.pos) < dist($1.pos, p.pos) }
+            for k in 0..<6 {
+                let c = targets.isEmpty ? ahead(p, 30 + Double(k) * 14) : targets[k % targets.count].pos
+                schedule(Double(k) * 0.12, p.map, c, radius: 26, damage: power, owner: p.id, element: .thunder, stun: 1, fx: .strike)
+            }
+            shake = max(shake, 2)
+        case "a_triple":
+            for d in [-0.26, 0.0, 0.26] { fire(from: p, angle: angle + d, kind: .arrow, damage: power, speed: 240, range: 170) }
+        case "a_pierce":
+            fire(from: p, angle: angle, kind: .bigArrow, damage: power, speed: 320, range: 230)
+        case "a_rain":
+            let c = ahead(p, 70)
+            for k in 0..<6 { schedule(Double(k) * 0.2, p.map, c, radius: 30, damage: power, owner: p.id, element: e, fx: k == 0 ? .rain(radius: 30) : nil) }
+            effect(.rain(radius: 30), p.map, c, e, duration: 1.2)
+        case "a_poison":
+            fire(from: p, angle: angle, kind: .poisonArrow, damage: power, speed: 240, range: 180, element: .poison)
+        case "a_back":
+            var to = p.pos
+            for s in stride(from: 6.0, through: 54, by: 6) {
+                let c = CGPoint(x: p.pos.x - CGFloat(cos(angle) * s), y: p.pos.y - CGFloat(sin(angle) * s))
+                if map(p.map).canStand(c) { to = c } else { break }
+            }
+            players[i].dash = (to, [], 0)
+            players[i].invulnerable = 0.35
+            for d in [-0.4, -0.2, 0.0, 0.2, 0.4] { fire(from: p, angle: angle + d, kind: .arrow, damage: power, speed: 250, range: 180) }
+        case "a_trap":
+            traps.append(RpgTrap(map: p.map, pos: p.pos, ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.5))
+            toast("덫 설치!")
+        case "a_focus":
+            players[i].focusUntil = time + 12
+            effect(.levelUp, p.map, p.pos, .wind, duration: 1)
+            toast("집중! 치명타·공격속도 상승")
+        case "a_ult":
+            for d in [-0.2, -0.1, 0.0, 0.1, 0.2] { fire(from: p, angle: angle + d, kind: .bigArrow, damage: power, speed: 340, range: 260) }
+            shake = max(shake, 1.2)
+        case "m_blast":
+            mageBlast(at: ahead(p, 56), p, power)
+        case "m_chain":
             var points = [CGPoint(x: p.pos.x, y: p.pos.y - 8)]
             var used: Set<Int> = []
             var from = p.pos
+            let el: RpgElement = e == .base ? .thunder : e
             for _ in 0..<4 {
                 guard let next = (mobs[p.map] ?? []).filter({ !$0.dead && !$0.airborne && !used.contains($0.id) && dist($0.pos, from) < 95 })
                         .min(by: { dist($0.pos, from) < dist($1.pos, from) }) else { break }
                 used.insert(next.id)
                 points.append(CGPoint(x: next.pos.x, y: next.pos.y - 6))
                 from = next.pos
-                damageMob(next.id, map: p.map, base: p.attack * 1.7, by: p.id, element: e == .base ? .thunder : e, skill: true)
+                damageMob(next.id, map: p.map, base: power, by: p.id, element: el, skill: true)
             }
-            if points.count > 1 { effect(.chain(points), p.map, p.pos, e == .base ? .thunder : e, duration: 0.35) }
-            else { toast("주변에 적이 없어요"); players[i].mp += cost; players[i].skillTimers[slot] = 0 }
-        default: break
+            if points.count > 1 { effect(.chain(points), p.map, p.pos, el, duration: 0.35) } else { toast("주변에 적이 없어요"); refund = true }
+        case "m_blink":
+            var to = p.pos
+            for s in stride(from: 6.0, through: 84, by: 6) {
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(angle) * s), y: p.pos.y + CGFloat(sin(angle) * s))
+                if map(p.map).canStand(c) { to = c }
+            }
+            effect(.burst(radius: 24), p.map, p.pos, e == .base ? .cosmic : e)
+            hitArea(p.pos, 24, p, power, e)
+            players[i].pos = to
+            players[i].invulnerable = 0.3
+            effect(.levelUp, p.map, to, .cosmic, duration: 0.4)
+        case "m_shield":
+            players[i].shieldUntil = time + 15
+            toast("마나 실드!")
+        case "m_blizzard":
+            let c = ahead(p, 60)
+            for k in 0..<10 { schedule(Double(k) * 0.4, p.map, c, radius: 40, damage: power, owner: p.id, element: .ice, fx: .ice(radius: 34)) }
+        case "m_pillar":
+            for k in 1...7 {
+                schedule(Double(k) * 0.07, p.map, ahead(p, Double(k) * 17), radius: 18, damage: power, owner: p.id, element: .fire, fx: .burst(radius: 16))
+            }
+        case "m_heal":
+            let amount = p.maxHP * (0.3 + 0.03 * Double(lv - 1))
+            for k in players.indices where players[k].map == p.map && !players[k].dead && dist(players[k].pos, p.pos) < 70 {
+                players[k].hp = min(players[k].maxHP, players[k].hp + amount)
+                float("+\(Int(amount))", p.map, players[k].pos, .heal)
+                effect(.levelUp, p.map, players[k].pos, .wind, duration: 1)
+            }
+        case "m_ult":
+            for k in 0..<8 {
+                let a = rand(0, .pi * 2), d = rand(20, 110)
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
+                effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.18)
+                schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32))
+            }
+        default:
+            refund = true
+        }
+        if !refund {
+            players[i].mp -= Double(def.mp)
+            players[i].cooldowns[skill] = def.cooldown
         }
     }
 
-    private func mageBlast(at target: CGPoint, _ p: RpgPlayer) {
-        let e = p.element
-        switch e {
+    private func mageBlast(at target: CGPoint, _ p: RpgPlayer, _ power: Double) {
+        switch p.element {
         case .fire:
             effect(.burst(radius: 30), p.map, target, .fire, duration: 0.35)
-            hitArea(target, 32, p, p.attack * 2.4, .fire)
+            hitArea(target, 32, p, power * 1.1, .fire)
         case .ice:
             effect(.ice(radius: 30), p.map, target, .ice, duration: 0.4)
-            hitArea(target, 32, p, p.attack * 2.0, .ice)
+            hitArea(target, 32, p, power * 0.95, .ice)
         case .thunder:
-            effect(.burst(radius: 28), p.map, target, .thunder, duration: 0.3)
-            effect(.chain([CGPoint(x: target.x + 6, y: target.y - 60), target]), p.map, target, .thunder, duration: 0.25)
-            hitArea(target, 30, p, p.attack * 2.2, .thunder)
+            effect(.strike, p.map, target, .thunder, duration: 0.3)
+            hitArea(target, 30, p, power, .thunder)
         case .cosmic:
             effect(.meteor(radius: 38), p.map, target, .cosmic, duration: 0.45)
-            hitArea(target, 40, p, p.attack * 3.0, .cosmic)
+            hitArea(target, 40, p, power * 1.35, .cosmic)
             shake = max(shake, 1.2)
         default:
-            effect(.burst(radius: 28), p.map, target, e, duration: 0.3)
-            hitArea(target, 30, p, p.attack * 2.2, e)
+            effect(.burst(radius: 28), p.map, target, p.element, duration: 0.3)
+            hitArea(target, 30, p, power, p.element)
         }
     }
 
@@ -532,14 +817,50 @@ final class RpgWorld {
         }.map(\.id)
     }
 
+    private func stepPending() {
+        guard !pending.isEmpty else { return }
+        let due = pending.filter { time >= $0.at }
+        pending.removeAll { time >= $0.at }
+        for h in due {
+            if let k = h.fx { effect(k, h.map, h.pos, h.element, duration: 0.35) }
+            if h.fromPlayer {
+                for v in mobIDs(near: h.pos, radius: h.radius, map: h.map) {
+                    damageMob(v, map: h.map, base: h.damage, by: h.ownerID, element: h.element, skill: true, stun: h.stun)
+                }
+            } else {
+                for i in players.indices where players[i].map == h.map && !players[i].dead && dist(players[i].pos, h.pos) < h.radius {
+                    hurtPlayer(i, h.damage, from: h.pos)
+                }
+                shake = max(shake, 1)
+            }
+        }
+    }
+
+    private func stepTraps() {
+        guard !traps.isEmpty else { return }
+        var keep: [RpgTrap] = []
+        for t in traps {
+            let triggered = time >= t.armedAt && !mobIDs(near: t.pos, radius: 10, map: t.map).isEmpty
+            if triggered || time >= t.expires {
+                if triggered {
+                    effect(.burst(radius: 30), t.map, t.pos, .fire, duration: 0.4)
+                    for v in mobIDs(near: t.pos, radius: 32, map: t.map) { damageMob(v, map: t.map, base: t.damage, by: t.ownerID, element: .base, skill: true, stun: 1.5) }
+                }
+                continue
+            }
+            keep.append(t)
+        }
+        traps = keep
+    }
+
     // MARK: damage
 
-    private func damageMob(_ id: Int, map: RpgMapID, base: Double, by playerID: Int, element: RpgElement, skill: Bool, splash: Bool = false) {
+    private func damageMob(_ id: Int, map: RpgMapID, base: Double, by playerID: Int, element: RpgElement, skill: Bool, splash: Bool = false, stun: Double = 0) {
         guard var list = mobs[map], let k = list.firstIndex(where: { $0.id == id }), !list[k].dead, !list[k].airborne,
               let pi = pIndex(playerID) else { return }
         let p = players[pi]
         var m = list[k]
-        let crit = !splash && Double(rng.int(1000)) / 1000 < p.cls.critChance
+        let crit = !splash && Double(rng.int(1000)) / 1000 < p.critChance(at: time)
         var dmg = max(1, base - Double(m.def.defense) * 0.6) * rand(0.9, 1.1)
         if crit { dmg *= 1.7 }
         m.hp -= dmg
@@ -551,11 +872,12 @@ final class RpgWorld {
         }
         m.targetID = playerID
         m.aggroUntil = time + 8
-        // Weapon element riders.
+        if stun > 0 { m.stunUntil = max(m.stunUntil, time + (m.def.behavior == .boss ? stun * 0.3 : stun)) }
         switch element {
-        case .fire: m.burnTicks = 3; m.burnDamage = dmg * 0.15; m.nextBurn = time + 0.6
+        case .fire: m.dotTicks = 3; m.dotDamage = dmg * 0.15; m.nextDot = time + 0.6; m.dotElement = .fire
+        case .poison: m.dotTicks = 8; m.dotDamage = dmg * 0.3; m.nextDot = time + 0.5; m.dotElement = .poison
         case .ice: m.slowUntil = time + 1.8
-        case .thunder where rng.int(100) < 18: m.stunUntil = time + 0.7
+        case .thunder where rng.int(100) < 18: m.stunUntil = max(m.stunUntil, time + (m.def.behavior == .boss ? 0.2 : 0.7))
         default: break
         }
         list[k] = m
@@ -572,7 +894,7 @@ final class RpgWorld {
             effect(.meteor(radius: 20), map, m.pos, .cosmic, duration: 0.45)
             for v in mobIDs(near: m.pos, radius: 22, map: map) { damageMob(v, map: map, base: base * 0.8, by: playerID, element: .base, skill: true, splash: true) }
         }
-        if let idx = mobs[map]?.firstIndex(where: { $0.id == id }), let mm = mobs[map]?[idx], mm.hp <= 0, !mm.dead { killMob(id, map: map, by: playerID) }
+        if let mm = mobs[map]?.first(where: { $0.id == id }), mm.hp <= 0, !mm.dead { killMob(id, map: map, by: playerID) }
     }
 
     private func killMob(_ id: Int, map: RpgMapID, by playerID: Int) {
@@ -580,22 +902,37 @@ final class RpgWorld {
         var m = list[k]
         m.dead = true
         m.diedAt = time
-        m.burnTicks = 0
-        if !m.respawnAt.isInfinite { m.respawnAt = time + (m.def.behavior == .boss ? 60 : (m.def.behavior == .coward ? 30 : 10)) }
+        m.dotTicks = 0
+        m.respawnAt = m.summoned ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : 10))
         list[k] = m
         mobs[map] = list
         if m.def.behavior == .boss {
             effect(.burst(radius: 50), map, m.pos, .holy, duration: 0.6)
             shake = 2
-            toast("슬라임 킹을 쓰러뜨렸다!")
+            toast("\(m.def.name)을(를) 쓰러뜨렸다!")
+            pending.removeAll { !$0.fromPlayer && $0.map == map }
         }
-        let gold = Int.random(in: m.def.gold)
-        drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(9) - 4), y: m.pos.y + CGFloat(rng.int(5) - 2)), gold: gold, item: nil, at: time))
-        for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
-            drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(21) - 10), y: m.pos.y + CGFloat(rng.int(11) - 5)),
-                                    gold: 0, item: d.item, at: time))
+        if !m.summoned || rng.int(3) == 0 {
+            let gold = Int.random(in: m.def.gold) / (m.summoned ? 3 : 1)
+            drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(9) - 4), y: m.pos.y + CGFloat(rng.int(5) - 2)),
+                                    gold: gold, item: nil, at: time))
         }
-        grantXP(playerID, m.def.xp)
+        if !m.summoned {
+            for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance {
+                drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(25) - 12), y: m.pos.y + CGFloat(rng.int(13) - 6)),
+                                        gold: 0, item: d.item, at: time))
+            }
+        }
+        if let pi = pIndex(playerID) {
+            for q in players[pi].quests.indices where players[pi].quests[q].monster == m.def.id && !players[pi].quests[q].done {
+                players[pi].quests[q].progress += 1
+                if players[pi].quests[q].done { toast("의뢰 달성! 의뢰소에서 보상을 받으세요") }
+            }
+        }
+        // Farming far below your level barely pays: move on to the next zone.
+        let gap = (players.first { $0.id == playerID }?.level ?? 1) - m.def.level
+        let base = m.summoned ? m.def.xp / 3 : m.def.xp
+        grantXP(playerID, gap > 5 ? max(1, base / 5) : base)
     }
 
     private func grantXP(_ playerID: Int, _ amount: Int) {
@@ -606,24 +943,31 @@ final class RpgWorld {
         while players[i].level < RpgMaps.maxLevel, players[i].xp >= RpgMaps.xpNeeded(players[i].level) {
             players[i].xp -= RpgMaps.xpNeeded(players[i].level)
             players[i].level += 1
+            players[i].sp += players[i].level % 10 == 0 ? 2 : 1
             players[i].hp = players[i].maxHP
             players[i].mp = players[i].maxMP
             effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.0)
-            toast("레벨 업! Lv\(players[i].level)")
-            if players[i].level == 12 { toast("보스방이 열렸어요 (동굴 2층 북쪽)") }
+            toast("레벨 업! Lv\(players[i].level)  (스킬 포인트 +\(players[i].level % 10 == 0 ? 2 : 1))")
+            let unlock = RpgSkills.all.filter { $0.cls == players[i].cls && $0.minLevel == players[i].level }
+            for s in unlock { toast("\(s.name) 스킬북을 쓸 수 있는 레벨이 됐어요") }
         }
     }
 
     private func hurtPlayer(_ i: Int, _ raw: Double, from p: CGPoint) {
         guard !players[i].dead, players[i].invulnerable <= 0, players[i].dash == nil else { return }
-        let dmg = max(1, raw - players[i].defense * 0.5) * rand(0.9, 1.1)
+        var dmg = max(1, raw - players[i].defense * 0.5) * rand(0.9, 1.1)
+        if time < players[i].ironUntil { dmg *= 0.6 }
+        if time < players[i].shieldUntil {
+            let toMP = min(players[i].mp, dmg * 0.7)
+            players[i].mp -= toMP
+            dmg -= toMP
+        }
         players[i].hp -= dmg
         players[i].invulnerable = 0.55
         players[i].hurtFlash = 0.2
         players[i].lastHurt = time
         float("-\(Int(dmg))", players[i].map, players[i].pos, .hurt)
         shake = max(shake, 0.6)
-        // A small shove away from the hit.
         let dx = Double(players[i].pos.x - p.x), dy = Double(players[i].pos.y - p.y), d = max(1, hypot(dx, dy))
         let shove = CGPoint(x: players[i].pos.x + CGFloat(dx / d * 6), y: players[i].pos.y + CGFloat(dy / d * 6))
         if map(players[i].map).canStand(shove) { players[i].pos = shove }
@@ -631,6 +975,7 @@ final class RpgWorld {
             players[i].hp = 0
             players[i].dead = true
             players[i].respawnAt = time + 3
+            players[i].cycloneUntil = 0
             let lost = players[i].gold / 10
             players[i].gold -= lost
             toast(lost > 0 ? "쓰러졌다… 골드 \(lost)G를 잃었어요" : "쓰러졌다…")
@@ -648,19 +993,20 @@ final class RpgWorld {
             var mob = list[k]
             if mob.dead {
                 if time >= mob.respawnAt {
-                    mob = RpgMob(id: mob.id, def: mob.def, pos: mob.def.behavior == .boss ? mob.home : randomSpawn(m), home: mob.home, hp: Double(mob.def.hp))
-                    if mob.def.behavior != .boss { mob.home = mob.pos }
+                    let p = mob.def.behavior == .boss ? mob.home : randomSpawn(m)
+                    mob = RpgMob(id: mob.id, def: mob.def, pos: p, home: p, hp: Double(mob.def.hp))
                 }
                 list[k] = mob
                 continue
             }
             mob.hurtFlash = max(0, mob.hurtFlash - dt)
             mob.attackTimer = max(0, mob.attackTimer - dt)
-            if mob.burnTicks > 0, time >= mob.nextBurn {
-                mob.burnTicks -= 1
-                mob.nextBurn = time + 0.6
-                mob.hp -= mob.burnDamage
-                floaters.append(RpgFloater(text: "\(Int(mob.burnDamage))", map: mapID, pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 16), life: 0.6, style: .crit))
+            if mob.dotTicks > 0, time >= mob.nextDot {
+                mob.dotTicks -= 1
+                mob.nextDot = time + (mob.dotElement == .poison ? 0.5 : 0.6)
+                mob.hp -= mob.dotDamage
+                floaters.append(RpgFloater(text: "\(Int(mob.dotDamage))", map: mapID, pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 16), life: 0.6,
+                                           style: mob.dotElement == .poison ? .poison : .crit))
                 if mob.hp <= 0 {
                     list[k] = mob
                     mobs[mapID] = list
@@ -669,7 +1015,6 @@ final class RpgWorld {
                     continue
                 }
             }
-            // Knockback slides first.
             if hypot(mob.knock.dx, mob.knock.dy) > 1 {
                 let np = CGPoint(x: mob.pos.x + mob.knock.dx * CGFloat(dt), y: mob.pos.y + mob.knock.dy * CGFloat(dt))
                 if mob.flies || m.canStand(np) { mob.pos = np }
@@ -677,7 +1022,6 @@ final class RpgWorld {
             }
             if time < mob.stunUntil { list[k] = mob; continue }
             let speedK = time < mob.slowUntil ? 0.5 : 1.0
-            // Nearest player in reach.
             let nearest = here.min { dist(players[$0].pos, mob.pos) < dist(players[$1].pos, mob.pos) }
             if let t = mob.targetID, !here.contains(where: { players[$0].id == t }) { mob.targetID = nil }
             if mob.targetID == nil, let n = nearest {
@@ -692,7 +1036,7 @@ final class RpgWorld {
                 if d < aggro { mob.targetID = players[n].id; mob.aggroUntil = time + 8 }
             }
             if mob.targetID != nil, time > mob.aggroUntil, mob.def.behavior == .passive { mob.targetID = nil }
-            if dist(mob.pos, mob.home) > 260, mob.def.behavior != .boss { mob.targetID = nil; mob.wanderTo = mob.home }
+            if dist(mob.pos, mob.home) > 260, mob.def.behavior != .boss, !mob.summoned { mob.targetID = nil; mob.wanderTo = mob.home }
 
             let target = mob.targetID.flatMap { id in here.first { players[$0].id == id } }
             func walk(to goal: CGPoint, _ speed: Double) {
@@ -713,8 +1057,7 @@ final class RpgWorld {
                 if let t = target ?? nearest { bossThink(&mob, players[t], dt, mapID, &spawned) }
             case .coward:
                 if let n = nearest, dist(players[n].pos, mob.pos) < 90 {
-                    let away = CGPoint(x: mob.pos.x * 2 - players[n].pos.x, y: mob.pos.y * 2 - players[n].pos.y)
-                    walk(to: away, mob.def.speed)
+                    walk(to: CGPoint(x: mob.pos.x * 2 - players[n].pos.x, y: mob.pos.y * 2 - players[n].pos.y), mob.def.speed)
                 } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
             case .ranged:
                 if let t = target {
@@ -725,8 +1068,10 @@ final class RpgWorld {
                     if mob.attackTimer <= 0, d < 150 {
                         mob.attackTimer = 1.8
                         let dx = Double(players[t].pos.x - mob.pos.x), dy = Double(players[t].pos.y - mob.pos.y), l = max(1, hypot(dx, dy))
+                        let magic = mob.def.id == "shadowmage"
                         shots.append(RpgShot(pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 6), vel: CGVector(dx: dx / l * 150, dy: dy / l * 150), map: mapID,
-                                             fromPlayer: false, ownerID: mob.id, damage: Double(mob.def.attack), element: .base, kind: .mobArrow, life: 1.4))
+                                             fromPlayer: false, ownerID: mob.id, damage: Double(mob.def.attack), element: magic ? .cosmic : .base,
+                                             kind: magic ? .bossOrb : .mobArrow, life: 1.4))
                     }
                 } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
             default:
@@ -751,7 +1096,6 @@ final class RpgWorld {
             }
             list[k] = mob
         }
-        // Mobs push each other apart a little so packs do not stack into one sprite.
         for a in list.indices where !list[a].dead {
             for b in list.indices where b > a && !list[b].dead {
                 let dx = list[b].pos.x - list[a].pos.x, dy = list[b].pos.y - list[a].pos.y, d = hypot(dx, dy)
@@ -764,12 +1108,11 @@ final class RpgWorld {
                 if list[b].flies || m.canStand(pb) { list[b].pos = pb }
             }
         }
-        list.removeAll { $0.dead && $0.respawnAt.isInfinite && time - $0.diedAt > 1 }
+        list.removeAll { $0.dead && $0.summoned && time - $0.diedAt > 1 }
         list += spawned
         mobs[mapID] = list
     }
 
-    /// Where an idle monster ambles next (nil while it rests).
     private func wanderGoal(_ mob: inout RpgMob) -> CGPoint? {
         if time >= mob.nextWander {
             mob.nextWander = time + rand(2, 5)
@@ -780,71 +1123,117 @@ final class RpgWorld {
         return mob.wanderTo
     }
 
-    /// Slime King: chase and body-slam, then a jump onto the target, a ring of slime balls or a summon.
+    private enum BossMove { case chase, jump, ring, summon, marks, charge, blink }
+
+    private func bossMoves(_ style: RpgBossStyle) -> [BossMove] {
+        switch style {
+        case .slime: return [.chase, .jump, .ring, .summon]
+        case .golem: return [.chase, .jump, .marks, .ring, .summon]
+        case .yeti: return [.chase, .charge, .ring, .summon, .charge, .jump]
+        case .skeleton: return [.chase, .ring, .summon, .marks, .jump]
+        case .demon: return [.chase, .blink, .marks, .ring, .summon, .blink, .jump]
+        }
+    }
+
+    /// Bosses cycle through their move list; below 40% HP everything comes faster and harder.
     private func bossThink(_ mob: inout RpgMob, _ target: RpgPlayer, _ dt: Double, _ mapID: RpgMapID, _ spawned: inout [RpgMob]) {
         let enraged = mob.hp < Double(mob.def.hp) * 0.4
         let pace = enraged ? 0.7 : 1.0
+        let moves = bossMoves(mob.def.bossStyle)
+        let atk = Double(mob.def.attack)
+        let el = mob.def.element
         if time >= mob.phaseUntil {
-            mob.phase = (mob.phase + 1) % 4
-            switch mob.phase {
-            case 0:
+            mob.phase = (mob.phase + 1) % moves.count
+            mob.chargeDir = nil
+            switch moves[mob.phase] {
+            case .chase:
                 mob.phaseUntil = time + 2.6 * pace
-            case 1:
+            case .jump:
                 mob.jumpTarget = target.pos
                 mob.airborne = true
                 mob.phaseUntil = time + 1.0 * pace
-                effect(.telegraph(radius: 32, until: time + 1.0 * pace), mapID, target.pos, .base, duration: 1.0 * pace)
-            case 2:
+                effect(.telegraph(radius: 34), mapID, target.pos, .base, duration: 1.0 * pace)
+                schedule(1.0 * pace, mapID, target.pos, radius: 34, damage: atk * 1.5, owner: mob.id, fromPlayer: false, element: el, fx: .burst(radius: 34))
+            case .ring:
                 mob.phaseUntil = time + 1.6 * pace
-                for burst in 0..<(enraged ? 3 : 2) {
-                    for k in 0..<10 {
-                        let a = Double(k) / 10 * .pi * 2 + Double(burst) * 0.3
-                        shots.append(RpgShot(pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 10), vel: CGVector(dx: cos(a) * (100 + Double(burst) * 30), dy: sin(a) * (100 + Double(burst) * 30)),
-                                             map: mapID, fromPlayer: false, ownerID: mob.id, damage: Double(mob.def.attack) * 0.7, element: .base, kind: .slimeBall, life: 2.2))
+                for wave in 0..<(enraged ? 3 : 2) {
+                    let n = mob.def.bossStyle == .demon ? 16 : 12
+                    for k in 0..<n {
+                        let a = Double(k) / Double(n) * .pi * 2 + Double(wave) * 0.26
+                        let sp = 95 + Double(wave) * 30
+                        shots.append(RpgShot(pos: CGPoint(x: mob.pos.x, y: mob.pos.y - 12), vel: CGVector(dx: cos(a) * sp, dy: sin(a) * sp), map: mapID,
+                                             fromPlayer: false, ownerID: mob.id, damage: atk * 0.7, element: el,
+                                             kind: mob.def.bossStyle == .slime ? .slimeBall : .bossOrb, life: 2.4))
                     }
                 }
-            default:
+            case .summon:
                 mob.phaseUntil = time + 1.2 * pace
-                let alive = (mobs[mapID] ?? []).filter { !$0.dead && $0.def.behavior != .boss }.count + spawned.count
+                let alive = (mobs[mapID] ?? []).filter { !$0.dead && $0.summoned }.count + spawned.count
                 if alive < 8 {
-                    for k in 0..<3 {
+                    for k in 0..<(enraged ? 4 : 3) {
                         let a = Double(k) / 3 * .pi * 2
-                        let p = CGPoint(x: mob.pos.x + CGFloat(cos(a) * 30), y: mob.pos.y + CGFloat(sin(a) * 20))
-                        let def = RpgMonsters.def(enraged ? "blueslime" : "slime")
-                        var s = RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp) * 2)
+                        let p = CGPoint(x: mob.pos.x + CGFloat(cos(a) * 34), y: mob.pos.y + CGFloat(sin(a) * 22))
+                        let def = RpgMonsters.def(mob.def.minion)
+                        var s = RpgMob(id: newID(), def: def, pos: p, home: p, hp: Double(def.hp))
                         s.targetID = target.id
-                        s.aggroUntil = time + 20
-                        s.respawnAt = .infinity
+                        s.aggroUntil = time + 30
+                        s.summoned = true
                         spawned.append(s)
                     }
                     effect(.burst(radius: 34), mapID, mob.pos, .wind, duration: 0.4)
                 }
+            case .marks:
+                mob.phaseUntil = time + 1.8 * pace
+                let count = enraged ? 7 : 5
+                for k in 0..<count {
+                    let jitter = k == 0 ? CGPoint.zero : CGPoint(x: rand(-60, 60), y: rand(-40, 40))
+                    let c = CGPoint(x: target.pos.x + jitter.x, y: target.pos.y + jitter.y)
+                    let delay = 0.9 + Double(k) * 0.12
+                    effect(.telegraph(radius: 26), mapID, c, el, duration: delay)
+                    schedule(delay, mapID, c, radius: 26, damage: atk * 1.3, owner: mob.id, fromPlayer: false, element: el,
+                             fx: mob.def.bossStyle == .demon ? .meteor(radius: 26) : .burst(radius: 26))
+                }
+            case .charge:
+                mob.phaseUntil = time + 0.9
+                let dx = Double(target.pos.x - mob.pos.x), dy = Double(target.pos.y - mob.pos.y), l = max(1, hypot(dx, dy))
+                mob.chargeDir = CGVector(dx: dx / l, dy: dy / l)
+                effect(.telegraph(radius: 20), mapID, mob.pos, el, duration: 0.3)
+            case .blink:
+                mob.phaseUntil = time + 0.8
+                effect(.burst(radius: 30), mapID, mob.pos, .cosmic, duration: 0.3)
+                let a = rand(0, .pi * 2)
+                let p = CGPoint(x: target.pos.x + CGFloat(cos(a) * 50), y: target.pos.y + CGFloat(sin(a) * 34))
+                if map(mapID).canStand(p, radius: 10) { mob.pos = p }
+                effect(.burst(radius: 30), mapID, mob.pos, .cosmic, duration: 0.3)
             }
         }
-        switch mob.phase {
-        case 0:
+        switch moves[mob.phase] {
+        case .chase:
             let dx = Double(target.pos.x - mob.pos.x), dy = Double(target.pos.y - mob.pos.y), d = hypot(dx, dy)
             if d > 4 {
                 let s = min(d, mob.def.speed * (enraged ? 1.4 : 1) * dt)
-                mob.pos = CGPoint(x: mob.pos.x + CGFloat(dx / d * s), y: mob.pos.y + CGFloat(dy / d * s))
+                let np = CGPoint(x: mob.pos.x + CGFloat(dx / d * s), y: mob.pos.y + CGFloat(dy / d * s))
+                if map(mapID).canStand(np, radius: 8) { mob.pos = np }
                 mob.facingRight = dx > 0
             }
-            if d < 22, mob.attackTimer <= 0, let ti = pIndex(target.id) {
+            if d < 24, mob.attackTimer <= 0, let ti = pIndex(target.id) {
                 mob.attackTimer = 1
-                hurtPlayer(ti, Double(mob.def.attack), from: mob.pos)
+                hurtPlayer(ti, atk, from: mob.pos)
             }
-        case 1:
+        case .jump:
             if let jt = mob.jumpTarget, time >= mob.phaseUntil - 0.05 {
                 mob.pos = jt
                 mob.airborne = false
                 mob.jumpTarget = nil
-                effect(.burst(radius: 34), mapID, jt, .base, duration: 0.4)
                 shake = max(shake, 2)
-                for i in players.indices where players[i].map == mapID && dist(players[i].pos, jt) < 34 {
-                    hurtPlayer(i, Double(mob.def.attack) * 1.5, from: jt)
-                }
                 mob.phaseUntil = time + 0.5
-                mob.phase = 1
+            }
+        case .charge:
+            if let dir = mob.chargeDir {
+                let np = CGPoint(x: mob.pos.x + dir.dx * CGFloat(260 * dt), y: mob.pos.y + dir.dy * CGFloat(260 * dt))
+                if map(mapID).canStand(np, radius: 8) { mob.pos = np } else { mob.chargeDir = nil; shake = max(shake, 1.5) }
+                mob.facingRight = dir.dx > 0
+                for i in players.indices where players[i].map == mapID && dist(players[i].pos, mob.pos) < 22 { hurtPlayer(i, atk * 1.3, from: mob.pos) }
             }
         default: break
         }
@@ -860,7 +1249,8 @@ final class RpgWorld {
             s.pos.y += s.vel.dy * CGFloat(dt)
             let m = map(s.map)
             let foot = CGPoint(x: s.pos.x, y: s.pos.y + 6)
-            if m.isBlocked(foot), m.at(Int(foot.x / 16), Int(foot.y / 16)) != .water {
+            let tile = m.at(Int(foot.x / 16), Int(foot.y / 16))
+            if m.isBlocked(foot), tile != .water, tile != .lava {
                 if s.fromPlayer, s.element == .fire, s.kind == .orb { explode(s) }
                 continue
             }
@@ -871,16 +1261,14 @@ final class RpgWorld {
                     if s.kind == .orb, s.element == .fire {
                         explode(s)
                     } else {
-                        damageMob(v, map: s.map, base: s.damage, by: s.ownerID, element: s.element, skill: s.kind == .bigArrow)
+                        damageMob(v, map: s.map, base: s.damage, by: s.ownerID, element: s.element, skill: s.kind == .bigArrow || s.kind == .poisonArrow)
                     }
                     if !s.pierce { done = true; break }
                 }
                 if done { continue }
-            } else {
-                if let i = players.indices.first(where: { players[$0].map == s.map && !players[$0].dead && dist(players[$0].pos, foot) < 8 }) {
-                    hurtPlayer(i, s.damage, from: s.pos)
-                    continue
-                }
+            } else if let i = players.indices.first(where: { players[$0].map == s.map && !players[$0].dead && dist(players[$0].pos, foot) < 8 }) {
+                hurtPlayer(i, s.damage, from: s.pos)
+                continue
             }
             if s.life > 0 { keep.append(s) } else if s.fromPlayer, s.kind == .orb, s.element == .fire { explode(s) }
         }

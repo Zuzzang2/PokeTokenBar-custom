@@ -7,10 +7,11 @@ import Foundation
 
 enum RpgTileType: UInt8, Sendable {
     case grass, flower, path, stone, tree, water, rock, caveFloor, caveWall, torch, sand, bossFloor, fountain, darkGrass
+    case cactus, snow, pine, iceRock, ash, lava, castleFloor, castleWall, pillar, carpet, dune
 
     var blocks: Bool {
         switch self {
-        case .tree, .water, .rock, .caveWall, .fountain: return true
+        case .tree, .water, .rock, .caveWall, .fountain, .cactus, .pine, .iceRock, .lava, .castleWall, .pillar: return true
         default: return false
         }
     }
@@ -18,8 +19,8 @@ enum RpgTileType: UInt8, Sendable {
 
 struct RpgBuilding: Sendable {
     let x: Int, y: Int, w: Int, h: Int
-    let shop: RpgShop
-    /// Pixel point in front of the door where the shopkeeper stands.
+    let place: RpgPlace
+    /// Pixel point in front of the door where the keeper stands.
     var door: CGPoint { CGPoint(x: CGFloat(x * 16 + w * 8), y: CGFloat((y + h) * 16 + 10)) }
 }
 
@@ -35,9 +36,19 @@ struct RpgMap: Sendable {
     var width: Int { def.width }
     var height: Int { def.height }
     var pixelSize: CGSize { CGSize(width: CGFloat(width) * Self.tile, height: CGFloat(height) * Self.tile) }
+    /// Caves and boss rooms are dark; the castle is dim.
+    var darkness: Double {
+        switch def.kind {
+        case .cave: return 0.82
+        case .boss: return def.zone == .castle ? 0.6 : 0.5
+        case .castle: return 0.5
+        case .volcano: return 0.25
+        default: return 0
+        }
+    }
 
     func at(_ x: Int, _ y: Int) -> RpgTileType {
-        guard x >= 0, y >= 0, x < width, y < height else { return def.kind == .cave || def.kind == .boss ? .caveWall : .tree }
+        guard x >= 0, y >= 0, x < width, y < height else { return wallType }
         return tiles[y * width + x]
     }
 
@@ -70,8 +81,12 @@ struct RpgMap: Sendable {
         var rng = KartRNG(seed: def.seed &* 0x9E37_79B9)
         switch def.kind {
         case .town: buildTown()
-        case .field: buildOutdoor(&rng, floor: .grass, treeDensity: 7, rockDensity: 3, ponds: 2, flowers: 60)
-        case .forest: buildOutdoor(&rng, floor: .darkGrass, treeDensity: 20, rockDensity: 3, ponds: 1, flowers: 25)
+        case .field: buildOutdoor(&rng, floor: .grass, obstacle: .tree, density: 7, rocks: 3, pools: 2, poolTile: .water, decor: .flower, decorCount: 60)
+        case .forest: buildOutdoor(&rng, floor: .darkGrass, obstacle: .tree, density: 20, rocks: 3, pools: 1, poolTile: .water, decor: .flower, decorCount: 25)
+        case .desert: buildOutdoor(&rng, floor: .sand, obstacle: .cactus, density: 5, rocks: 4, pools: 1, poolTile: .water, decor: .dune, decorCount: 120)
+        case .snow: buildOutdoor(&rng, floor: .snow, obstacle: .pine, density: 12, rocks: 4, pools: 2, poolTile: .iceRock, decor: .snow, decorCount: 0)
+        case .volcano: buildOutdoor(&rng, floor: .ash, obstacle: .rock, density: 6, rocks: 3, pools: 4, poolTile: .lava, decor: .ash, decorCount: 0)
+        case .castle: buildCastle(&rng)
         case .pond: buildPond(&rng)
         case .cave: buildCave(&rng)
         case .boss: buildBoss()
@@ -79,7 +94,7 @@ struct RpgMap: Sendable {
         // Every portal and arrival point gets breathing room.
         for p in def.portals { clear(around: p.at, radius: 1) }
         for other in RpgMaps.all {
-            for p in other.portals where p.to == def.id { clear(around: p.arrive, radius: 1) }
+            for p in other.portals where p.to == def.id && !p.waypoint { clear(around: p.arrive, radius: 1) }
         }
         collectSpawns(&rng)
     }
@@ -90,7 +105,22 @@ struct RpgMap: Sendable {
         case .boss: return .bossFloor
         case .town: return .stone
         case .forest: return .darkGrass
+        case .desert: return .sand
+        case .snow: return .snow
+        case .volcano: return .ash
+        case .castle: return .castleFloor
         default: return .grass
+        }
+    }
+
+    private var wallType: RpgTileType {
+        switch def.kind {
+        case .cave, .boss: return .caveWall
+        case .castle: return .castleWall
+        case .desert: return .cactus
+        case .snow: return .pine
+        case .volcano: return .rock
+        default: return .tree
         }
     }
 
@@ -128,38 +158,67 @@ struct RpgMap: Sendable {
         for i in tiles.indices { tiles[i] = .grass }
         for y in 4..<(height - 3) { for x in 3..<(width - 3) { set(x, y, .stone) } }
         border(.tree)
-        // Opening in the east hedge for the portal road.
+        // Openings in the hedge: east road to the field, west for the 차원문.
         for y in 9...13 { for x in (width - 3)..<width { set(x, y, .path) } }
         for x in 16..<(width - 1) { for y in 10...12 { set(x, y, .path) } }
+        for y in 10...12 { for x in 0..<4 { set(x, y, .stone) } }
         set(15, 12, .fountain); set(16, 12, .fountain); set(15, 13, .fountain); set(16, 13, .fountain)
         buildings = [
-            RpgBuilding(x: 4, y: 3, w: 5, h: 4, shop: .weapon),
-            RpgBuilding(x: 13, y: 3, w: 5, h: 4, shop: .armor),
-            RpgBuilding(x: 22, y: 3, w: 5, h: 4, shop: .potion),
+            RpgBuilding(x: 4, y: 3, w: 5, h: 4, place: .shop(.weapon)),
+            RpgBuilding(x: 13, y: 3, w: 5, h: 4, place: .shop(.armor)),
+            RpgBuilding(x: 22, y: 3, w: 5, h: 4, place: .shop(.potion)),
+            RpgBuilding(x: 5, y: 15, w: 5, h: 4, place: .smith),
+            RpgBuilding(x: 22, y: 15, w: 5, h: 4, place: .shop(.skill)),
+            RpgBuilding(x: 14, y: 16, w: 3, h: 2, place: .board),
         ]
-        for (x, y) in [(4, 16), (8, 18), (24, 17), (27, 18), (3, 10), (11, 17)] { set(x, y, .flower) }
-        for (x, y) in [(6, 15), (26, 15)] { set(x, y, .tree) }
+        for (x, y) in [(4, 20), (11, 20), (20, 20), (27, 20), (3, 14), (12, 14)] { set(x, y, .flower) }
     }
 
-    private mutating func buildOutdoor(_ rng: inout KartRNG, floor: RpgTileType, treeDensity: Int, rockDensity: Int, ponds: Int, flowers: Int) {
+    private mutating func buildOutdoor(_ rng: inout KartRNG, floor: RpgTileType, obstacle: RpgTileType, density: Int, rocks: Int, pools: Int,
+                                       poolTile: RpgTileType, decor: RpgTileType, decorCount: Int) {
         for i in tiles.indices { tiles[i] = floor }
+        let rockTile: RpgTileType = def.kind == .snow ? .iceRock : .rock
         for y in 0..<height {
             for x in 0..<width {
                 let r = rng.int(100)
-                if r < treeDensity { set(x, y, .tree) } else if r < treeDensity + rockDensity { set(x, y, .rock) }
+                if r < density { set(x, y, obstacle) } else if r < density + rocks { set(x, y, rockTile) }
             }
         }
-        for _ in 0..<ponds {
-            blob(6 + rng.int(width - 12), 5 + rng.int(height - 10), rx: Double(3 + rng.int(3)), ry: Double(2 + rng.int(2)), .water)
+        for _ in 0..<pools {
+            blob(6 + rng.int(width - 12), 5 + rng.int(height - 10), rx: Double(3 + rng.int(3)), ry: Double(2 + rng.int(2)), poolTile)
         }
         // Clearings for monsters to roam.
-        for _ in 0..<5 { blob(5 + rng.int(width - 10), 4 + rng.int(height - 8), rx: Double(3 + rng.int(3)), ry: Double(3 + rng.int(2)), floor) }
-        border(.tree)
+        for _ in 0..<6 { blob(5 + rng.int(width - 10), 4 + rng.int(height - 8), rx: Double(3 + rng.int(3)), ry: Double(3 + rng.int(2)), floor) }
+        border(obstacle)
         let hub = RpgTile(x: width / 2, y: height / 2)
-        for p in def.portals { carve(from: p.at, to: hub, with: .path) }
-        for _ in 0..<flowers {
+        for p in def.portals { carve(from: p.at, to: hub, with: def.kind == .volcano ? .ash : .path) }
+        for _ in 0..<decorCount {
             let x = rng.int(width), y = rng.int(height)
-            if at(x, y) == floor { set(x, y, .flower) }
+            if at(x, y) == floor { set(x, y, decor) }
+        }
+    }
+
+    private mutating func buildCastle(_ rng: inout KartRNG) {
+        for i in tiles.indices { tiles[i] = .castleFloor }
+        border(.castleWall)
+        // Great halls separated by walls with doorways, pillars in rows.
+        for wx in stride(from: 12, to: width - 4, by: 12) {
+            for y in 2..<(height - 2) { set(wx, y, .castleWall) }
+            for gap in [height / 4, height / 2, 3 * height / 4] { for y in (gap - 1)...(gap + 1) { set(wx, y, .castleFloor) } }
+        }
+        for y in stride(from: 5, to: height - 4, by: 6) {
+            for x in stride(from: 4, to: width - 4, by: 4) where at(x, y) == .castleFloor && rng.int(3) > 0 { set(x, y, .pillar) }
+        }
+        let hub = RpgTile(x: width / 2, y: height / 2)
+        for p in def.portals { carve(from: p.at, to: hub, with: .carpet) }
+        var placed = 0, tries = 0
+        while placed < 22, tries < 3000 {
+            tries += 1
+            let x = 2 + rng.int(width - 4), y = 3 + rng.int(height - 5)
+            guard at(x, y) == .castleFloor, at(x, y - 1) == .castleWall else { continue }
+            set(x, y, .torch)
+            torches.append(RpgTile(x: x, y: y))
+            placed += 1
         }
     }
 
@@ -192,7 +251,6 @@ struct RpgMap: Sendable {
         border(.caveWall)
         let hub = RpgTile(x: width / 2, y: height / 2)
         for p in def.portals { carve(from: p.at, to: hub, with: .caveFloor) }
-        // Torches on floor tiles hugging a wall.
         var placed = 0, tries = 0
         while placed < 18, tries < 4000 {
             tries += 1
@@ -207,8 +265,9 @@ struct RpgMap: Sendable {
     private mutating func buildBoss() {
         for i in tiles.indices { tiles[i] = .caveWall }
         blob(width / 2, height / 2 - 1, rx: 11, ry: 8, .bossFloor)
-        carve(from: def.portals[0].at, to: RpgTile(x: width / 2, y: height / 2), with: .bossFloor)
+        for p in def.portals { carve(from: p.at, to: RpgTile(x: width / 2, y: height / 2), with: .bossFloor) }
         border(.caveWall, thickness: 1)
+        for p in def.portals where p.at.x == 0 || p.at.x >= width - 2 || p.at.y == 0 || p.at.y >= height - 2 { clear(around: p.at, radius: 1) }
         for k in 0..<10 {
             let a = Double(k) / 10 * .pi * 2
             let x = width / 2 + Int((cos(a) * 9.5).rounded()), y = height / 2 - 1 + Int((sin(a) * 6.8).rounded())
@@ -219,7 +278,7 @@ struct RpgMap: Sendable {
     private mutating func collectSpawns(_ rng: inout KartRNG) {
         let keepAway = def.portals.map(\.at) + RpgMaps.all.flatMap { m in m.portals.filter { $0.to == def.id }.map(\.arrive) }
         for y in 0..<height {
-            for x in 0..<width where !at(x, y).blocks && at(x, y) != .water {
+            for x in 0..<width where !at(x, y).blocks {
                 let near = keepAway.contains { abs($0.x - x) + abs($0.y - y) < 7 }
                 if !near, !isBlocked(Self.center(RpgTile(x: x, y: y))) { spawnTiles.append(RpgTile(x: x, y: y)) }
             }
