@@ -302,6 +302,9 @@ struct RpgTrap: Codable, Sendable {
     let damage: Double
     let expires: Double
     let armedAt: Double
+    /// A turret (mechanic) instead of a mine: shoots the nearest monster every half second until it expires.
+    var turret: Bool? = nil
+    var nextShot: Double? = nil
 }
 
 struct RpgFloater: Codable, Sendable {
@@ -1005,6 +1008,10 @@ final class RpgWorld {
             }
         case .summoner:
             fire(from: p, angle: angle, kind: .orb, damage: atk * 1.1, speed: 120, range: 160, element: p.element == .base ? .cosmic : p.element)
+        case .mechanic:
+            // Two bullets a shot, the second a beat behind.
+            fire(from: p, angle: angle, kind: .arrow, damage: atk * 0.62, speed: 300, range: 150)
+            fire(from: p, angle: angle + 0.04, kind: .arrow, damage: atk * 0.62, speed: 280, range: 150)
         }
     }
 
@@ -1477,6 +1484,18 @@ final class RpgWorld {
                 schedule(Double(k) * fx.interval, p.map, ahead(p, Double(k) * fx.dist), radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: blast(fx.radius * 0.7))
             }
             shake = max(shake, 0.6)
+        case .trap:
+            for k in 1...max(1, fx.count) {
+                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * fx.dist), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4))
+            }
+            toast("지뢰 설치!")
+        case .turret:
+            for k in 0..<fx.count {
+                let off = (Double(k) - Double(fx.count - 1) / 2) * 16
+                let c = CGPoint(x: ahead(p, 18).x + CGFloat(-sin(angle) * off), y: ahead(p, 18).y + CGFloat(cos(angle) * off))
+                traps.append(RpgTrap(map: p.map, pos: map(p.map).canStand(c) ? c : p.pos, ownerID: p.id, damage: power, expires: time + fx.seconds, armedAt: 0, turret: true, nextShot: time + 0.3))
+            }
+            toast("터렛 설치!")
         case .buff:
             let until = time + fx.seconds
             let others = fx.flags.contains("stealth") || fx.flags.contains("frenzy") ? [i] : alliesNear(p, fx.radius)
@@ -1575,7 +1594,19 @@ final class RpgWorld {
     private func stepTraps() {
         guard !traps.isEmpty else { return }
         var keep: [RpgTrap] = []
-        for t in traps {
+        for var t in traps {
+            if t.turret == true {
+                guard time < t.expires else { continue }
+                if time >= (t.nextShot ?? 0),
+                   let target = (mobs[t.map] ?? []).filter({ !$0.dead && !$0.airborne && dist($0.pos, t.pos) < 160 }).min(by: { dist($0.pos, t.pos) < dist($1.pos, t.pos) }) {
+                    let a = atan2(Double(target.pos.y - t.pos.y), Double(target.pos.x - t.pos.x))
+                    shots.append(RpgShot(pos: CGPoint(x: t.pos.x, y: t.pos.y - 6), vel: CGVector(dx: cos(a) * 300, dy: sin(a) * 300), map: t.map,
+                                         fromPlayer: true, ownerID: t.ownerID, damage: t.damage, element: .base, kind: .arrow, life: 0.6))
+                    t.nextShot = time + 0.5
+                }
+                keep.append(t)
+                continue
+            }
             let triggered = time >= t.armedAt && !mobIDs(near: t.pos, radius: 10, map: t.map).isEmpty
             if triggered || time >= t.expires {
                 if triggered {

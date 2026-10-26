@@ -19,6 +19,10 @@ struct RpgSkillFX: Sendable {
         case line
         /// Buffs (`flags`) and heals (`heal` of max HP) for allies within `radius` for `seconds`.
         case buff
+        /// `count` mines `dist` apart ahead of the caster; they go off when a monster steps on them.
+        case trap
+        /// `count` turrets that shoot the nearest monster twice a second for `seconds`.
+        case turret
     }
 
     var shape: Shape
@@ -54,6 +58,8 @@ extension RpgSkillFX {
     static func line(_ n: Int, gap: Double = 16, r: Double = 18, every: Double = 0.05, stun: Double = 0, _ e: RpgElement? = nil) -> Self {
         Self(shape: .line, count: n, radius: r, dist: gap, interval: every, element: e, stun: stun)
     }
+    static func trap(_ n: Int, gap: Double = 20) -> Self { Self(shape: .trap, count: n, dist: gap) }
+    static func turret(_ n: Int, seconds: Double = 15) -> Self { Self(shape: .turret, count: n, seconds: seconds) }
     static func buff(_ flags: [String], seconds: Double = 12, heal: Double = 0, r: Double = 90) -> Self {
         Self(shape: .buff, radius: r, heal: heal, seconds: seconds, flags: flags)
     }
@@ -80,6 +86,7 @@ enum RpgTiers {
         "cleric1": ["성전사", "신성 군주"], "cleric2": ["추기경", "대천사"],
         "monk1": ["투신", "천무 대종사"], "monk2": ["선승", "열반의 성자"],
         "summoner1": ["리치", "죽음의 군주"], "summoner2": ["드래곤 테이머", "신수의 주인"],
+        "mechanic1": ["전차병", "강철의 사령관"], "mechanic2": ["메카 마스터", "기계 군주"],
     ]
 
     private static func key(_ cls: RpgClass, _ job: Int) -> String { "\(cls.rawValue)\(job)" }
@@ -200,6 +207,18 @@ enum RpgTiers {
             ("야수 대군", 54, 13, 2.6, "야수 무리가 앞쪽을 여섯 번 덮친다", .zone(6, r: 52, ahead: 40, every: 0.2)),
             ("신수 강림", 68, 22, 5.0, "신수가 하늘에서 열 번 내리꽂는다", .rain(10, r: 32, scatter: 120, .wind)),
             ("정령 대폭풍", 86, 30, 3.0, "정령들이 주변을 여섯 번 휘몰아친다", .zone(6, r: 112, every: 0.3, .wind)),
+        ])
+        add(.mechanic, 1, [
+            ("레일건", 40, 10, 7.0, "화면 끝까지 꿰뚫는 레일건 한 발", .shot(1, big: true, speed: 520, range: 440)),
+            ("집속 폭탄", 54, 14, 4.6, "집속 폭탄 일곱 발이 떨어진다", .rain(7, r: 34, .fire)),
+            ("궤도 폭격", 68, 22, 5.4, "궤도에서 열두 발의 폭격이 쏟아진다", .rain(12, r: 36, scatter: 120, .cosmic)),
+            ("철벽 전차", 86, 45, 0, "20초간 피해 감소·공격력 상승 + HP 30% 회복", .buff(["iron", "rage"], seconds: 20, heal: 0.3, r: 100)),
+        ])
+        add(.mechanic, 2, [
+            ("터렛 군단", 42, 18, 0.8, "20초간 터렛 네 대를 설치한다", .turret(4, seconds: 20)),
+            ("드론 편대", 56, 14, 3.4, "드론 편대가 열 명을 차례로 공격한다", .chain(10, reach: 200, .thunder)),
+            ("자동 요새", 70, 30, 1.0, "25초간 터렛 여섯 대를 설치한다", .turret(6, seconds: 25)),
+            ("기계 군주의 심판", 88, 28, 2.6, "기계 군주의 전격이 주변에 여섯 번 터진다", .zone(6, r: 110, every: 0.25, .thunder)),
         ])
         return out
     }()

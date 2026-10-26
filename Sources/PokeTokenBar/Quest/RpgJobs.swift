@@ -52,6 +52,10 @@ enum RpgJobs {
                   hp: 1.3, mp: 1.1, attack: 1, defense: 1.3, crit: 0, interval: 1, skills: ["j_asc1", "j_asc2"]),
         RpgJobDef(cls: .summoner, job: 1, name: "사령술사", blurb: "죽은 자를 부리는 소환사. 공격력·MP가 크게 올라요.",
                   hp: 0.95, mp: 1.2, attack: 1.3, defense: 1, crit: 0.05, interval: 1, skills: ["j_nec1", "j_nec2"]),
+        RpgJobDef(cls: .mechanic, job: 1, name: "중화기병", blurb: "화력과 방어를 겸비한 중장비 병사. 공격력·방어력이 올라요.",
+                  hp: 1.2, mp: 1, attack: 1.2, defense: 1.25, crit: 0.04, interval: 1.1, skills: ["j_x1a", "j_x1b"]),
+        RpgJobDef(cls: .mechanic, job: 2, name: "로봇공학자", blurb: "터렛과 로봇을 부리는 기술자. MP가 크게 오르고 공격이 빨라져요.",
+                  hp: 1.1, mp: 1.4, attack: 1.1, defense: 1, crit: 0.05, interval: 0.95, skills: ["j_x2a", "j_x2b"]),
         RpgJobDef(cls: .summoner, job: 2, name: "야수 조련사", blurb: "맹수와 정령왕을 부리는 소환사. HP가 오르고 소환이 강해져요.",
                   hp: 1.25, mp: 1.1, attack: 1.1, defense: 1.1, crit: 0.03, interval: 0.95, skills: ["j_beast1", "j_beast2"]),
     ]
@@ -74,6 +78,8 @@ enum RpgJobs {
         case (.monk, 2): return ["F": c(60, 120, 200), "f": c(130, 190, 255)]
         case (.summoner, 1): return ["E": c(100, 60, 140), "e": c(60, 30, 90), "A": c(40, 40, 60)]
         case (.summoner, 2): return ["E": c(180, 120, 50), "e": c(120, 76, 30), "A": c(90, 140, 60)]
+        case (.mechanic, 1): return ["F": c(90, 100, 120), "f": c(150, 160, 180), "O": c(255, 120, 60)]
+        case (.mechanic, 2): return ["F": c(60, 150, 90), "f": c(130, 220, 150), "O": c(120, 255, 200)]
         default: return [:]
         }
     }
@@ -82,8 +88,8 @@ enum RpgJobs {
     static func def(_ cls: RpgClass, _ job: Int, tier: Int = 1) -> RpgJobDef? { RpgTiers.def(cls, job, tier: tier) }
 
     /// Job skills are kept out of `RpgSkills.all` so they never become skill books, shop stock or quest rewards.
-    private static func s(_ id: String, _ name: String, _ cls: RpgClass, _ lv: Int, _ mp: Int, _ cd: Double, _ power: Double, _ desc: String) -> RpgSkillDef {
-        RpgSkillDef(id: id, name: name, cls: cls, minLevel: lv, mp: mp, cooldown: cd, power: power, maxLevel: 10, price: 0, starter: false, desc: desc)
+    private static func s(_ id: String, _ name: String, _ cls: RpgClass, _ lv: Int, _ mp: Int, _ cd: Double, _ power: Double, _ desc: String, fx: RpgSkillFX? = nil) -> RpgSkillDef {
+        RpgSkillDef(id: id, name: name, cls: cls, minLevel: lv, mp: mp, cooldown: cd, power: power, maxLevel: 10, price: 0, starter: false, desc: desc, fx: fx)
     }
 
     static let skills: [RpgSkillDef] = [
@@ -115,5 +121,9 @@ enum RpgJobs {
         s("j_nec2", "죽음의 파동", .summoner, 30, 40, 14, 1.8, "죽음의 파동이 세 겹으로 퍼진다"),
         s("j_beast1", "맹수 소환", .summoner, 20, 24, 8, 1.7, "맹수들이 부채꼴로 덮친다"),
         s("j_beast2", "정령왕 강림", .summoner, 30, 46, 20, 2.3, "정령왕이 운석을 여덟 번 내리꽂는다"),
+        s("j_x1a", "집중포화", .mechanic, 20, 22, 7, 0.9, "총알 열두 발을 넓게 퍼붓는다", fx: .shot(12, spread: 0.09, speed: 330, range: 190)),
+        s("j_x1b", "전차포", .mechanic, 30, 38, 14, 5.0, "모든 것을 꿰뚫는 강력한 포탄", fx: .shot(1, big: true, speed: 260, range: 300)),
+        s("j_x2a", "듀얼 터렛", .mechanic, 20, 28, 16, 0.7, "18초간 터렛 두 대를 설치한다", fx: .turret(2, seconds: 18)),
+        s("j_x2b", "전투 로봇", .mechanic, 30, 40, 14, 2.2, "전투 로봇이 여덟 명을 차례로 공격한다", fx: .chain(8, reach: 200, .thunder)),
     ]
 }

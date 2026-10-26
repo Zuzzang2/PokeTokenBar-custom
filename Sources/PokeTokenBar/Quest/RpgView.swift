@@ -420,7 +420,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.fill(f, KartArt.rgb(255, 200, 60), p.x - 1, p.y - 7 - CGFloat(flick % 2), 3, 3)
             KartArt.fill(f, KartArt.rgb(255, 250, 200), p.x, p.y - 6, 1, 1)
         }
-        for trap in world.traps where trap.map == me.map { RpgArt.trap(f, at: trap.pos, time: t) }
+        for trap in world.traps where trap.map == me.map { trap.turret == true ? RpgArt.turret(f, at: trap.pos, time: t) : RpgArt.trap(f, at: trap.pos, time: t) }
         for g in world.graves where g.map == me.map { RpgArt.grave(f, at: CGPoint(x: g.x, y: g.y)) }
         for d in world.drops where d.map == me.map {
             let reserved = d.owner != nil && d.owner != localID && t - d.at < 30

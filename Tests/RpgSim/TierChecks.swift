@@ -3,7 +3,7 @@ import Foundation
 
 /// 3차·4차 전직: gating by level and gold, skills learned, stronger multipliers, template skills present for every branch.
 func tierChecks() {
-    check(RpgTiers.skills.count == 56 && RpgTiers.skills.allSatisfy { $0.fx != nil }, "56 template skills for the 3차·4차 jobs")
+    check(RpgTiers.skills.count == 64 && RpgTiers.skills.allSatisfy { $0.fx != nil }, "64 template skills for the 3차·4차 jobs")
     for cls in RpgClass.allCases {
         for job in 1...2 {
             let t1 = RpgJobs.def(cls, job)!, t2 = RpgJobs.def(cls, job, tier: 2)!, t3 = RpgJobs.def(cls, job, tier: 3)!

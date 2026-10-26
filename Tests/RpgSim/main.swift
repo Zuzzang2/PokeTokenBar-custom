@@ -521,7 +521,7 @@ do {
 
 // MARK: seven classes
 do {
-    check(RpgClass.allCases.count == 7, "there are 7 classes")
+    check(RpgClass.allCases.count == 8, "there are 8 classes")
     for cls in RpgClass.allCases {
         let weapons = (0..<9).allSatisfy { RpgItems.item("\(cls.weaponPrefix)\($0)")?.kind == .weapon(cls) }
         check(weapons && RpgItems.item(cls.starterWeapon) != nil, "\(cls.name) has nine weapon tiers")
@@ -544,7 +544,7 @@ do {
             check(got.job == job && got.skills[first] != nil, "\(cls.name) job \(job) (\(RpgJobs.def(cls, job)!.name)) advances and learns \(first)")
         }
     }
-    check(RpgJobs.all.count == 14 && RpgJobs.skills.count == 28, "14 advanced jobs with 28 job skills")
+    check(RpgJobs.all.count == 16 && RpgJobs.skills.count == 32, "16 advanced jobs with 32 job skills")
 }
 
 /// A level-60 player of `cls` standing in the thickest cluster of desert monsters, hurt, with `skill` on slot 0.

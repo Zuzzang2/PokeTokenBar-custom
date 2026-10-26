@@ -68,6 +68,11 @@ enum RpgArt {
         "....KSKSSKSK....", "....KSSSSSSK....", ".....KSSSSK.....", "....KKEEEEKK....", "...KEKEEEEKEK...", "...KSKeEEeKSK...",
         "....KEEEEEEK....", "...KEEEEEEEEK...", "...KeeeeeeeeK...", "....KKKKKKKK....",
     ]
+    static let mechanic: RpgGrid = [
+        "................", ".....KKKKKK.....", "....KFFFFFFK....", "....KFFYYFFK....", "....KKKKKKKK....", "....KOKSSKOK....",
+        "....KSSSSSSK....", ".....KSSSSK.....", "....KKFFFFKK....", "...KZKFfFFKZK...", "...KSKFFFFKSK...", "....KKFFFFKK....",
+        "....KFFKKFFK....", "....KzzKKzzK....", "....KzzKKzzK....", "....KKK..KKK....",
+    ]
     static let villager: RpgGrid = [
         "......KKKK......", ".....KHHHHK.....", "....KHHHHHHK....", "....KHSSSSHK....", "....KSKSSKSK....", "....KSSSSSSK....",
         ".....KSSSSK.....", "....KKWWWWKK....", "...KCKWWWWKCK...", "...KSKWWWWKSK...", "....KKWWWWKK....", "....KCCCCCCK....",
@@ -124,6 +129,7 @@ enum RpgArt {
         "warrior": SpriteSpec(grid: warrior, swap: [:]), "archer": SpriteSpec(grid: archer, swap: [:]),
         "mage": SpriteSpec(grid: mage, swap: [:]), "villager": SpriteSpec(grid: villager, swap: [:]),
         "rogue": SpriteSpec(grid: rogue, swap: [:]), "cleric": SpriteSpec(grid: cleric, swap: [:]), "monk": SpriteSpec(grid: monk, swap: [:]),
+        "mechanic": SpriteSpec(grid: mechanic, swap: [:]),
         "summoner": SpriteSpec(grid: summoner, swap: ["E": rgb(70, 150, 170), "e": rgb(40, 100, 120)]),
         "slime": SpriteSpec(grid: slime, swap: [:]),
         "blueslime": SpriteSpec(grid: slime, swap: ["E": rgb(100, 160, 255), "e": rgb(50, 96, 200)]),
@@ -291,7 +297,7 @@ enum RpgArt {
         let e = elem(w.element)
         switch cls {
         case .warrior: return ["B": e.mid]
-        case .archer, .mage, .cleric, .summoner: return ["Y": e.mid]
+        case .archer, .mage, .cleric, .summoner, .mechanic: return ["Y": e.mid]
         case .rogue, .monk: return ["R": e.mid]
         }
     }
@@ -316,6 +322,11 @@ enum RpgArt {
     private static let clawT: RpgGrid = [
         "................", "....K.K.K.......", "....KBKBKBK.....", "...KBBBBBBBK....", "..KBWBBBBBEK....", "..KBBBBBBEEK....",
         "..KBBEEEEEEK....", "...KGGGGGGK.....", "...KGHHHHGK.....", "....KGGGGK......", "....KKKKKK......", "................",
+        "................", "................", "................", "................",
+    ]
+    private static let gunT: RpgGrid = [
+        "................", "................", "...KKKKKKKKKKK..", "..KBBBBBBBBBEEK.", "..KBWBBBBBBBEEK.", "..KKKKGGKKKKKK..",
+        "......KGGK......", "......KGHK......", ".....KHHHK......", ".....KHHK.......", ".....KKKK.......", "................",
         "................", "................", "................", "................",
     ]
     private static let rodT: RpgGrid = [
@@ -451,7 +462,7 @@ enum RpgArt {
             case .warrior: table = swords
             case .archer: table = bows
             case .mage: table = staffs
-            case .rogue, .cleric, .monk, .summoner: table = shared
+            case .rogue, .cleric, .monk, .summoner, .mechanic: table = shared
             }
             return table[min(item.tier, table.count - 1)]
         case .armor:
@@ -492,6 +503,7 @@ enum RpgArt {
             case .cleric: (rgb(240, 230, 170), rgb(190, 170, 90))
             case .monk: (rgb(230, 130, 50), rgb(160, 80, 20))
             case .summoner: (rgb(50, 160, 170), rgb(25, 100, 110))
+            case .mechanic: (rgb(255, 130, 50), rgb(120, 80, 50))
             }
             return ["B": cover.0, "E": cover.1, "J": rgb(240, 200, 70)]
         case .stone:
@@ -541,6 +553,7 @@ enum RpgArt {
             case .cleric: template = maceT
             case .monk: template = clawT
             case .summoner: template = rodT
+            case .mechanic: template = gunT
             }
         case .armor: template = armorT
         case .potionHP, .potionMP: template = potionT
@@ -825,6 +838,18 @@ enum RpgArt {
         KartArt.fill(ctx, outline, p.x - 3, p.y - 6 + bob, 6, 7)
         KartArt.fill(ctx, rgb(255, 210, 60), p.x - 2, p.y - 5 + bob, 4, 5)
         KartArt.fill(ctx, rgb(255, 250, 190), p.x - 1, p.y - 5 + bob, 1, 2)
+    }
+
+    static func turret(_ ctx: CGContext, at p: CGPoint, time: Double) {
+        let blink = Int(time * 6) % 2 == 0
+        KartArt.fill(ctx, rgb(0, 0, 0, 0.25), p.x - 6, p.y + 1, 12, 3)
+        KartArt.fill(ctx, outline, p.x - 5, p.y - 4, 10, 6)
+        KartArt.fill(ctx, rgb(120, 130, 150), p.x - 4, p.y - 3, 8, 4)
+        KartArt.fill(ctx, outline, p.x - 3, p.y - 9, 6, 6)
+        KartArt.fill(ctx, rgb(255, 140, 50), p.x - 2, p.y - 8, 4, 4)
+        KartArt.fill(ctx, outline, p.x + 2, p.y - 7, 5, 2)
+        KartArt.fill(ctx, rgb(180, 190, 205), p.x + 3, p.y - 7, 3, 1)
+        KartArt.fill(ctx, blink ? rgb(120, 255, 160) : rgb(40, 120, 60), p.x - 1, p.y - 6, 1, 1)
     }
 
     static func trap(_ ctx: CGContext, at p: CGPoint, time: Double) {

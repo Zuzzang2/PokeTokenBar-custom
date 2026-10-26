@@ -6,10 +6,10 @@ import Foundation
 // is a plain Sendable value so a lobby host can later run the same world for nearby players.
 
 enum RpgClass: String, Codable, CaseIterable, Sendable {
-    case warrior, archer, mage, rogue, cleric, monk, summoner
+    case warrior, archer, mage, rogue, cleric, monk, summoner, mechanic
 
     private var index: Int { Self.allCases.firstIndex(of: self)! }
-    var name: String { ["전사", "궁수", "마법사", "도적", "성직자", "격투가", "소환사"][index] }
+    var name: String { ["전사", "궁수", "마법사", "도적", "성직자", "격투가", "소환사", "메카닉"][index] }
     var blurb: String {
         switch self {
         case .warrior: return "튼튼한 몸과 검으로 앞에서 싸워요. 버프와 광역기가 강해요."
@@ -19,21 +19,22 @@ enum RpgClass: String, Codable, CaseIterable, Sendable {
         case .cleric: return "신성한 빛으로 적을 태우고 동료를 치유하고 지켜요."
         case .monk: return "맨손 연타와 기공의 달인. 빠른 공격과 단단한 몸."
         case .summoner: return "정령과 소환수를 불러 싸워요. 저주와 생명 흡수, 대악마 강림."
+        case .mechanic: return "총과 기계로 싸워요. 터렛과 지뢰를 깔고 드론과 레이저로 쓸어버려요."
         }
     }
-    var baseHP: Int { [130, 95, 80, 100, 110, 125, 85][index] }
-    var hpPerLevel: Int { [22, 15, 12, 16, 18, 20, 13][index] }
-    var baseMP: Int { [30, 40, 70, 35, 60, 40, 65][index] }
-    var mpPerLevel: Int { [4, 5, 8, 4, 7, 5, 7][index] }
-    var baseAttack: Int { [11, 10, 12, 11, 9, 10, 11][index] }
-    var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 2.8, 3.2, 3.6][index] }
-    var baseDefense: Int { [6, 4, 3, 4, 5, 5, 3][index] }
-    var defensePerLevel: Double { [2.2, 1.4, 1.1, 1.4, 1.8, 1.9, 1.1][index] }
-    var speed: Double { [72, 80, 68, 90, 70, 82, 70][index] }
-    var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.30, 0.65][index] }
-    var critChance: Double { [0.08, 0.16, 0.08, 0.22, 0.06, 0.10, 0.07][index] }
+    var baseHP: Int { [130, 95, 80, 100, 110, 125, 85, 112][index] }
+    var hpPerLevel: Int { [22, 15, 12, 16, 18, 20, 13, 17][index] }
+    var baseMP: Int { [30, 40, 70, 35, 60, 40, 65, 48][index] }
+    var mpPerLevel: Int { [4, 5, 8, 4, 7, 5, 7, 5][index] }
+    var baseAttack: Int { [11, 10, 12, 11, 9, 10, 11, 11][index] }
+    var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 2.8, 3.2, 3.6, 3.3][index] }
+    var baseDefense: Int { [6, 4, 3, 4, 5, 5, 3, 4][index] }
+    var defensePerLevel: Double { [2.2, 1.4, 1.1, 1.4, 1.8, 1.9, 1.1, 1.5][index] }
+    var speed: Double { [72, 80, 68, 90, 70, 82, 70, 76][index] }
+    var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.30, 0.65, 0.46][index] }
+    var critChance: Double { [0.08, 0.16, 0.08, 0.22, 0.06, 0.10, 0.07, 0.12][index] }
     /// Item id prefix of this class's weapons ("sword" -> sword0...sword8).
-    var weaponPrefix: String { ["sword", "bow", "staff", "dagger", "mace", "claw", "rod"][index] }
+    var weaponPrefix: String { ["sword", "bow", "staff", "dagger", "mace", "claw", "rod", "gun"][index] }
     var starterWeapon: String { weaponPrefix + "0" }
     var skills: [RpgSkillDef] { RpgSkills.all.filter { $0.cls == self } }
 }
@@ -79,9 +80,9 @@ struct RpgSkillDef: Sendable {
 
 enum RpgSkills {
     private static func s(_ id: String, _ name: String, _ cls: RpgClass, _ lv: Int, _ mp: Int, _ cd: Double, _ power: Double,
-                          price: Int = 0, starter: Bool = false, max: Int = 10, _ desc: String) -> RpgSkillDef {
+                          price: Int = 0, starter: Bool = false, max: Int = 10, fx: RpgSkillFX? = nil, _ desc: String) -> RpgSkillDef {
         RpgSkillDef(id: id, name: name, cls: cls, minLevel: lv, mp: mp, cooldown: cd, power: power, maxLevel: max, price: price,
-                    starter: starter, desc: desc)
+                    starter: starter, desc: desc, fx: fx)
     }
 
     static let all: [RpgSkillDef] = [
@@ -147,6 +148,14 @@ enum RpgSkills {
         s("s_drain", "생명 흡수", .summoner, 22, 24, 7, 2.2, "피해를 주고 HP를 회복"),
         s("s_dragon", "용 소환", .summoner, 28, 28, 10, 2.6, "용의 숨결이 전방을 쓸어낸다"),
         s("s_ult", "대악마 강림", .summoner, 35, 70, 45, 3.2, max: 5, "대악마가 주변을 폭격한다"),
+        s("x_burst", "연사탄", .mechanic, 1, 8, 3, 0.9, starter: true, fx: .shot(4, spread: 0.05, speed: 330, range: 170), "총알 네 발을 빠르게 쏜다"),
+        s("x_turret", "터렛 설치", .mechanic, 1, 16, 12, 0.6, starter: true, fx: .turret(1, seconds: 15), "15초간 스스로 적을 쏘는 터렛을 설치한다"),
+        s("x_rocket", "로켓 발사", .mechanic, 8, 18, 7, 3.0, price: 700, fx: .shot(1, big: true, speed: 220, range: 200), "적을 꿰뚫는 로켓을 쏜다"),
+        s("x_mine", "지뢰", .mechanic, 12, 20, 9, 2.2, price: 1800, fx: .trap(3, gap: 20), "앞쪽에 지뢰 세 개를 묻는다"),
+        s("x_flame", "화염방사기", .mechanic, 16, 22, 8, 0.9, fx: .line(8, gap: 12, r: 16, every: 0.06, .fire), "앞쪽을 불길로 쓸어버린다"),
+        s("x_barrier", "에너지 방벽", .mechanic, 22, 26, 22, 0, fx: .buff(["iron"], seconds: 8, heal: 0.15, r: 80), "8초간 주변 동료의 피해 감소 + HP 15% 회복"),
+        s("x_drone", "드론 소환", .mechanic, 28, 28, 10, 1.8, fx: .chain(6, reach: 170, .thunder), "드론들이 근처 적을 차례로 공격한다"),
+        s("x_ult", "오버드라이브 레이저", .mechanic, 35, 70, 45, 1.4, max: 5, fx: .line(12, gap: 18, r: 24, every: 0.05, .cosmic), "전방 끝까지 우주의 레이저를 발사한다"),
     ]
     private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills + RpgTiers.skills).map { ($0.id, $0) })
     static func def(_ id: String) -> RpgSkillDef? { byID[id] }
@@ -233,6 +242,8 @@ enum RpgItems {
                          [.base, .base, .fire, .ice, .thunder, .holy, .wind, .ice, .holy, .holy, .ice, .fire, .cosmic])
         items += weapons(.monk, "claw", ["가죽 권갑", "강철 권갑", "화염 권갑", "서리 권갑", "뇌전 권갑", "기공 권갑", "모래폭풍 권갑", "용암 권갑", "용왕의 권갑", "구름 권갑", "심해 권갑", "용린 권갑", "차원의 권갑"],
                          [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .cosmic, .wind, .ice, .fire, .cosmic])
+        items += weapons(.mechanic, "gun", ["녹슨 권총", "강철 권총", "화염 권총", "서리 권총", "뇌전 권총", "성광 캐논", "사막의 리볼버", "용암 캐논", "오버로드 캐논", "천공 레일건", "심해 수압포", "용혼 캐논", "차원 포"],
+                            [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .cosmic, .wind, .ice, .fire, .cosmic])
         items += weapons(.summoner, "rod", ["나무 소환봉", "뼈 소환봉", "화염 소환봉", "서리 소환봉", "뇌운 소환봉", "영혼의 소환봉", "빙하의 소환봉", "화산 소환봉", "대악마의 소환봉", "천공 소환봉", "심해 소환봉", "용혼 소환봉", "차원 소환봉"],
                          [.base, .poison, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic, .wind, .ice, .poison, .cosmic])
         let armors: [(String, Int, Int, Int, Bool)] = [
@@ -408,7 +419,7 @@ struct RpgMonsterDef: Sendable {
     let xp: Int
     let gold: ClosedRange<Int>
     let behavior: RpgBehavior
-    let drops: [RpgDrop]
+    var drops: [RpgDrop]
     var bossStyle: RpgBossStyle = .slime
     var minion: String = "slime"
     var element: RpgElement = .base
@@ -430,7 +441,14 @@ enum RpgMonsters {
         return d
     }
 
-    static let all: [RpgMonsterDef] = [
+    /// The mechanic's guns drop wherever the summoner's rods do, at the same rate.
+    private static func withMechanicDrops(_ d: RpgMonsterDef) -> RpgMonsterDef {
+        var d = d
+        d.drops += d.drops.filter { $0.item.hasPrefix("rod") }.map { RpgDrop(item: "gun" + $0.item.dropFirst(3), chance: $0.chance) }
+        return d
+    }
+
+    static let all: [RpgMonsterDef] = ([
         m("slime", "슬라임", "slime", 1, 28, 5, 0, 26, 6, 2...5, .passive, [("hp0", 0.12), ("stone", 0.01)]),
         m("blueslime", "파란 슬라임", "blueslime", 3, 50, 8, 1, 30, 11, 4...8, .passive, [("mp0", 0.1), ("armor0", 0.03), ("stone", 0.015)]),
         m("brownshroom", "갈색 버섯", "brownshroom", 2, 40, 7, 1, 22, 8, 3...6, .passive, [("hp0", 0.12), ("stone", 0.01)]),
@@ -608,7 +626,7 @@ enum RpgMonsters {
              [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
         boss("voidlord", "차원의 지배자", "voidlord", 100, 2600000, 1050, 255, 39, 1785000, 138500...230000, .demon, minion: "voidknight", element: .cosmic,
              [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
-    ] + RpgRegions.all.flatMap(\.monsters)
+    ] + RpgRegions.all.flatMap(\.monsters)).map(withMechanicDrops)
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: String) -> RpgMonsterDef { byID[id]! }
 }
