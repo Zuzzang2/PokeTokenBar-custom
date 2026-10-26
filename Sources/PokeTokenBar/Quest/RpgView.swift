@@ -29,6 +29,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var scale: CGFloat = 3
     var panel = Panel.none
     private static let codexMonsters = RpgMonsters.all.sorted { $0.level < $1.level }
+    let sound = RpgSound()
+    var seenFloaters = Set<String>()
+    var soundPrev: (level: Int, hp: Double, attacking: Bool) = (0, 0, false)
     private var showMinimap = UserDefaults.standard.object(forKey: "rpgMinimap") as? Bool ?? true
     var selection = 0
     var tab = 0
@@ -351,6 +354,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
             if tapped(.inventory) { open(.inventory) }
             if tapped(.equipment) { open(.equipment) }
+            if tapped(.sound) { sound.toggle(); world.toast(sound.enabled ? "효과음 켜짐" : "효과음 꺼짐") }
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
             if tapped(.codex) { open(.codex) }
@@ -361,6 +365,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if pressed.contains(53) { saveNow(); onExit?() }
             if pressed.contains(36) { openChat() }
         }
+        playSounds(input)
         pressed.removeAll()
         if let d = driver, d.isClient {
             // Client: walk locally right away, tell the host, and let snapshots fill in the rest.

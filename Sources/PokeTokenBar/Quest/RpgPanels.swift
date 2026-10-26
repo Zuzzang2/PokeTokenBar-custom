@@ -568,3 +568,31 @@ extension RpgView {
         }
     }
 }
+
+// MARK: sound
+
+extension RpgView {
+    /// Turns what happened since the last frame into sounds: new damage numbers, level-ups, potions, swings.
+    func playSounds(_ input: RpgInput) {
+        guard sound.enabled, let me else { return }
+        let now = CACurrentMediaTime()
+        for fl in world.floaters where fl.map == me.map {
+            let start = fl.style == .info ? 1.4 : 0.9
+            let key = "\(fl.text)|\(Int(fl.pos.x))|\(Int(fl.pos.y + CGFloat((start - fl.life) * 18)))|\(fl.style)"
+            guard seenFloaters.insert(key).inserted else { continue }
+            switch fl.style {
+            case .damage, .poison: sound.play(.hit, now: now)
+            case .crit: sound.play(.crit, now: now)
+            case .hurt: sound.play(.hurt, now: now)
+            case .heal: sound.play(.heal, now: now)
+            case .gold: sound.play(.gold, now: now)
+            default: break
+            }
+        }
+        if seenFloaters.count > 600 { seenFloaters.removeAll() }
+        if me.level > soundPrev.level, soundPrev.level > 0 { sound.play(.levelUp, now: now) }
+        if input.attack, !soundPrev.attacking { sound.play(.cast, now: now) }
+        if !input.slots.isEmpty { sound.play(.cast, now: now) }
+        soundPrev = (me.level, me.hp, input.attack)
+    }
+}

@@ -7,7 +7,7 @@ import Foundation
 enum RpgKeyAction: String, Codable, CaseIterable, Sendable {
     case attack, interact
     case slot0, slot1, slot2, slot3, slot4, slot5, slot6, slot7
-    case hpPotion, mpPotion, scroll, inventory, skills, quests, keys, minimap, party, codex, trade, equipment
+    case hpPotion, mpPotion, scroll, inventory, skills, quests, keys, minimap, party, codex, trade, equipment, sound
 
     var title: String {
         switch self {
@@ -18,6 +18,7 @@ enum RpgKeyAction: String, Codable, CaseIterable, Sendable {
         case .scroll: return "귀환 주문서"
         case .inventory: return "가방"
         case .equipment: return "장비창"
+        case .sound: return "효과음 켜기/끄기"
         case .skills: return "스킬창"
         case .quests: return "의뢰 목록"
         case .keys: return "키 설정"
@@ -58,7 +59,7 @@ struct RpgKeyBindings: Codable, Sendable {
         .slot0: 12, .slot1: 13, .slot2: 14, .slot3: 15,                       // Q W E R
         .slot4: 0, .slot5: 1, .slot6: 2, .slot7: 3,                           // A S D F
         .hpPotion: 18, .mpPotion: 19, .scroll: 20,                            // 1 2 3
-        .inventory: 34, .skills: 40, .quests: 37, .keys: 31, .minimap: 46, .party: 35, .codex: 11, .trade: 17, .equipment: 8,       // I K L O P
+        .inventory: 34, .skills: 40, .quests: 37, .keys: 31, .minimap: 46, .party: 35, .codex: 11, .trade: 17, .equipment: 8, .sound: 45,       // I K L O P
     ])
 
     static func load() -> RpgKeyBindings {
