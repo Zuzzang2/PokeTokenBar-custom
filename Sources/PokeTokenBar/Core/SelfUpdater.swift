@@ -35,7 +35,7 @@ final class SelfUpdater {
 
     /// Asks first (the build takes minutes and restarts the app), then runs to completion.
     /// `show` reports the outcome to the user: title, message.
-    func updateToLatestMain(confirm: () -> Bool, show: (String, String) -> Void) async {
+    func updateToLatestMain(confirm: (_ remoteBuild: String) -> Bool, show: (String, String) -> Void) async {
         guard !isBusy else { return }
         let url = Self.repoURL
         // The build needs git and the Swift toolchain; say so up front instead of failing minutes later.
@@ -57,7 +57,7 @@ final class SelfUpdater {
             show("이미 최신이에요", "현재 빌드 \(Self.currentBuild)가 main의 최신 커밋과 같아요.")
             return
         }
-        guard confirm() else { return }
+        guard confirm(String(hash.prefix(7))) else { return }
 
         state = .working("최신 main 내려받는 중…")
         let fm = FileManager.default
