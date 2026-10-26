@@ -79,12 +79,12 @@ test('standing on a moving echo carries the player', () => {
   const lvl = Core.parseLevel(TITLE);
   const gx = lvl.spawn.x + 40;
   const frames = Array.from({ length: 400 }, (_, i) => ({ x: i < 120 ? gx : gx + 2 * (i - 120), y: lvl.spawn.y, f: 1 }));
-  const { rec } = Core.simulate(lvl, [{ frames, end: 'timeout' }], script([[6, 'r'], [12, 'rj']]));
+  const { rec } = Core.simulate(lvl, [{ frames, end: 'timeout' }], script([[5, 'r'], [10, 'rj'], [8, 'j']]));
   assert.equal(rec.frames[119].y, lvl.spawn.y - Core.P.h);
   assert.equal(rec.frames[200].x - rec.frames[119].x, frames[200].x - frames[119].x);
 });
 
-test('an echo moving into a boxed-in player is a paradox death', () => {
+test('an echo moving into a boxed-in player passes through instead of crushing', () => {
   const lvl = Core.parseLevel({
     name: 'closet', time: 5, echoes: 1,
     map: [
@@ -97,8 +97,7 @@ test('an echo moving into a boxed-in player is a paradox death', () => {
   const away = { x: lvl.spawn.x - 30, y: lvl.spawn.y, f: 1 };
   const frames = [away, away, away, { x: lvl.spawn.x + 6, y: lvl.spawn.y, f: 1 }];
   const { world } = Core.simulate(lvl, [{ frames, end: 'rewind' }], () => ({ l: false, r: false, j: false }));
-  assert.equal(world.status, 'dead');
-  assert.equal(world.cause, 'paradox');
+  assert.equal(world.status, 'timeout');
 });
 
 test('falling into spikes kills', () => {
@@ -138,4 +137,21 @@ test('chorus is solvable when the plate-holders rewind early', () => {
   }, []);
   const { world } = Core.simulate(lvl, echoes, script(SOLUTIONS.chorus[3]));
   assert.equal(world.status, 'won');
+});
+
+// Regression: an echo parked on a plate used to wall off the corridor when the player waited at spawn
+// and set off after the echo had walked away (scripts that moved in lockstep never hit this branch).
+test('a player who waits before moving walks through a standing echo', () => {
+  const lvl = level('echo');
+  const { rec } = Core.simulate(lvl, [], script([[34, 'r']]));
+  const { world } = Core.simulate(lvl, [rec], script([[90, ''], [300, 'r']]));
+  assert.equal(world.status, 'won');
+});
+
+test('jumping up through an echo from below still lands on top of it', () => {
+  const lvl = Core.parseLevel(TITLE);
+  const g = { x: lvl.spawn.x, y: lvl.spawn.y - 40, f: 1 };
+  const frames = Array.from({ length: 300 }, (_, i) => (i < 5 ? { x: 400, y: lvl.spawn.y, f: 1 } : g));
+  const { rec } = Core.simulate(lvl, [{ frames, end: 'timeout' }], script([[10, ''], [20, 'j']]));
+  assert.equal(rec.frames[100].y, g.y - Core.P.h);
 });
