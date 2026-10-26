@@ -123,4 +123,22 @@ final class EchoCoopFlowTests: XCTestCase {
         run(bus, 90)
         XCTAssertEqual(a.loop, 1, "the host's loop moved on without the guest's recording")
     }
+
+    // Review finding: while spectating, plates and doors froze in the last state this machine simulated.
+    func testSpectatorSeesThePlateReleaseWhenTheTeammateLeavesIt() {
+        let (bus, a, b) = makePair(level: 1)
+        a.begin()
+        bus.flush()
+        key(b, 124, down: true)
+        key(a, 124, down: true)
+        run(bus, 34)
+        key(b, 124, down: false)
+        run(bus, 240)
+        XCTAssertEqual(a.mode, .spectate, "host is in the shrine, watching")
+        XCTAssertFalse(a.displayedPressed.isEmpty, "guest still on the plate")
+        key(b, 123, down: true)
+        run(bus, 40)
+        XCTAssertTrue(a.displayedPressed.isEmpty, "the spectator sees the plate come up")
+    }
 }
+

@@ -91,4 +91,19 @@ final class EchoMatchTests: XCTestCase {
         XCTAssertTrue(m.echoes.isEmpty)
         XCTAssertEqual(m.totalLoops, 2)
     }
+
+    // Review finding: finishing the last level pinned solo progress at the last level forever.
+    func testProgressAfterTheLastLevelStartsOver() {
+        XCTAssertEqual(EchoMatch.nextStart(afterClearing: 2, levelCount: 7), 3)
+        XCTAssertEqual(EchoMatch.nextStart(afterClearing: 6, levelCount: 7), 0)
+    }
+
+    // Review finding: a run finished across several sessions showed only the last session's loops.
+    func testLoopsCarryOverFromEarlierSessions() {
+        var m = EchoMatch(players: ["a"], level: 3, priorLoops: 20)
+        m.beginCollecting()
+        m.startNextLoop(maxPerPlayer: 1)
+        XCTAssertEqual(m.totalLoops, 21)
+    }
 }
+
