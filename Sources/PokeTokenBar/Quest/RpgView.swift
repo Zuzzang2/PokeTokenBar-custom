@@ -28,6 +28,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var origin = CGPoint.zero
     private var scale: CGFloat = 3
     private var panel = Panel.none
+    private var showMinimap = UserDefaults.standard.object(forKey: "rpgMinimap") as? Bool ?? true
     private var selection = 0
     private var tab = 0
     private var waitingKey = false
@@ -324,6 +325,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
             if tapped(.keys) { open(.keys) }
+            if tapped(.minimap) { showMinimap.toggle(); UserDefaults.standard.set(showMinimap, forKey: "rpgMinimap") }
             if tapped(.party) { open(.party) }
             if pressed.contains(53) { saveNow(); onExit?() }
             if pressed.contains(36) { openChat() }
@@ -447,6 +449,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
         drawWorldText(me)
         drawHUD(ctx, me)
+        drawMinimap(ctx, me)
         drawPanel(ctx, me)
     }
 
@@ -758,6 +761,41 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
     }
 
+    /// The whole map shrunk into the top-right corner with dots for players, monsters, portals (M toggles it).
+    private func drawMinimap(_ ctx: CGContext, _ me: RpgPlayer) {
+        guard showMinimap, let img = mapImages[me.map] else { return }
+        let map = world.map(me.map)
+        let size = map.pixelSize
+        let scale = min(190 / size.width, 150 / size.height)
+        let mw = size.width * scale, mh = size.height * scale
+        let top = 58 + (me.quests.isEmpty ? 0 : 14 + CGFloat(me.quests.count) * 18) + 10
+        let rect = CGRect(x: bounds.width - 10 - mw, y: top, width: mw, height: mh)
+        box(ctx, rect.insetBy(dx: -3, dy: -3), alpha: 0.6)
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.interpolationQuality = .none
+        ctx.setAlpha(0.8)
+        KartArt.draw(img, in: ctx, rect: rect)
+        ctx.setAlpha(1)
+        func dot(_ p: CGPoint, _ color: NSColor, _ r: CGFloat) {
+            ctx.setFillColor(color.cgColor)
+            ctx.fillEllipse(in: CGRect(x: rect.minX + p.x * scale - r, y: rect.minY + p.y * scale - r, width: r * 2, height: r * 2))
+        }
+        for portal in map.def.portals where !portal.hidden { dot(RpgMap.center(portal.at), NSColor(red: 0.4, green: 0.9, blue: 1, alpha: 1), 2.5) }
+        if map.darkness == 0 {
+            for m in world.mobs[me.map] ?? [] where !m.dead {
+                if m.def.behavior == .boss { dot(m.pos, NSColor(red: 0.85, green: 0.3, blue: 1, alpha: 1), 3.5) }
+                else if m.elite { dot(m.pos, NSColor(red: 1, green: 0.85, blue: 0.25, alpha: 1), 2.5) }
+                else { dot(m.pos, NSColor(red: 0.95, green: 0.3, blue: 0.3, alpha: 1), 1.4) }
+            }
+        }
+        for p in world.players where p.map == me.map && p.id != me.id {
+            dot(p.pos, p.partyID != nil && p.partyID == me.partyID ? NSColor(red: 0.4, green: 1, blue: 0.5, alpha: 1) : NSColor(red: 0.6, green: 0.8, blue: 1, alpha: 1), 2.5)
+        }
+        dot(me.pos, .white, 3)
+        ctx.restoreGState()
+    }
+
     private func drawHUD(_ ctx: CGContext, _ me: RpgPlayer) {
         let t = world.time
         box(ctx, CGRect(x: 10, y: 10, width: 262, height: 96))
@@ -864,7 +902,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
         drawHotbar(ctx, me)
         let b = bindings
-        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   나가기 Esc",
+        text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   나가기 Esc",
              at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
 
         if me.dead {
