@@ -72,4 +72,40 @@ final class RpgMageTests: XCTestCase {
             XCTAssertLessThan(mage, hitsToFall(.warrior, level: level, attack: attack), "Lv\(level)")
         }
     }
+    /// Cooldowns before the mage pass; every mage spell now comes back in half the time.
+    func testMageSpellCooldownsAreHalved() {
+        let before: [String: Double] = ["m_blast": 4, "m_chain": 6, "m_blink": 6, "m_shield": 25, "m_blizzard": 12, "m_pillar": 8,
+                                        "m_heal": 14, "m_ult": 45, "j_inferno": 8, "j_firestorm": 20, "j_frost": 7, "j_glacier": 18]
+        for (id, old) in before {
+            let cd = RpgSkills.def(id)?.cooldown ?? .infinity
+            XCTAssertEqual(cd, old / 2, accuracy: 0.001, id)
+        }
+    }
+    /// The basic orb was the weakest basic attack (slow, short, single target); it now hits harder and reaches further.
+    func testMageOrbIsFasterLongerAndStronger() throws {
+        let w = fieldMage()
+        var input = RpgInput()
+        input.attack = true
+        input.facing = CGVector(dx: 1, dy: 0)
+        w.step(1.0 / 30, inputs: [2: input])
+        let orb = try XCTUnwrap(w.shots.first { $0.fromPlayer && $0.kind == .orb })
+        let speed = hypot(orb.vel.dx, orb.vel.dy)
+        XCTAssertGreaterThanOrEqual(speed, 220)
+        XCTAssertGreaterThanOrEqual(orb.life * speed + speed / 30, 165, "range")
+        let mage = try XCTUnwrap(w.player(2))
+        XCTAssertEqual(orb.damage, mage.attack(at: 0) * 1.3, accuracy: 0.01)
+    }
+
+    func testManaShieldBookIsEarlierAndCheaper() throws {
+        let shield = try XCTUnwrap(RpgSkills.def("m_shield"))
+        XCTAssertEqual(shield.minLevel, 10)
+        XCTAssertEqual(shield.price, 900)
+        XCTAssertEqual(RpgItems.item("book_m_shield")?.price, 900, "the shop sells it at the new price")
+    }
+    func testMageManaPoolIsDoubled() {
+        var p = RpgSaveStore.newPlayer(name: "t", cls: .mage, id: 1)
+        XCTAssertEqual(p.maxMP, 140, accuracy: 0.001)
+        p.level = 10
+        XCTAssertEqual(p.maxMP, 284, accuracy: 0.001, "was 142 at Lv10")
+    }
 }
