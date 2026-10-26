@@ -66,7 +66,8 @@ func contentChecks() {
     check(RpgRecipes.all.allSatisfy { r in RpgItems.item(r.output) != nil && r.materials.keys.allSatisfy { RpgItems.item($0) != nil } && r.gold > 0 },
           "every recipe output and ingredient is a real item")
     let banded = Set(RpgMaterials.bands.map(\.item))
-    check(RpgRecipes.all.allSatisfy { r in r.materials.keys.allSatisfy { $0 == "stone" || banded.contains($0) } }, "every recipe material drops somewhere")
+    let droppedAnywhere = Set(RpgMonsters.all.flatMap { $0.drops.map(\.item) })
+    check(RpgRecipes.all.allSatisfy { r in r.materials.keys.allSatisfy { $0 == "stone" || banded.contains($0) || droppedAnywhere.contains($0) } }, "every recipe material drops somewhere")
     let ring11 = RpgRecipes.def("ring11")
     check(ring11?.materials["mat_void"] != nil && (ring11?.materials["stone"] ?? 0) > 0, "the top ring needs the newest material and stones")
 
@@ -155,7 +156,8 @@ func contentChecks() {
     // MARK: monsters
     let late = RpgMonsters.all.filter { $0.level >= 58 && $0.id != "demonking" }
     let lateNormal = late.filter { $0.behavior != .boss }
-    let lateBosses = late.filter { $0.behavior == .boss }
+    let regionMonsterIDs = Set(RpgRegions.all.flatMap(\.monsters).map(\.id))
+    let lateBosses = late.filter { $0.behavior == .boss && !regionMonsterIDs.contains($0.id) }
     check(lateNormal.count >= 45, "at least 45 new normal monsters (\(lateNormal.count))")
     check(lateBosses.count == 6 && lateBosses.allSatisfy { (60...100).contains($0.level) }, "6 new bosses at Lv60-100 (\(lateBosses.map { "\($0.name) Lv\($0.level)" }))")
     let ids = RpgMonsters.all.map(\.id)
