@@ -5,6 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build >/dev/null
 OUT="$(mktemp -d)/rpgsim"
-swiftc Tests/RpgSim/main.swift -I .build/debug/Modules -o "$OUT" \
+swiftc Tests/RpgSim/*.swift -I .build/debug/Modules -o "$OUT" \
     $(ls .build/debug/PokeTokenBar.build/*.o | grep -v '/main.swift.o') -lsqlite3
 "$OUT"

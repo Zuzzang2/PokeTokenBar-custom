@@ -672,5 +672,8 @@ do {
     RpgSaveStore.slot = 1
 }
 
+// Check groups that live in their own files (Tests/RpgSim/*Checks.swift).
+contentChecks()
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")
