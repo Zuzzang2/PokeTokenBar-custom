@@ -195,6 +195,7 @@ do {
 
     var p = RpgSaveStore.newPlayer(name: "climber", cls: .warrior, id: 1)
     p.level = 60
+    p.hp = p.maxHP
     p.visited.insert(.tower)
     let w = RpgWorld(player: p)
     w.perform(.warp(.tower), for: 1)
