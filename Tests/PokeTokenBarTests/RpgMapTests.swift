@@ -27,7 +27,7 @@ final class RpgMapTests: XCTestCase {
         XCTAssertEqual(seen, Set(RpgMapID.allCases))
     }
 
-    func testSpawnMonstersExist() {
+    @MainActor func testSpawnMonstersExist() {
         let ids = Set(RpgMonsters.all.map(\.id))
         for map in RpgMaps.all { for s in map.monsters { XCTAssertTrue(ids.contains(s.monster), "\(map.id): \(s.monster)") } }
         for m in RpgMonsters.all { XCTAssertNotNil(RpgArt.sprite(m.sprite), "sprite \(m.sprite)") }
