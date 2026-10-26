@@ -1275,6 +1275,13 @@ final class RpgWorld {
                     }
                 } else if let w = wanderGoal(&mob) { walk(to: w, mob.def.speed * 0.45) }
             }
+            // Touching a monster hurts (bosses have their own body slam); the hit's brief invulnerability
+            // keeps standing in a crowd from melting you instantly.
+            if mob.def.attack > 0, mob.def.behavior != .boss, !mob.airborne {
+                for i in here where dist(players[i].pos, mob.pos) < Double(mob.radius) + 7 {
+                    hurtPlayer(i, Double(mob.def.attack) * 0.7, from: mob.pos)
+                }
+            }
             list[k] = mob
         }
         for a in list.indices where !list[a].dead {
