@@ -42,6 +42,8 @@ struct RpgSaveData: Codable, Sendable {
     var amulet: String?
     var helmet: String?
     var boots: String?
+    /// Customization [hair, skin, accent] (`RpgLook`); nil on characters made before it existed (class default).
+    var look: [Int]?
 }
 
 enum RpgSaveStore {
@@ -102,7 +104,7 @@ enum RpgSaveStore {
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
                            plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job, tier: p.tier,
                            kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor,
-                           ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots)
+                           ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots, look: p.look)
     }
 
     static func player(from s: RpgSaveData, id: Int) -> RpgPlayer {
@@ -136,6 +138,7 @@ enum RpgSaveStore {
         p.amulet = s.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
         p.helmet = s.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
         p.boots = s.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
+        p.look = RpgLook.clean(s.look, cls: s.cls)
         p.hp = p.maxHP
         p.mp = p.maxMP
         // A position from an older map layout might now be inside a wall.
@@ -153,9 +156,10 @@ enum RpgSaveStore {
         return (0..<RpgWorld.slotCount).map { $0 < starters.count ? starters[$0] : nil }
     }
 
-    static func newPlayer(name: String, cls: RpgClass, id: Int, hardcore: Bool = false) -> RpgPlayer {
+    static func newPlayer(name: String, cls: RpgClass, id: Int, hardcore: Bool = false, look: [Int]? = nil) -> RpgPlayer {
         var p = RpgPlayer(id: id, name: name, cls: cls, weapon: cls.starterWeapon, pos: RpgMap.center(RpgWorld.townSpawn))
         p.hardcore = hardcore
+        p.look = RpgLook.clean(look, cls: cls)
         if hardcore { p.inventory["hp1"] = 5 }
         p.gold = 150
         p.inventory = ["hp0": 6, "mp0": 4, "scroll": 2]

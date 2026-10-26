@@ -167,6 +167,11 @@ struct RpgPlayer {
     var bestCombo = 0
     var bestFloor = 0
     var achievements: Set<String> = []
+    /// Customization [hair, skin, accent] (`RpgLook`, saved).
+    var look: [Int] = []
+    /// World time of the last basic attack and skill cast; the hero's swing and cast poses play from them.
+    var attackAt = -100.0
+    var castAt = -100.0
 
     var weaponItem: RpgItem? { RpgItems.item(weapon) }
     var armorItem: RpgItem? { armor.flatMap(RpgItems.item) }
@@ -985,6 +990,7 @@ final class RpgWorld {
         breakStealth(i)
         let p = players[i]
         players[i].attackTimer = p.attackInterval(at: time)
+        players[i].attackAt = time
         let angle = facingAngle(p)
         let atk = p.attack(at: time)
         switch p.cls {
@@ -1439,6 +1445,7 @@ final class RpgWorld {
         if !refund {
             players[i].mp -= Double(def.mp)
             players[i].cooldowns[skill] = def.cooldown
+            players[i].castAt = time
         }
     }
 
@@ -2635,6 +2642,11 @@ extension RpgWorld {
             pub.combo = p.combo
             pub.comboLeft = max(0, p.comboUntil - time)
             pub.stealth = max(0, p.stealthUntil - time)
+            pub.look = p.look
+            (pub.armor, pub.helmet, pub.boots, pub.ring, pub.amulet) = (p.armor, p.helmet, p.boots, p.ring, p.amulet)
+            pub.attackAgo = time - p.attackAt < 2 ? time - p.attackAt : nil
+            pub.castAgo = time - p.castAt < 2 ? time - p.castAt : nil
+            pub.hurt = p.hurtFlash > 0 ? p.hurtFlash : nil
             return pub
         }
         var mobPubs: [RpgMobPub] = []
@@ -2709,6 +2721,18 @@ extension RpgWorld {
             p.combo = pub.combo ?? 0
             p.stealthUntil = time + (pub.stealth ?? 0)
             p.comboUntil = time + (pub.comboLeft ?? 0)
+            p.look = RpgLook.clean(pub.look, cls: p.cls)
+            if pub.id != localID {
+                // Others' gear only shows on their hero (our own comes with the private state).
+                p.armor = pub.armor.flatMap { RpgItems.item($0)?.kind == .armor ? $0 : nil }
+                p.helmet = pub.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
+                p.boots = pub.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
+                p.ring = pub.ring.flatMap { RpgItems.item($0)?.kind == .ring ? $0 : nil }
+                p.amulet = pub.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
+            }
+            p.attackAt = time - (pub.attackAgo ?? 100)
+            p.castAt = time - (pub.castAgo ?? 100)
+            p.hurtFlash = pub.hurt ?? 0
             next.append(p)
         }
         if !next.contains(where: { $0.id == localID }), let me = player(localID) { next.append(me) }
@@ -2790,6 +2814,7 @@ extension RpgWorld {
         players[i].amulet = d.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
         players[i].helmet = d.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }
         players[i].boots = d.boots.flatMap { RpgItems.item($0)?.kind == .boots ? $0 : nil }
+        players[i].look = RpgLook.clean(d.look, cls: players[i].cls)
         players[i].tradeFrom = s.tradeFrom
         players[i].job = d.job ?? 0
         players[i].tier = RpgStats.cleanTier(d.tier, job: d.job ?? 0)

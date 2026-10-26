@@ -480,27 +480,34 @@ final class RpgView: NSView, NSTextFieldDelegate {
         drawPanel(ctx, me)
     }
 
+    /// Per-hero motion between frames (walk cycle, dust, dash afterimages, level-up bursts), for every player drawn.
+    private let heroTracker = RpgHeroTracker()
+
     private func drawPlayer(_ p: RpgPlayer, in f: CGContext) {
         let t = world.time
-        let tint = RpgArt.classTint(p.cls, weapon: p.weaponItem).merging(RpgJobs.tint(p.cls, p.job)) { weapon, _ in weapon }
-        guard let img = RpgArt.sprite(p.cls.rawValue, tint: tint) else { return }
-        let bob: CGFloat = p.moving && Int(t * 8) % 2 == 0 ? 1 : 0
-        f.setFillColor(KartArt.rgb(0, 0, 0, 0.28))
-        f.fillEllipse(in: CGRect(x: p.pos.x - 6, y: p.pos.y - 2, width: 12, height: 4))
+        let motion = heroTracker.update(p, time: t)
+        let pose = RpgArt.heroPose(p, time: t, speed: motion.speed, walked: motion.walked)
+        RpgArt.drawHeroGround(f, p, motion: motion, pose: pose, time: t)
+        // A fallen hero waits as a ghost over its tombstone.
+        if p.dead { RpgArt.grave(f, at: CGPoint(x: p.pos.x, y: p.pos.y + 1)) }
         if t < p.rageUntil { RpgArt.aura(f, at: p.pos, time: t, color: KartArt.rgb(255, 90, 60)) }
         if t < p.ironUntil { RpgArt.aura(f, at: p.pos, time: t + 1, color: KartArt.rgb(210, 220, 235)) }
         if t < p.focusUntil { RpgArt.aura(f, at: p.pos, time: t + 2, color: KartArt.rgb(140, 240, 160)) }
+        var alpha: CGFloat = 1
+        if !p.dead, t < p.stealthUntil { alpha = p.id == localID ? 0.5 : 0.25 }
+        else if !p.dead, pose.action != .dash, p.invulnerable > 0, Int(t * 20) % 2 == 0 { alpha = 0.45 }
+        RpgArt.drawHero(f, p, pose: pose, time: t, alpha: alpha)
         if t < p.shieldUntil {
-            f.setStrokeColor(KartArt.rgb(140, 190, 255, 0.8))
-            f.strokeEllipse(in: CGRect(x: p.pos.x - 10, y: p.pos.y - 20, width: 20, height: 22))
+            f.setStrokeColor(KartArt.rgb(140, 190, 255, 0.7))
+            f.strokeEllipse(in: CGRect(x: p.pos.x - 12, y: p.pos.y - 26, width: 24, height: 28))
         }
-        if p.dead { f.setAlpha(0.35) } else if t < p.stealthUntil { f.setAlpha(p.id == localID ? 0.5 : 0.25) }
-        else if p.invulnerable > 0, Int(t * 20) % 2 == 0 { f.setAlpha(0.45) }
-        KartArt.draw(img, in: f, rect: CGRect(x: (p.pos.x - 8).rounded(), y: (p.pos.y - 15 - bob).rounded(), width: 16, height: 16), flipX: !p.facingRight)
-        f.setAlpha(1)
-        // Glint on a highly enhanced weapon.
-        if let w = p.weaponItem, (p.plus[w.id] ?? 0) >= 7, Int(t * 6) % 4 == 0 {
-            KartArt.fill(f, KartArt.rgb(255, 255, 255), p.pos.x + (p.facingRight ? 5 : -6), p.pos.y - 14, 1, 1)
+        RpgArt.drawHeroBurst(f, p, motion: motion, time: t)
+        // Party members get a bobbing green marker over their heads.
+        if p.id != localID, !p.dead, let party = p.partyID, party == me?.partyID {
+            let x = p.pos.x.rounded(), y = (p.pos.y - RpgArt.heroHeight(p.cls) - 5 + CGFloat(sin(t * 4) * 1.2)).rounded()
+            KartArt.fill(f, RpgArt.outline, x - 3, y - 1, 7, 3); KartArt.fill(f, RpgArt.outline, x - 2, y + 2, 5, 1); KartArt.fill(f, RpgArt.outline, x - 1, y + 3, 3, 1)
+            KartArt.fill(f, KartArt.rgb(110, 240, 140), x - 2, y, 5, 1); KartArt.fill(f, KartArt.rgb(70, 190, 100), x - 1, y + 1, 3, 1)
+            KartArt.fill(f, KartArt.rgb(70, 190, 100), x, y + 2, 1, 1)
         }
     }
 
@@ -758,15 +765,11 @@ final class RpgView: NSView, NSTextFieldDelegate {
                      color: NSColor(red: 1, green: 0.8, blue: 0.6, alpha: 1), weight: .semibold, align: .center)
             }
         }
-        // Other players: name tags; everyone: chat bubbles.
+        // Everyone: a name plate under the feet and chat bubbles over the head.
         for p in world.players where p.map == me.map {
-            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - 18))
-            var top = head.y
-            if p.id != localID {
-                top -= 18
-                text("Lv\(p.level) \(p.name)", at: CGPoint(x: head.x, y: top), size: 11,
-                     color: NSColor(red: 0.6, green: 0.85, blue: 1, alpha: 1), weight: .bold, align: .center)
-            }
+            nameTag(p, me: me)
+            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - RpgArt.heroHeight(p.cls) - 1))
+            let top = head.y
             if let b = p.bubble, world.time < p.bubbleUntil {
                 let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
                 let str = NSAttributedString(string: b, attributes: [.font: font, .foregroundColor: NSColor.black])
@@ -797,6 +800,27 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
             text(fl.text, at: s, size: size, color: color.withAlphaComponent(a), align: .center)
         }
+    }
+
+    /// A name plate under a hero's feet: yours in gold, party members in green with a marker, others in blue.
+    private func nameTag(_ p: RpgPlayer, me: RpgPlayer) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let party = p.id != localID && p.partyID != nil && p.partyID == me.partyID
+        let color = p.id == localID ? NSColor(red: 1, green: 0.88, blue: 0.5, alpha: 1)
+            : party ? NSColor(red: 0.55, green: 1, blue: 0.62, alpha: 1) : NSColor(red: 0.72, green: 0.87, blue: 1, alpha: 1)
+        let faint: CGFloat = p.id != localID && world.time < p.stealthUntil ? 0.3 : 1
+        let label = "Lv\(p.level) \(p.name)"
+        let width = (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .bold)]).width + (party ? 20 : 12)
+        let feet = screen(CGPoint(x: p.pos.x, y: p.pos.y + 3))
+        let plate = CGRect(x: (feet.x - width / 2).rounded(), y: feet.y.rounded(), width: width.rounded(), height: 17)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.55 * faint).cgColor)
+        ctx.addPath(CGPath(roundedRect: plate, cornerWidth: 5, cornerHeight: 5, transform: nil))
+        ctx.fillPath()
+        if party {
+            ctx.setFillColor(color.withAlphaComponent(faint).cgColor)
+            ctx.fillEllipse(in: CGRect(x: plate.minX + 6, y: plate.midY - 3, width: 6, height: 6))
+        }
+        text(label, at: CGPoint(x: feet.x + (party ? 4 : 0), y: plate.minY + 1), size: 11, color: color.withAlphaComponent(faint), weight: .bold, align: .center)
     }
 
     /// The whole map shrunk into the top-right corner with dots for players, monsters, portals (M toggles it).

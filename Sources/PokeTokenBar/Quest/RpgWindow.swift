@@ -63,7 +63,7 @@ final class RpgWindowController: RpgDriver {
         state.reload()
         let title = NSHostingView(rootView: RpgTitleView(state: state,
             onContinue: { [weak self] slot in self?.continueGame(slot: slot) },
-            onNew: { [weak self] slot, name, cls, hardcore in self?.newGame(slot: slot, name: name, cls: cls, hardcore: hardcore) },
+            onNew: { [weak self] slot, name, cls, hardcore, look in self?.newGame(slot: slot, name: name, cls: cls, hardcore: hardcore, look: look) },
             onDelete: { [weak self] slot in self?.deleteSlot(slot) }))
         titleView = title
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
@@ -115,11 +115,11 @@ final class RpgWindowController: RpgDriver {
         state.reload()
     }
 
-    private func newGame(slot: Int, name: String, cls: RpgClass, hardcore: Bool) {
+    private func newGame(slot: Int, name: String, cls: RpgClass, hardcore: Bool, look: [Int]) {
         RpgSaveStore.slot = slot
         if case .tampered = RpgSaveStore.load(slot: slot) { RpgSaveStore.quarantine(slot: slot) }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1, hardcore: hardcore)
+        let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1, hardcore: hardcore, look: look)
         RpgSaveStore.save(RpgSaveStore.snapshot(player))
         startHosting(player)
     }
@@ -349,7 +349,7 @@ final class RpgTitleState {
 struct RpgTitleView: View {
     let state: RpgTitleState
     let onContinue: (Int) -> Void
-    let onNew: (Int, String, RpgClass, Bool) -> Void
+    let onNew: (Int, String, RpgClass, Bool, [Int]) -> Void
     let onDelete: (Int) -> Void
 
     @State private var name = ""
@@ -357,6 +357,32 @@ struct RpgTitleView: View {
     @State private var hardcore = false
     @State private var creating: Int?
     @State private var deleting: Int?
+    /// Customization picks; nil keeps the class's own default for that part.
+    @State private var hair: Int?
+    @State private var skin: Int?
+    @State private var accent: Int?
+
+    private func look(_ c: RpgClass) -> [Int] {
+        let base = RpgLook.defaults(c)
+        return [hair ?? base[0], skin ?? base[1], accent ?? base[2]]
+    }
+
+    private func swatches(_ title: String, _ list: [RpgLook.Swatch], selected: Int, pick: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.subheadline).frame(width: 64, alignment: .leading)
+            ForEach(list.indices, id: \.self) { k in
+                let c = list[k].main
+                Button { pick(k) } label: {
+                    Circle().fill(Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255))
+                        .frame(width: 20, height: 20)
+                        .overlay(Circle().stroke(Color.primary.opacity(0.35), lineWidth: 1))
+                        .overlay(Circle().stroke(Color.accentColor, lineWidth: selected == k ? 3 : 0).padding(-3))
+                }
+                .buttonStyle(.plain)
+                .help(list[k].name)
+            }
+        }
+    }
 
     /// A slot takes a new character when it is empty, damaged, or its hardcore hero has fallen.
     private func isFree(_ k: Int) -> Bool { state.slots[k - 1] == nil || state.slots[k - 1]?.fallen == true }
@@ -413,7 +439,8 @@ struct RpgTitleView: View {
                                 ForEach(RpgClass.allCases, id: \.self) { c in
                                     Button { cls = c } label: {
                                         VStack(spacing: 6) {
-                                            RpgSpriteImage(key: c.rawValue).frame(width: 64, height: 64)
+                                            RpgHeroPreview(player: RpgSaveStore.newPlayer(name: "", cls: c, id: RpgClass.allCases.firstIndex(of: c) ?? 0, look: look(c)), still: true)
+                                                .frame(width: 96, height: 96)
                                             Text(c.name).font(.headline)
                                             Text(c.blurb).font(.caption).foregroundStyle(.secondary)
                                                 .multilineTextAlignment(.center).frame(height: 56)
@@ -424,6 +451,18 @@ struct RpgTitleView: View {
                                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(cls == c ? Color.accentColor : .clear, lineWidth: 2))
                                     }
                                     .buttonStyle(.plain)
+                                }
+                            }
+                            HStack(alignment: .center, spacing: 18) {
+                                RpgHeroPreview(player: RpgSaveStore.newPlayer(name: "", cls: cls, id: 1, look: look(cls)))
+                                    .frame(width: 192, height: 192)
+                                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.41, green: 0.68, blue: 0.33)))
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("외형").font(.headline)
+                                    swatches("머리색", RpgLook.hair, selected: look(cls)[0]) { hair = $0 }
+                                    swatches("피부", RpgLook.skin, selected: look(cls)[1]) { skin = $0 }
+                                    swatches("포인트 색", RpgLook.accent, selected: look(cls)[2]) { accent = $0 }
+                                    Button("직업 기본값으로") { hair = nil; skin = nil; accent = nil }.controlSize(.small)
                                 }
                             }
                             Toggle(isOn: $hardcore) {
@@ -438,9 +477,10 @@ struct RpgTitleView: View {
                             HStack {
                                 Button("취소") { creating = nil }.controlSize(.large)
                                 Button("모험 시작") {
-                                    onNew(k, name, cls, hardcore)
+                                    onNew(k, name, cls, hardcore, look(cls))
                                     creating = nil
                                     name = ""
+                                    (hair, skin, accent) = (nil, nil, nil)
                                 }
                                 .controlSize(.large).buttonStyle(.borderedProminent)
                             }
@@ -464,6 +504,23 @@ struct RpgTitleView: View {
             Button("취소", role: .cancel) { deleting = nil }
         } message: {
             Text("삭제한 캐릭터는 되돌릴 수 없어요.")
+        }
+    }
+}
+
+/// A hero drawn live with the game's own renderer: breathing in place (`still`) or looping through walk, swing and cast.
+struct RpgHeroPreview: View {
+    let player: RpgPlayer
+    var still = false
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            if let cg = RpgArt.heroPreview(player, pose: RpgArt.heroShowcasePose(player, time: t, still: still), time: t) {
+                Image(decorative: cg, scale: 1).resizable().interpolation(.none).aspectRatio(contentMode: .fit)
+            } else {
+                Color.clear
+            }
         }
     }
 }
