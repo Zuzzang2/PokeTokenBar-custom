@@ -571,6 +571,11 @@ final class RpgWorld {
             leaveMapIfEmpty(from)
             toast("\(m.name) 님 곁으로 이동했어요")
         case .warp(let target):
+            if let region = RpgRegions.entry(target) {
+                guard players[i].level >= region.minLevel else { toast("Lv\(region.minLevel) 이상이어야 \(region.name)에 갈 수 있어요"); return }
+                travel(i, to: target, at: region.entryTile, minLevel: 1)
+                return
+            }
             guard players[i].visited.contains(target), let arrive = arrival(for: target) else { return }
             travel(i, to: target, at: arrive, minLevel: 1)
         case .advance(let choice):

@@ -164,7 +164,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .board: return tab == 0 ? world.boardOffers(for: localID).count : p.quests.count
         case .skills: return tab == 0 ? p.skillList.count : RpgStats.names.count
         case .keys: return RpgKeyAction.allCases.count
-        case .waypoint: return waypoints(p).count
+        case .waypoint: return tab == 0 ? waypoints(p).count : RpgRegions.all.count
         case .quests: return p.quests.count
         case .codex: return tab == 0 ? Self.codexMonsters.count : RpgAchievements.all.count
         case .trade: return world.tradeView(for: localID) != nil ? tradeBag(p).count : tradeRows(p).count
@@ -287,6 +287,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             else { world.toast(skill.price > 0 ? "마법서점에서 스킬북을 살 수 있어요" : "몬스터가 떨어뜨리는 스킬북으로 배워요") }
         case .keys:
             waitingKey = true
+        case .waypoint where tab == 1:
+            if RpgRegions.all.indices.contains(selection) { act(.warp(RpgRegions.all[selection].entry)); close() }
         case .waypoint:
             let list = waypoints(p)
             if list.indices.contains(selection) { act(.warp(list[selection])); close() }
@@ -1315,8 +1317,18 @@ final class RpgView: NSView, NSTextFieldDelegate {
                     text("같은 세계에 초대할 동료가 없어요", at: CGPoint(x: area.midX, y: area.minY + 20), size: 13, color: Self.dim, align: .center)
                 }
             }
+        case .waypoint where tab == 1:
+            let area = frame(ctx, title: "차원문", hint: "새로운 대륙으로 떠나요 (레벨 필요)   ↑↓ 선택   Enter 이동   ←→ 탭   Esc 닫기", tabs: ["가 본 지역", "대륙"])
+            let regions = RpgRegions.all
+            self.list(ctx, count: regions.count, in: area, rowH: 54) { i, r in
+                let region = regions[i]
+                let ok = p.level >= region.minLevel
+                text(region.name, at: CGPoint(x: r.minX + 12, y: r.minY + 6), size: 15, color: ok ? .white : NSColor(white: 0.5, alpha: 1), weight: .bold)
+                text("Lv\(region.minLevel)+", at: CGPoint(x: r.maxX - 12, y: r.minY + 6), size: 12, color: ok ? Self.gold : NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1), align: .right)
+                text(region.blurb, at: CGPoint(x: r.minX + 12, y: r.minY + 30), size: 11, color: Self.dim, weight: .semibold)
+            }
         case .waypoint:
-            let area = frame(ctx, title: "차원문", hint: "가 본 지역으로 바로 이동해요   ↑↓ 선택   Enter 이동   Esc 닫기")
+            let area = frame(ctx, title: "차원문", hint: "가 본 지역으로 바로 이동해요   ↑↓ 선택   Enter 이동   ←→ 탭   Esc 닫기", tabs: ["가 본 지역", "대륙"])
             let list = waypoints(p)
             self.list(ctx, count: list.count, in: area, rowH: 36) { i, r in
                 let def = RpgMaps.def(list[i])

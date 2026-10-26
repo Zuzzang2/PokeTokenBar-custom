@@ -76,7 +76,7 @@ func contentChecks() {
         guard text.contains("Lv"), let lo = nums.first else { return nil }
         return lo...(nums.last ?? lo)
     }
-    check(lateMaps.allSatisfy { RpgMapID.allCases.contains($0) } && RpgMapID.allCases.count == 19 + 18, "the 12 hunting maps and 6 boss rooms exist (\(RpgMapID.allCases.count) maps)")
+    check(lateMaps.allSatisfy { RpgMapID.allCases.contains($0) } && RpgMapID.allCases.count >= 19 + 18, "the 12 hunting maps and 6 boss rooms exist (\(RpgMapID.allCases.count) maps)")
     var dests: [RpgMapID: [RpgPortal]] = [:]
     for def in RpgMaps.all { dests[def.id] = def.portals.filter { !$0.waypoint } }
     check(Set(RpgMaps.all.map(\.id)) == Set(RpgMapID.allCases) && RpgMaps.all.count == RpgMapID.allCases.count, "every map id has exactly one definition")
@@ -84,6 +84,7 @@ func contentChecks() {
     check(Set(seeds).count == seeds.count, "map seeds are unique")
     // Lowest level at which each map can be entered from the town (best path, gates taken as the max along it).
     var entry: [RpgMapID: Int] = [.town: 1]
+    for region in RpgRegions.all { entry[region.entry] = region.minLevel }   // the 차원문 opens each region at its level
     var changed = true
     while changed {
         changed = false

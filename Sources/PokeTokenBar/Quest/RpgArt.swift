@@ -110,11 +110,15 @@ enum RpgArt {
     ]
     static let crown: RpgGrid = ["K.K.K.K", "KYKYKYK", "KYYYYYK", "KYRYOYK", "KKKKKKK"]
 
-    private struct SpriteSpec {
+    struct SpriteSpec {
         let grid: RpgGrid
         let swap: [Character: CGColor]
         var boss = false
     }
+
+    /// Monster sprites declared by the regions (`Regions/`).
+    private static let regionSpecs: [String: SpriteSpec] = [specsAncient, specsCelestial, specsChaos, specsCoast, specsCrystal, specsFactory, specsFrost, specsHaunted, specsJungle, specsMushroom, specsRift, specsSkyisle, specsUndersea, specsUnderworld,].reduce(into: [:]) { $0.merge($1) { a, _ in a } }
+    private static let regionIcons: [String: [Character: CGColor]] = [iconsAncient, iconsCelestial, iconsChaos, iconsCoast, iconsCrystal, iconsFactory, iconsFrost, iconsHaunted, iconsJungle, iconsMushroom, iconsRift, iconsSkyisle, iconsUndersea, iconsUnderworld,].reduce(into: [:]) { $0.merge($1) { a, _ in a } }
 
     private static let specs: [String: SpriteSpec] = [
         "warrior": SpriteSpec(grid: warrior, swap: [:]), "archer": SpriteSpec(grid: archer, swap: [:]),
@@ -255,7 +259,7 @@ enum RpgArt {
     static func sprite(_ key: String, tint: [Character: CGColor] = [:]) -> CGImage? {
         let cacheKey = key + tint.keys.sorted().map(String.init).joined() + tint.values.map { "\($0.components ?? [])" }.joined()
         if let img = spriteCache[cacheKey] { return img }
-        guard let spec = specs[key] else { return nil }
+        guard let spec = specs[key] ?? regionSpecs[key] else { return nil }
         let colors = palette.merging(spec.swap) { _, new in new }.merging(tint) { _, new in new }
         let scale = spec.boss ? 2 : 1
         let crownSpace = spec.boss ? 8 : 0
@@ -549,7 +553,7 @@ enum RpgArt {
         case .helmet: template = helmetT
         case .boots: template = bootsT
         }
-        let colors = palette.merging(itemColors(item)) { _, new in new }
+        let colors = palette.merging(itemColors(item)) { _, new in new }.merging(regionIcons[item.id] ?? [:]) { _, new in new }
         guard let ctx = KartArt.context(width: 18, height: 18) else { return nil }
         if item.rarity >= 2, item.isEquipment {
             let glowColor = item.rarity == 4 ? rgb(255, 90, 140) : elem(item.element == .base ? .holy : item.element).mid
@@ -720,6 +724,13 @@ enum RpgArt {
                     fill(ctx, rgb(190, 178, 158), px, py, 16, 16)
                 }
             }
+        }
+        if let theme = map.def.theme, let tint = theme.tint {
+            ctx.saveGState()
+            ctx.setBlendMode(theme.blend.cg)
+            ctx.setFillColor(CGColor(red: tint.r, green: tint.g, blue: tint.b, alpha: theme.tintAlpha))
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.restoreGState()
         }
         if map.def.kind == .town {
             let fx: CGFloat = 15 * 16, fy: CGFloat = 12 * 16

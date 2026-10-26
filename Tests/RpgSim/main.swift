@@ -677,6 +677,7 @@ contentChecks()
 rogueChecks()
 statChecks()
 tierChecks()
+regionChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

@@ -320,7 +320,7 @@ enum RpgItems {
             RpgItem(id: "book_\(s.id)", name: "스킬북: \(s.name)", kind: .book(s.id), rarity: s.isUltimate ? 3 : (s.price > 0 ? 1 : 2),
                     attack: 0, defense: 0, heal: 0, price: s.price > 0 ? s.price : (s.isUltimate ? 30000 : 6000), element: .base, inShop: s.price > 0)
         }
-        return items
+        return items + RpgRegions.all.flatMap(\.items)
     }()
 
     private static let byID: [String: RpgItem] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
@@ -415,12 +415,12 @@ struct RpgMonsterDef: Sendable {
 }
 
 enum RpgMonsters {
-    private static func m(_ id: String, _ name: String, _ sprite: String, _ lv: Int, _ hp: Int, _ atk: Int, _ def: Int, _ speed: Double,
+    static func m(_ id: String, _ name: String, _ sprite: String, _ lv: Int, _ hp: Int, _ atk: Int, _ def: Int, _ speed: Double,
                           _ xp: Int, _ gold: ClosedRange<Int>, _ behavior: RpgBehavior, _ drops: [(String, Double)]) -> RpgMonsterDef {
         RpgMonsterDef(id: id, name: name, sprite: sprite, level: lv, hp: hp, attack: atk, defense: def, speed: speed, xp: xp, gold: gold,
                       behavior: behavior, drops: drops.map { RpgDrop(item: $0.0, chance: $0.1) })
     }
-    private static func boss(_ id: String, _ name: String, _ sprite: String, _ lv: Int, _ hp: Int, _ atk: Int, _ def: Int, _ speed: Double,
+    static func boss(_ id: String, _ name: String, _ sprite: String, _ lv: Int, _ hp: Int, _ atk: Int, _ def: Int, _ speed: Double,
                              _ xp: Int, _ gold: ClosedRange<Int>, _ style: RpgBossStyle, minion: String, element: RpgElement,
                              _ drops: [(String, Double)]) -> RpgMonsterDef {
         var d = m(id, name, sprite, lv, hp, atk, def, speed, xp, gold, .boss, drops + Array(repeating: ("stone", 1.0), count: max(3, lv / 5)))
@@ -608,7 +608,7 @@ enum RpgMonsters {
              [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
         boss("voidlord", "차원의 지배자", "voidlord", 100, 2600000, 1050, 255, 39, 1785000, 138500...230000, .demon, minion: "voidknight", element: .cosmic,
              [("sword12", 0.12), ("bow12", 0.12), ("staff12", 0.12), ("dagger12", 0.12), ("mace12", 0.12), ("claw12", 0.12), ("rod12", 0.12), ("sword11", 0.1), ("bow11", 0.1), ("staff11", 0.1), ("dagger11", 0.1), ("mace11", 0.1), ("claw11", 0.1), ("rod11", 0.1), ("armor11", 0.2), ("armor10", 0.2), ("ring11", 0.08), ("amulet11", 0.08), ("helmet11", 0.08), ("boots11", 0.08), ("hp5", 1)]),
-    ]
+    ] + RpgRegions.all.flatMap(\.monsters)
     private static let byID: [String: RpgMonsterDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: String) -> RpgMonsterDef { byID[id]! }
 }
@@ -690,13 +690,16 @@ struct RpgMapDef: Sendable {
     let monsters: [RpgSpawn]
     /// Boss rooms are lit like caves but use the zone's palette.
     var zone: RpgMapKind? = nil
+    /// Dressing beyond the kind (see `RpgTheme`), and whether the 차원문 lists the map once visited.
+    var theme: RpgTheme? = nil
+    var waypoint = false
 }
 
 enum RpgMaps {
-    private static func p(_ x: Int, _ y: Int, _ to: RpgMapID, _ ax: Int, _ ay: Int, minLevel: Int = 1, hidden: Bool = false) -> RpgPortal {
+    static func p(_ x: Int, _ y: Int, _ to: RpgMapID, _ ax: Int, _ ay: Int, minLevel: Int = 1, hidden: Bool = false) -> RpgPortal {
         RpgPortal(at: RpgTile(x: x, y: y), to: to, arrive: RpgTile(x: ax, y: ay), minLevel: minLevel, hidden: hidden)
     }
-    private static func sp(_ list: [(String, Int)]) -> [RpgSpawn] { list.map { RpgSpawn(monster: $0.0, count: $0.1) } }
+    static func sp(_ list: [(String, Int)]) -> [RpgSpawn] { list.map { RpgSpawn(monster: $0.0, count: $0.1) } }
 
     static let all: [RpgMapDef] = {
         var town = RpgPortal(at: RpgTile(x: 1, y: 11), to: .town, arrive: RpgTile(x: 4, y: 11), minLevel: 1, hidden: false)
@@ -805,7 +808,7 @@ enum RpgMaps {
             RpgMapDef(id: .dimensionBoss, name: "차원의 균열", levelText: "보스 Lv100", width: 28, height: 22, kind: .boss, seed: 229,
                       portals: [p(14, 20, .dimension, 25, 4, minLevel: 95)], monsters: sp([("voidlord", 1)]), zone: .castle),
         ]
-        return maps
+        return maps + RpgRegions.all.flatMap(\.maps)
     }()
     private static let byID: [RpgMapID: RpgMapDef] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
     static func def(_ id: RpgMapID) -> RpgMapDef { byID[id]! }
@@ -813,6 +816,7 @@ enum RpgMaps {
     /// Zones the 차원문 can open once visited.
     static let waypoints: [RpgMapID] = [.field, .forest, .cave1, .cave2, .desert, .swamp, .snow, .ruins, .volcano, .castle, .crypt,
         .sky, .abyss, .temple, .demongate, .dragon, .icepalace, .firetemple, .canyon, .darkforest, .library, .stargarden, .dimension]
+        + RpgRegions.all.flatMap(\.maps).filter(\.waypoint).map(\.id)
 
     /// XP to the next level. Up to Lv60 the original curve (Lv1 50, Lv15 3375, Lv30 17325, Lv36 27256, Lv50 73575, Lv60 154300);
     /// past 60 a quadratic + cubic term is added so the late game stays slow: Lv70 ~342k, Lv80 ~760k, Lv90 ~1.5M, Lv99 ~2.6M.

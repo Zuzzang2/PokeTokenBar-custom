@@ -38,6 +38,7 @@ struct RpgMap: Sendable {
     var pixelSize: CGSize { CGSize(width: CGFloat(width) * Self.tile, height: CGFloat(height) * Self.tile) }
     /// Caves and boss rooms are dark; the castle is dim.
     var darkness: Double {
+        if let d = def.theme?.darkness { return d }
         switch def.kind {
         case .cave: return 0.82
         case .boss: return def.zone == .castle ? 0.6 : 0.5
@@ -79,13 +80,14 @@ struct RpgMap: Sendable {
         self.def = def
         tiles = Array(repeating: .grass, count: def.width * def.height)
         var rng = KartRNG(seed: def.seed &* 0x9E37_79B9)
+        let th = def.theme
         switch def.kind {
         case .town: buildTown()
-        case .field: buildOutdoor(&rng, floor: .grass, obstacle: .tree, density: 7, rocks: 3, pools: 2, poolTile: .water, decor: .flower, decorCount: 60)
-        case .forest: buildOutdoor(&rng, floor: .darkGrass, obstacle: .tree, density: 20, rocks: 3, pools: 1, poolTile: .water, decor: .flower, decorCount: 25)
-        case .desert: buildOutdoor(&rng, floor: .sand, obstacle: .cactus, density: 5, rocks: 4, pools: 1, poolTile: .water, decor: .dune, decorCount: 120)
-        case .snow: buildOutdoor(&rng, floor: .snow, obstacle: .pine, density: 12, rocks: 4, pools: 2, poolTile: .iceRock, decor: .snow, decorCount: 0)
-        case .volcano: buildOutdoor(&rng, floor: .ash, obstacle: .rock, density: 6, rocks: 3, pools: 4, poolTile: .lava, decor: .ash, decorCount: 0)
+        case .field: buildOutdoor(&rng, floor: th?.floor ?? .grass, obstacle: th?.obstacle ?? .tree, density: 7, rocks: 3, pools: 2, poolTile: th?.pool ?? .water, decor: th?.decor ?? .flower, decorCount: 60)
+        case .forest: buildOutdoor(&rng, floor: th?.floor ?? .darkGrass, obstacle: th?.obstacle ?? .tree, density: 20, rocks: 3, pools: 1, poolTile: th?.pool ?? .water, decor: th?.decor ?? .flower, decorCount: 25)
+        case .desert: buildOutdoor(&rng, floor: th?.floor ?? .sand, obstacle: th?.obstacle ?? .cactus, density: 5, rocks: 4, pools: 1, poolTile: th?.pool ?? .water, decor: th?.decor ?? .dune, decorCount: 120)
+        case .snow: buildOutdoor(&rng, floor: th?.floor ?? .snow, obstacle: th?.obstacle ?? .pine, density: 12, rocks: 4, pools: 2, poolTile: th?.pool ?? .iceRock, decor: th?.decor ?? .snow, decorCount: 0)
+        case .volcano: buildOutdoor(&rng, floor: th?.floor ?? .ash, obstacle: th?.obstacle ?? .rock, density: 6, rocks: 3, pools: 4, poolTile: th?.pool ?? .lava, decor: th?.decor ?? .ash, decorCount: 0)
         case .castle: buildCastle(&rng)
         case .pond: buildPond(&rng)
         case .cave: buildCave(&rng)
@@ -100,6 +102,7 @@ struct RpgMap: Sendable {
     }
 
     private var floorType: RpgTileType {
+        if let f = def.theme?.floor, [.field, .forest, .desert, .snow, .volcano].contains(def.kind) { return f }
         switch def.kind {
         case .cave: return .caveFloor
         case .boss: return .bossFloor
@@ -114,6 +117,7 @@ struct RpgMap: Sendable {
     }
 
     private var wallType: RpgTileType {
+        if let o = def.theme?.obstacle, [.field, .forest, .desert, .snow, .volcano].contains(def.kind) { return o }
         switch def.kind {
         case .cave, .boss: return .caveWall
         case .castle: return .castleWall

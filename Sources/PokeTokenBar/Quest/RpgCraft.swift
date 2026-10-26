@@ -95,7 +95,7 @@ enum RpgRecipes {
         let gearGold = [150, 700, 2600, 6000, 17000, 36000, 80000, 180_000, 360_000, 620_000, 1_000_000, 1_700_000]
         for t in 0..<12 { list.append(RpgRecipe(id: "helmet\(t)", output: "helmet\(t)", count: 1, materials: helmetMats[t], gold: gearGold[t])) }
         for t in 0..<12 { list.append(RpgRecipe(id: "boots\(t)", output: "boots\(t)", count: 1, materials: bootsMats[t], gold: gearGold[t])) }
-        return list
+        return list + RpgRegions.all.flatMap(\.recipes)
     }()
 
     static func def(_ id: String) -> RpgRecipe? { all.first { $0.id == id } }
