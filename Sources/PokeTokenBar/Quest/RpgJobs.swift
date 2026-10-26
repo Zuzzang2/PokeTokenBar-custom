@@ -36,6 +36,22 @@ enum RpgJobs {
                   hp: 1, mp: 1.1, attack: 1.25, defense: 1, crit: 0, interval: 1, skills: ["j_inferno", "j_firestorm"]),
         RpgJobDef(cls: .mage, job: 2, name: "빙결술사", blurb: "적을 얼려 다루는 마법사. HP·MP가 오르고 광역 둔화를 써요.",
                   hp: 1.15, mp: 1.3, attack: 1.05, defense: 1, crit: 0, interval: 1, skills: ["j_frost", "j_glacier"]),
+        RpgJobDef(cls: .rogue, job: 1, name: "암살자", blurb: "그림자처럼 다가가 한 방에 끝내는 암살자. 공격력·치명타가 크게 올라요.",
+                  hp: 0.95, mp: 1, attack: 1.25, defense: 0.9, crit: 0.10, interval: 1, skills: ["j_ass1", "j_ass2"]),
+        RpgJobDef(cls: .rogue, job: 2, name: "독술사", blurb: "독과 연막으로 적을 말려 죽이는 도적. 공속이 빨라지고 독 스킬을 써요.",
+                  hp: 1.05, mp: 1.1, attack: 1.1, defense: 1, crit: 0.04, interval: 0.9, skills: ["j_poi1", "j_poi2"]),
+        RpgJobDef(cls: .cleric, job: 1, name: "성기사", blurb: "방패와 신성한 힘으로 앞에서 버티는 성직자. HP·방어가 크게 올라요.",
+                  hp: 1.3, mp: 1, attack: 1.1, defense: 1.35, crit: 0, interval: 1, skills: ["j_pal1", "j_pal2"]),
+        RpgJobDef(cls: .cleric, job: 2, name: "대주교", blurb: "동료를 살리는 최고의 치유사. MP가 크게 오르고 강력한 회복·축복을 써요.",
+                  hp: 1.05, mp: 1.35, attack: 0.95, defense: 1.1, crit: 0, interval: 1, skills: ["j_arc1", "j_arc2"]),
+        RpgJobDef(cls: .monk, job: 1, name: "권왕", blurb: "주먹 하나로 정점에 선 격투가. 공격력·공속이 올라요.",
+                  hp: 1.1, mp: 1, attack: 1.25, defense: 0.95, crit: 0.06, interval: 0.9, skills: ["j_fk1", "j_fk2"]),
+        RpgJobDef(cls: .monk, job: 2, name: "수도승", blurb: "참선으로 몸을 단련한 수도승. HP·방어가 크게 올라요.",
+                  hp: 1.3, mp: 1.1, attack: 1, defense: 1.3, crit: 0, interval: 1, skills: ["j_asc1", "j_asc2"]),
+        RpgJobDef(cls: .summoner, job: 1, name: "사령술사", blurb: "죽은 자를 부리는 소환사. 공격력·MP가 크게 올라요.",
+                  hp: 0.95, mp: 1.2, attack: 1.3, defense: 1, crit: 0.05, interval: 1, skills: ["j_nec1", "j_nec2"]),
+        RpgJobDef(cls: .summoner, job: 2, name: "야수 조련사", blurb: "맹수와 정령왕을 부리는 소환사. HP가 오르고 소환이 강해져요.",
+                  hp: 1.25, mp: 1.1, attack: 1.1, defense: 1.1, crit: 0.03, interval: 0.95, skills: ["j_beast1", "j_beast2"]),
     ]
 
     /// Palette swaps on the class sprite so each advanced job looks different (knight blue cape, berserker dark red, ...).
@@ -48,6 +64,14 @@ enum RpgJobs {
         case (.archer, 2): return ["G": c(200, 140, 50), "g": c(150, 96, 30)]
         case (.mage, 1): return ["P": c(220, 80, 40), "p": c(150, 40, 20)]
         case (.mage, 2): return ["P": c(70, 150, 230), "p": c(40, 100, 170)]
+        case (.rogue, 1): return ["Z": c(60, 40, 70), "z": c(36, 24, 44), "R": c(200, 40, 60)]
+        case (.rogue, 2): return ["Z": c(70, 120, 70), "z": c(40, 80, 44), "R": c(170, 230, 80)]
+        case (.cleric, 1): return ["W": c(215, 225, 245), "Y": c(120, 170, 255), "C": c(180, 190, 210)]
+        case (.cleric, 2): return ["W": c(250, 235, 255), "Y": c(220, 120, 255), "C": c(235, 210, 250)]
+        case (.monk, 1): return ["F": c(220, 50, 40), "f": c(255, 160, 80)]
+        case (.monk, 2): return ["F": c(60, 120, 200), "f": c(130, 190, 255)]
+        case (.summoner, 1): return ["E": c(100, 60, 140), "e": c(60, 30, 90), "A": c(40, 40, 60)]
+        case (.summoner, 2): return ["E": c(180, 120, 50), "e": c(120, 76, 30), "A": c(90, 140, 60)]
         default: return [:]
         }
     }
@@ -73,5 +97,21 @@ enum RpgJobs {
         s("j_firestorm", "화염 폭풍", .mage, 30, 44, 10, 2.6, "주변에 불의 운석 5개"),
         s("j_frost", "서리 파동", .mage, 20, 22, 3.5, 1.9, "주변을 얼려 피해와 둔화"),
         s("j_glacier", "빙하", .mage, 30, 44, 9, 0.7, "넓은 얼음 지대를 오래 만든다"),
+        s("j_ass1", "그림자 습격", .rogue, 20, 18, 6, 2.6, "앞으로 순식간에 돌진하며 벤다 (무적)"),
+        s("j_ass2", "사신의 일격", .rogue, 30, 40, 18, 3.0, "근처 적들을 차례로 베어 넘긴다"),
+        s("j_poi1", "맹독 구름", .rogue, 20, 20, 8, 1.6, "앞쪽에 독구름을 터뜨린다"),
+        s("j_poi2", "독안개 폭발", .rogue, 30, 38, 16, 2.0, "독이 퍼지며 세 번 터진다"),
+        s("j_pal1", "성스러운 방패", .cleric, 20, 22, 20, 0, "주변 동료 12초간 피해 -40% + HP 10% 회복"),
+        s("j_pal2", "심판의 망치", .cleric, 30, 34, 14, 3.0, "넓은 범위를 내려쳐 기절시킨다 (신성)"),
+        s("j_arc1", "대치유", .cleric, 20, 28, 12, 0, "주변 동료 HP 50% 회복"),
+        s("j_arc2", "신의 은총", .cleric, 30, 44, 30, 0, "주변 동료 공격력 상승 + 피해 감소 (12초)"),
+        s("j_fk1", "폭권", .monk, 20, 20, 7, 2.8, "전방에 기를 터뜨려 크게 폭발시킨다"),
+        s("j_fk2", "분노의 연타", .monk, 30, 36, 14, 0.8, "전방을 12번 두들긴다"),
+        s("j_asc1", "참선", .monk, 20, 20, 20, 0, "HP 35% 회복 + 6초간 피해 감소"),
+        s("j_asc2", "반격의 기", .monk, 30, 30, 16, 1.8, "주변을 밀쳐내며 기절시키고 8초간 피해 감소"),
+        s("j_nec1", "해골 병사 소환", .summoner, 20, 22, 8, 1.2, "해골 병사들이 앞쪽을 쓸어낸다"),
+        s("j_nec2", "죽음의 파동", .summoner, 30, 40, 14, 1.8, "죽음의 파동이 세 겹으로 퍼진다"),
+        s("j_beast1", "맹수 소환", .summoner, 20, 24, 8, 1.7, "맹수들이 부채꼴로 덮친다"),
+        s("j_beast2", "정령왕 강림", .summoner, 30, 46, 20, 2.3, "정령왕이 운석을 여덟 번 내리꽂는다"),
     ]
 }

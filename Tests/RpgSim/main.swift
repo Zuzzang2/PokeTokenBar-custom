@@ -1,6 +1,10 @@
 import Foundation
 @testable import PokeTokenBar
 
+// Saves go to a throw-away folder, never to the real app state.
+let simStateDir = NSTemporaryDirectory() + "rpgsim-\(UUID().uuidString)"
+setenv("PTB_STATE_DIR", simStateDir, 1)
+
 // Plain assertions: any failure prints and exits non-zero.
 var failures = 0
 func check(_ ok: Bool, _ what: String) {
@@ -27,20 +31,28 @@ func fieldWorld(level: Int, cls: RpgClass = .warrior) -> (RpgWorld, Int) {
     return (w, 2)
 }
 
-/// Walks toward the nearest living monster and attacks for `seconds`; returns the highest combo seen.
+/// Walks toward the nearest living monster and attacks for `seconds` (hopping sideways when scenery blocks the way);
+/// returns the highest combo seen.
 @discardableResult
 func hunt(_ w: RpgWorld, id: Int, seconds: Double) -> Int {
-    var t = 0.0, best = 0
+    var t = 0.0, best = 0, lastPos = CGPoint.zero, stuck = 0
     while t < seconds {
         guard let me = w.player(id) else { break }
         let target = (w.mobs[me.map] ?? []).filter { !$0.dead }
             .min { hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < hypot($1.pos.x - me.pos.x, $1.pos.y - me.pos.y) }
         var input = RpgInput()
+        stuck = hypot(me.pos.x - lastPos.x, me.pos.y - lastPos.y) < 0.5 ? stuck + 1 : 0
+        lastPos = me.pos
         if let target {
             let dx = target.pos.x - me.pos.x, dy = target.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
             // Report positions like a remote player so the walk cannot snag on scenery: hop up to 80px per step.
-            let hop = min(d, 80)
-            input.pos = CGPoint(x: me.pos.x + dx / d * (d > 80 ? hop : max(0, d - 10)), y: me.pos.y + dy / d * (d > 80 ? hop : max(0, d - 10)))
+            var ux = dx / d, uy = dy / d
+            var go: CGFloat = d > 80 ? 80 : max(0, d - 10)
+            if stuck >= 3 {
+                let a = Double.random(in: 0..<(2 * .pi))
+                ux = CGFloat(cos(a)); uy = CGFloat(sin(a)); go = 40
+            }
+            input.pos = CGPoint(x: me.pos.x + ux * go, y: me.pos.y + uy * go)
             input.facing = CGVector(dx: dx / d, dy: dy / d)
             input.attack = true
         }
@@ -339,8 +351,10 @@ do {
 do {
     // Swarm: waking one wakes the pack around it.
     if let (w, a) = parkedWorld(on: .desert, near: { $0.mobs[.desert]?.first { $0.def.id == "desertswarm" } }) {
+        // The pack is whoever stands within 90 px of the first monster at the start (they wander afterwards).
+        let packIDs = Set((w.mobs[.desert] ?? []).filter { $0.def.id == "desertswarm" && hypot($0.pos.x - a.pos.x, $0.pos.y - a.pos.y) < 90 }.map(\.id))
         for _ in 0..<12 { w.step(1.0 / 30, inputs: [:]) }
-        let pack = (w.mobs[.desert] ?? []).filter { $0.def.id == "desertswarm" && hypot($0.pos.x - a.pos.x, $0.pos.y - a.pos.y) < 90 }
+        let pack = (w.mobs[.desert] ?? []).filter { packIDs.contains($0.id) }
         check(pack.count >= 1 && pack.allSatisfy { $0.targetID != nil }, "a swarm pack (\(pack.count) near) all turn on the player together")
     } else { check(false, "found a spot next to a swarm monster") }
 }
@@ -503,6 +517,159 @@ do {
     }
     spent = 30 - (w.player(1)!.inventory["scroll_protect"] ?? 0)
     check(lowest >= 8 && spent > 0, "protection scrolls stop +8 gear from dropping (used \(spent))")
+}
+
+// MARK: seven classes
+do {
+    check(RpgClass.allCases.count == 7, "there are 7 classes")
+    for cls in RpgClass.allCases {
+        let weapons = (0..<9).allSatisfy { RpgItems.item("\(cls.weaponPrefix)\($0)")?.kind == .weapon(cls) }
+        check(weapons && RpgItems.item(cls.starterWeapon) != nil, "\(cls.name) has nine weapon tiers")
+        check(cls.skills.count == 8 && cls.skills.filter(\.starter).count == 2, "\(cls.name) has 8 skills, 2 of them starters")
+        let sprite = MainActor.assumeIsolated { RpgArt.sprite(cls.rawValue) != nil }
+        check(sprite, "\(cls.name) has a sprite")
+        let p = RpgSaveStore.newPlayer(name: "t", cls: cls, id: 1)
+        check(p.skills.count == 2 && p.slots.compactMap { $0 }.count == 2, "\(cls.name) starts with its two starter skills on the hotbar")
+        var hi = p
+        hi.level = 30
+        check(hi.maxHP > p.maxHP && hi.attack(at: 0) > p.attack(at: 0), "\(cls.name) grows with level")
+        // 2차 전직: both branches work at Lv20 and teach the first skill.
+        for job in 1...2 {
+            var q = RpgSaveStore.newPlayer(name: "t", cls: cls, id: 1)
+            q.level = 20
+            let w = RpgWorld(player: q)
+            w.perform(.advance(job), for: 1)
+            let got = w.player(1)!
+            let first = RpgJobs.def(cls, job)!.skills[0]
+            check(got.job == job && got.skills[first] != nil, "\(cls.name) job \(job) (\(RpgJobs.def(cls, job)!.name)) advances and learns \(first)")
+        }
+    }
+    check(RpgJobs.all.count == 14 && RpgJobs.skills.count == 28, "14 advanced jobs with 28 job skills")
+}
+
+/// A level-60 player of `cls` standing in the thickest cluster of desert monsters, hurt, with `skill` on slot 0.
+func skillBench(_ cls: RpgClass, job: Int, skill: String) -> (RpgWorld, RpgMob)? {
+    let w = world(level: 1)
+    var seed = RpgSaveStore.newPlayer(name: "caster", cls: cls, id: 2)
+    seed.level = 60
+    seed.map = .desert
+    seed.pos = RpgMap.center(RpgMaps.def(.desert).portals.first!.arrive)
+    w.addPlayer(seed)
+    let all = (w.mobs[.desert] ?? []).filter { !$0.dead }
+    guard let center = all.max(by: { a, b in
+        all.filter { hypot($0.pos.x - a.pos.x, $0.pos.y - a.pos.y) < 50 }.count < all.filter { hypot($0.pos.x - b.pos.x, $0.pos.y - b.pos.y) < 50 }.count
+    }) else { return nil }
+    let map = RpgMap(RpgMaps.def(.desert))
+    for off in [CGPoint(x: -40, y: 0), CGPoint(x: 40, y: 0), CGPoint(x: 0, y: -40), CGPoint(x: 0, y: 40), CGPoint(x: -25, y: 25)] {
+        var p = seed
+        p.pos = CGPoint(x: center.pos.x + off.x, y: center.pos.y + off.y)
+        guard map.canStand(p.pos) else { continue }
+        p.job = job
+        p.skills[skill] = 1
+        p.slots[0] = skill
+        p.hp = p.maxHP * 0.3
+        p.mp = p.maxMP
+        w.addPlayer(p)
+        return (w, center)
+    }
+    return nil
+}
+
+do {
+    var failed: [String] = []
+    var tried = 0
+    var defs: [(RpgClass, Int, RpgSkillDef)] = []
+    for cls in RpgClass.allCases {
+        for sk in cls.skills { defs.append((cls, 0, sk)) }
+        for job in 1...2 { for id in RpgJobs.def(cls, job)!.skills { defs.append((cls, job, RpgSkills.def(id)!)) } }
+    }
+    for (cls, job, sk) in defs {
+        var ok = false
+        for _ in 0..<8 where !ok {   // a cluster behind scenery, or a shot that flies past, deserves another world
+            guard let (w, center) = skillBench(cls, job: job, skill: sk.id) else { continue }
+            let me = w.player(2)!
+            let near = { (w: RpgWorld) in (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.reduce(0.0) { $0 + $1.hp } }
+            let hpBefore = near(w), mobsBefore = (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.count
+            // Face the cluster (a remote-style report), then cast.
+            let dx = center.pos.x - me.pos.x, dy = center.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
+            var input = RpgInput()
+            input.pos = me.pos
+            input.facing = CGVector(dx: dx / d, dy: dy / d)
+            w.step(1.0 / 30, inputs: [2: input])
+            let before = w.player(2)!
+            w.perform(.cast(0), for: 2)
+            let cast = w.player(2)!
+            let spent = (cast.cooldowns[sk.id] ?? 0) > 0 && cast.mp < before.mp
+            for _ in 0..<75 { w.step(1.0 / 30, inputs: [2: input]) }
+            let after = w.player(2)!
+            let hpAfter = near(w)
+            let aliveAfter = (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.count
+            let damaged = hpAfter < hpBefore - 1 || aliveAfter < mobsBefore
+            let healed = after.hp > before.hp
+            let buffed = after.rageUntil > before.rageUntil || after.ironUntil > before.ironUntil || after.focusUntil > before.focusUntil
+                || after.shieldUntil > before.shieldUntil || after.frenzyUntil > before.frenzyUntil || after.cycloneUntil > before.cycloneUntil || after.invulnerable > before.invulnerable || after.buffUntil["speed"] != nil || after.dash != nil
+            ok = spent && (sk.power > 0 ? damaged : (healed || buffed))
+            tried += 1
+        }
+        if !ok { failed.append("\(cls.name)/\(sk.name)") }
+    }
+    check(failed.isEmpty, "all \(defs.count) skills work when cast (\(failed.isEmpty ? "ok" : "failing: " + failed.joined(separator: ", ")))")
+}
+do {
+    // The four new classes can actually fight with their basic attack.
+    for cls in [RpgClass.rogue, .cleric, .monk, .summoner] {
+        let (w, id) = fieldWorld(level: 20, cls: cls)
+        hunt(w, id: id, seconds: 30)
+        let kills = w.player(id)!.kills.values.reduce(0, +)
+        check(kills > 0, "\(cls.name) kills monsters with basic attacks (\(kills) in 30 s)")
+    }
+}
+
+// MARK: character slots
+do {
+    for slot in 1...3 { RpgSaveStore.delete(slot: slot) }
+    let classes: [RpgClass] = [.warrior, .monk, .summoner]
+    for (k, cls) in classes.enumerated() {
+        var p = RpgSaveStore.newPlayer(name: "slot\(k + 1)", cls: cls, id: 1)
+        p.level = 10 * (k + 1)
+        RpgSaveStore.save(RpgSaveStore.snapshot(p), slot: k + 1)
+    }
+    var allOK = true
+    for (k, cls) in classes.enumerated() {
+        if case .ok(let d) = RpgSaveStore.load(slot: k + 1) { allOK = allOK && d.cls == cls && d.name == "slot\(k + 1)" && d.level == 10 * (k + 1) } else { allOK = false }
+    }
+    check(allOK, "three slots hold three different characters")
+    check(FileManager.default.fileExists(atPath: simStateDir + "/rpg-save.json") && FileManager.default.fileExists(atPath: simStateDir + "/rpg-save-3.json"), "slot 1 keeps the original file name, the others get their own")
+
+    RpgSaveStore.delete(slot: 2)
+    var left = 0
+    if case .none = RpgSaveStore.load(slot: 2) { left += 1 }
+    if case .ok = RpgSaveStore.load(slot: 1) { left += 1 }
+    if case .ok = RpgSaveStore.load(slot: 3) { left += 1 }
+    check(left == 3, "deleting one slot leaves the others alone")
+
+    try? "not a save".write(toFile: simStateDir + "/rpg-save-3.json", atomically: true, encoding: .utf8)
+    var tamperedOnly = false
+    if case .tampered = RpgSaveStore.load(slot: 3), case .ok = RpgSaveStore.load(slot: 1) { tamperedOnly = true }
+    check(tamperedOnly, "a damaged slot file is flagged without touching the other slots")
+    RpgSaveStore.quarantine(slot: 3)
+    var gone = false
+    if case .none = RpgSaveStore.load(slot: 3) { gone = true }
+    check(gone, "a damaged slot is moved aside")
+
+    var p = RpgSaveStore.newPlayer(name: "extra", cls: .rogue, id: 1)
+    RpgSaveStore.save(RpgSaveStore.snapshot(p), slot: 4)
+    var outside = false
+    if case .none = RpgSaveStore.load(slot: 4) { outside = !FileManager.default.fileExists(atPath: simStateDir + "/rpg-save-4.json") }
+    check(outside, "slot numbers beyond the limit are rejected")
+
+    RpgSaveStore.slot = 2
+    p.name = "current"
+    RpgSaveStore.save(RpgSaveStore.snapshot(p))
+    var viaDefault = false
+    if case .ok(let d) = RpgSaveStore.load(slot: 2) { viaDefault = d.name == "current" }
+    check(viaDefault, "saving without a slot goes to the slot picked on the title screen")
+    RpgSaveStore.slot = 1
 }
 
 if failures > 0 { print("\(failures) failed"); exit(1) }

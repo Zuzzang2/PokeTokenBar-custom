@@ -62,8 +62,9 @@ final class RpgWindowController: RpgDriver {
         if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(); return }
         state.reload()
         let title = NSHostingView(rootView: RpgTitleView(state: state,
-            onContinue: { [weak self] in self?.continueGame() },
-            onNew: { [weak self] name, cls, hardcore in self?.newGame(name: name, cls: cls, hardcore: hardcore) }))
+            onContinue: { [weak self] slot in self?.continueGame(slot: slot) },
+            onNew: { [weak self] slot, name, cls, hardcore in self?.newGame(slot: slot, name: name, cls: cls, hardcore: hardcore) },
+            onDelete: { [weak self] slot in self?.deleteSlot(slot) }))
         titleView = title
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let size = NSSize(width: min(1080, screen.width * 0.9), height: min(720, screen.height * 0.85))
@@ -103,13 +104,20 @@ final class RpgWindowController: RpgDriver {
         mode = .host
     }
 
-    private func continueGame() {
-        guard case .ok(let data) = RpgSaveStore.load(), data.fallen != true else { return }
+    private func continueGame(slot: Int) {
+        RpgSaveStore.slot = slot
+        guard case .ok(let data) = RpgSaveStore.load(slot: slot), data.fallen != true else { return }
         startHosting(RpgSaveStore.player(from: data, id: 1))
     }
 
-    private func newGame(name: String, cls: RpgClass, hardcore: Bool) {
-        if case .tampered = RpgSaveStore.load() { RpgSaveStore.quarantine() }
+    private func deleteSlot(_ slot: Int) {
+        RpgSaveStore.delete(slot: slot)
+        state.reload()
+    }
+
+    private func newGame(slot: Int, name: String, cls: RpgClass, hardcore: Bool) {
+        RpgSaveStore.slot = slot
+        if case .tampered = RpgSaveStore.load(slot: slot) { RpgSaveStore.quarantine(slot: slot) }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let player = RpgSaveStore.newPlayer(name: trimmed.isEmpty ? "모험가" : String(trimmed.prefix(10)), cls: cls, id: 1, hardcore: hardcore)
         RpgSaveStore.save(RpgSaveStore.snapshot(player))
@@ -323,116 +331,139 @@ final class RpgWindowController: RpgDriver {
 @MainActor
 @Observable
 final class RpgTitleState {
-    var save: RpgSaveData?
-    var tampered = false
+    /// The three character slots (nil = empty or unreadable) and whether a slot file was damaged.
+    var slots: [RpgSaveData?] = Array(repeating: nil, count: RpgSaveStore.slotCount)
+    var tampered: [Bool] = Array(repeating: false, count: RpgSaveStore.slotCount)
 
     func reload() {
-        switch RpgSaveStore.load() {
-        case .none: save = nil; tampered = false
-        case .ok(let s): save = s; tampered = false
-        case .tampered: save = nil; tampered = true
+        for k in 0..<RpgSaveStore.slotCount {
+            switch RpgSaveStore.load(slot: k + 1) {
+            case .none: slots[k] = nil; tampered[k] = false
+            case .ok(let s): slots[k] = s; tampered[k] = false
+            case .tampered: slots[k] = nil; tampered[k] = true
+            }
         }
     }
 }
 
 struct RpgTitleView: View {
     let state: RpgTitleState
-    let onContinue: () -> Void
-    let onNew: (String, RpgClass, Bool) -> Void
+    let onContinue: (Int) -> Void
+    let onNew: (Int, String, RpgClass, Bool) -> Void
+    let onDelete: (Int) -> Void
 
     @State private var name = ""
     @State private var cls = RpgClass.warrior
-    @State private var confirmNew = false
     @State private var hardcore = false
+    @State private var creating: Int?
+    @State private var deleting: Int?
+
+    /// A slot takes a new character when it is empty, damaged, or its hardcore hero has fallen.
+    private func isFree(_ k: Int) -> Bool { state.slots[k - 1] == nil || state.slots[k - 1]?.fallen == true }
+
+    private func slotCard(_ k: Int) -> some View {
+        let save = state.slots[k - 1]
+        return GroupBox {
+            VStack(spacing: 8) {
+                Text("슬롯 \(k)").font(.caption).foregroundStyle(.secondary)
+                if let s = save, s.fallen != true {
+                    RpgSpriteImage(key: s.cls.rawValue).frame(width: 56, height: 56)
+                    Text(s.name + (s.hardcore == true ? " ☠" : "")).font(.headline).lineLimit(1)
+                    Text("\(RpgJobs.def(s.cls, s.job ?? 0)?.name ?? s.cls.name) Lv\(s.level)").font(.subheadline)
+                    Text("\(RpgMaps.def(s.map).name) · \(s.gold) G · \(Int(s.playTime / 60))분").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack {
+                        Button("이어하기") { onContinue(k) }.buttonStyle(.borderedProminent)
+                        Button(role: .destructive) { deleting = k } label: { Image(systemName: "trash") }.buttonStyle(.bordered).help("이 캐릭터 삭제")
+                    }
+                } else if let s = save {
+                    RpgSpriteImage(key: s.cls.rawValue).frame(width: 56, height: 56).opacity(0.4).grayscale(1)
+                    Text("☠ \(s.name)").font(.headline).lineLimit(1)
+                    Text("\(s.cls.name) Lv\(s.level) · 하드코어로 쓰러짐").font(.caption).foregroundStyle(.secondary)
+                    Button("새 캐릭터") { creating = k }.buttonStyle(.bordered)
+                } else {
+                    Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 40)).foregroundStyle(.secondary).frame(height: 56)
+                    Text(state.tampered[k - 1] ? "저장 파일이 변조되어 불러올 수 없어요" : "비어 있어요")
+                        .font(.caption).foregroundStyle(state.tampered[k - 1] ? Color.red : Color.secondary).multilineTextAlignment(.center)
+                    Button("+ 새 캐릭터") { creating = k }.buttonStyle(.bordered)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 190)
+            .padding(4)
+        }
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(creating == k ? Color.accentColor : .clear, lineWidth: 2))
+    }
 
     var body: some View {
-        VStack(spacing: 18) {
-            Text("픽셀 모험").font(.system(size: 40, weight: .heavy))
-            Text("마을에서 장비를 사고, 포탈을 넘어 사냥터로. 같은 Wi-Fi의 동료와 자동으로 같은 세계에서 만나요.")
-                .foregroundStyle(.secondary)
-            if let s = state.save, s.fallen == true {
-                GroupBox {
-                    HStack(spacing: 14) {
-                        RpgSpriteImage(key: s.cls.rawValue).frame(width: 64, height: 64).opacity(0.4).grayscale(1)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("☠ \(s.name) · \(s.cls.name) Lv\(s.level)").font(.title3.bold())
-                            Text("하드코어 · \(RpgMaps.def(s.map).name)에서 영원히 잠들었습니다 · 플레이 \(Int(s.playTime / 60))분")
-                                .foregroundStyle(.secondary)
-                            Text("그 자리에 묘비가 남아 있어요. 새 모험을 시작하세요.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(6)
+        ScrollView {
+            VStack(spacing: 18) {
+                Text("픽셀 모험").font(.system(size: 40, weight: .heavy))
+                Text("마을에서 장비를 사고, 포탈을 넘어 사냥터로. 같은 Wi-Fi의 동료와 자동으로 같은 세계에서 만나요.")
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    ForEach(1...RpgSaveStore.slotCount, id: \.self) { k in slotCard(k).frame(width: 220) }
                 }
-                .frame(maxWidth: 560)
-            } else if let s = state.save {
-                GroupBox {
-                    HStack(spacing: 14) {
-                        RpgSpriteImage(key: s.cls.rawValue).frame(width: 64, height: 64)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(s.name) · \(s.cls.name) Lv\(s.level)").font(.title3.bold())
-                            Text("\(RpgMaps.def(s.map).name) · \(s.gold) G · 플레이 \(Int(s.playTime / 60))분")
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("이어하기", action: onContinue)
-                            .controlSize(.large).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    }
-                    .padding(6)
-                }
-                .frame(maxWidth: 560)
-            }
-            if state.tampered {
-                Text("저장 파일이 변조되어 불러올 수 없어요. 새로 시작하면 기존 파일은 따로 보관돼요.")
-                    .font(.callout).foregroundStyle(.red)
-            }
-            GroupBox("새 모험") {
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("이름")
-                        TextField("모험가", text: $name).textFieldStyle(.roundedBorder).frame(width: 200)
-                    }
-                    HStack(spacing: 12) {
-                        ForEach(RpgClass.allCases, id: \.self) { c in
-                            Button { cls = c } label: {
-                                VStack(spacing: 6) {
-                                    RpgSpriteImage(key: c.rawValue).frame(width: 72, height: 72)
-                                    Text(c.name).font(.headline)
-                                    Text(c.blurb).font(.caption).foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.center).frame(height: 44)
-                                }
-                                .padding(10)
-                                .frame(width: 170)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(cls == c ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08)))
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(cls == c ? Color.accentColor : .clear, lineWidth: 2))
+                if let k = creating, isFree(k) {
+                    GroupBox("새 캐릭터 (슬롯 \(k))") {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("이름")
+                                TextField("모험가", text: $name).textFieldStyle(.roundedBorder).frame(width: 200)
                             }
-                            .buttonStyle(.plain)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                                ForEach(RpgClass.allCases, id: \.self) { c in
+                                    Button { cls = c } label: {
+                                        VStack(spacing: 6) {
+                                            RpgSpriteImage(key: c.rawValue).frame(width: 64, height: 64)
+                                            Text(c.name).font(.headline)
+                                            Text(c.blurb).font(.caption).foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.center).frame(height: 56)
+                                        }
+                                        .padding(10)
+                                        .frame(maxWidth: .infinity)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(cls == c ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08)))
+                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(cls == c ? Color.accentColor : .clear, lineWidth: 2))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            Toggle(isOn: $hardcore) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("하드코어 — 죽으면 끝").font(.headline).foregroundStyle(hardcore ? .red : .primary)
+                                    Text("받는 피해 1.5배, 경험치·드랍 1.3배. 쓰러지면 그 자리에 묘비가 남고 캐릭터는 사라져요.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                            .frame(maxWidth: 520, alignment: .leading)
+                            HStack {
+                                Button("취소") { creating = nil }.controlSize(.large)
+                                Button("모험 시작") {
+                                    onNew(k, name, cls, hardcore)
+                                    creating = nil
+                                    name = ""
+                                }
+                                .controlSize(.large).buttonStyle(.borderedProminent)
+                            }
                         }
+                        .padding(6)
                     }
-                    Toggle(isOn: $hardcore) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("하드코어 — 죽으면 끝").font(.headline).foregroundStyle(hardcore ? .red : .primary)
-                            Text("받는 피해 1.5배, 경험치·드랍 1.3배. 쓰러지면 그 자리에 묘비가 남고 캐릭터는 사라져요.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                    .frame(maxWidth: 520, alignment: .leading)
-                    Button(state.save == nil || state.save?.fallen == true ? "모험 시작" : "새로 시작 (기존 캐릭터 삭제)") {
-                        if state.save == nil || state.save?.fallen == true { onNew(name, cls, hardcore) } else { confirmNew = true }
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.bordered)
+                    .frame(maxWidth: 780)
+                } else if state.slots.contains(where: { $0 != nil && $0?.fallen != true }) && (1...RpgSaveStore.slotCount).contains(where: isFree) {
+                    Text("빈 슬롯에서 + 새 캐릭터를 눌러 최대 \(RpgSaveStore.slotCount)명까지 만들 수 있어요.").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(6)
             }
-            .frame(maxWidth: 580)
+            .padding(30)
+            .frame(maxWidth: .infinity)
         }
-        .padding(30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert("기존 캐릭터를 지우고 새로 시작할까요?", isPresented: $confirmNew) {
-            Button("새로 시작", role: .destructive) { onNew(name, cls, hardcore) }
-            Button("취소", role: .cancel) {}
+        .onAppear {
+            // First launch: no character at all, so open the creation form on slot 1.
+            if creating == nil, state.slots.allSatisfy({ $0 == nil }) { creating = 1 }
+        }
+        .alert("슬롯 \(deleting ?? 0)의 캐릭터를 삭제할까요?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("삭제", role: .destructive) { if let k = deleting { onDelete(k) }; deleting = nil }
+            Button("취소", role: .cancel) { deleting = nil }
+        } message: {
+            Text("삭제한 캐릭터는 되돌릴 수 없어요.")
         }
     }
 }
