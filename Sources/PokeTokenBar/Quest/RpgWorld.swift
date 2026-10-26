@@ -1026,7 +1026,7 @@ final class RpgWorld {
         case .monk:
             // Three quick punches per attack.
             for k in 0..<3 {
-                schedule(Double(k) * 0.06, p.map, ahead(p, 12), radius: 16, damage: atk * 0.85, owner: p.id, element: p.element,
+                schedule(Double(k) * 0.06, p.map, ahead(p, 12), radius: 16, damage: atk * 0.6, owner: p.id, element: p.element,
                          fx: .slash(angle: angle + Double(k - 1) * 0.5, radius: 8))
             }
         case .summoner:

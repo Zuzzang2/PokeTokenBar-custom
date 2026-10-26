@@ -26,12 +26,12 @@ enum RpgClass: String, Codable, CaseIterable, Sendable {
     var hpPerLevel: Int { [22, 15, 12, 16, 18, 20, 13, 17][index] }
     var baseMP: Int { [30, 40, 70, 35, 60, 40, 65, 48][index] }
     var mpPerLevel: Int { [4, 5, 8, 4, 7, 5, 7, 5][index] }
-    var baseAttack: Int { [11, 10, 12, 11, 9, 10, 11, 11][index] }
-    var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 2.8, 3.2, 3.6, 3.3][index] }
+    var baseAttack: Int { [11, 10, 12, 11, 12, 10, 11, 11][index] }
+    var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 4.6, 3.2, 3.6, 3.3][index] }
     var baseDefense: Int { [6, 4, 3, 4, 5, 5, 3, 4][index] }
     var defensePerLevel: Double { [2.2, 1.4, 1.1, 1.4, 1.8, 1.9, 1.1, 1.5][index] }
     var speed: Double { [72, 80, 68, 90, 70, 82, 70, 76][index] }
-    var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.30, 0.65, 0.46][index] }
+    var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.42, 0.65, 0.46][index] }
     var critChance: Double { [0.08, 0.16, 0.08, 0.22, 0.06, 0.10, 0.07, 0.12][index] }
     /// Item id prefix of this class's weapons ("sword" -> sword0...sword8).
     var weaponPrefix: String { ["sword", "bow", "staff", "dagger", "mace", "claw", "rod", "gun"][index] }
