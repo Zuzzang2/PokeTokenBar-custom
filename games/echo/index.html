@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ECHO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Silkscreen&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #05060f; --ink: #cfd6ff; --accent: #ff4fd8; }
+    :root[data-theme="light"] { --bg: #05060f; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #05060f; } }
+    :root[data-theme="dark"] { --bg: #05060f; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; font-family: "Noto Sans KR", system-ui, sans-serif; }
+    #game { position: relative; width: 100vw; height: 100vh; }
+    #game canvas { display: block; transition: filter 120ms; }
+    /* CRT: scanlines + vignette over the canvas */
+    #crt { position: fixed; inset: 0; pointer-events: none; z-index: 2;
+      background:
+        repeating-linear-gradient(to bottom, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px),
+        radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%); }
+    body.rewinding #game canvas { filter: hue-rotate(160deg) saturate(1.6) contrast(1.15) blur(0.4px); animation: jitter 90ms steps(2) infinite; }
+    @keyframes jitter { 0% { transform: translateX(-2px); } 100% { transform: translateX(2px); } }
+    #touch { position: fixed; inset: auto 0 0 0; display: none; justify-content: space-between; padding: 16px; z-index: 3; gap: 12px; }
+    #touch .group { display: flex; gap: 12px; }
+    #touch button { width: 64px; height: 64px; border-radius: 14px; border: 1px solid rgba(207,214,255,0.35);
+      background: rgba(20,24,58,0.55); color: var(--ink); font: 700 16px "Noto Sans KR", sans-serif; touch-action: none; }
+    @media (pointer: coarse) { #touch { display: flex; } }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="crt"></div>
+  <div id="touch">
+    <div class="group"><button data-k="l">&larr;</button><button data-k="r">&rarr;</button></div>
+    <div class="group"><button data-act="rewind">R</button><button data-k="j">JUMP</button></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@4.2.1/dist/phaser.min.js"></script>
+  <script>window.Phaser || document.write('<script src="../../node_modules/phaser/dist/phaser.min.js"><\/script>');</script>
+  <script>
+    // Touch controls feed the same input the keyboard does.
+    window.EchoTouch = { l: false, r: false, j: false };
+    document.querySelectorAll('#touch button').forEach((b) => {
+      const set = (v) => (e) => {
+        e.preventDefault();
+        if (window.EchoAudio) window.EchoAudio.unlock();
+        if (b.dataset.k) window.EchoTouch[b.dataset.k] = v;
+        else if (v && window.EchoActions) window.EchoActions[b.dataset.act]();
+      };
+      b.addEventListener('pointerdown', set(true));
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => b.addEventListener(ev, set(false)));
+    });
+  </script>
+  <script src="core.js"></script>
+  <script src="levels.js"></script>
+  <script src="audio.js"></script>
+  <script src="render.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
