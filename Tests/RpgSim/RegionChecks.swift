@@ -27,7 +27,7 @@ func regionChecks() {
         check(RpgMaps.def(region.entry).portals.contains { $0.to == .town }, "\(tag): the entry map has a door back to the town")
         let walkable = region.maps.allSatisfy { def in
             let m = RpgMap(def)
-            return def.portals.allSatisfy { m.canStand(RpgMap.center($0.at)) } && m.canStand(RpgMap.center(region.entryTile)) || def.id != region.entry
+            return def.portals.allSatisfy { m.canStand(RpgMap.center($0.at)) } && (def.id != region.entry || m.canStand(RpgMap.center(region.entryTile)))
         }
         check(walkable, "\(tag): portal and entry tiles are walkable")
         for def in region.maps {
