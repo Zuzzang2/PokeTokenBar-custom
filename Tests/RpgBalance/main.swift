@@ -159,6 +159,62 @@ func duel(_ cls: RpgClass, level: Int, limit: Double) -> (Double?, Int, String) 
     return (nil, deaths, boss.name)
 }
 
+
+/// A party of `classes` (joined as one party) against the boss room's boss: seconds to kill, total deaths.
+func partyDuel(_ classes: [RpgClass], level: Int, limit: Double) -> (Double?, Int) {
+    guard let (def, boss) = bossFor(level: level) else { return (nil, 0) }
+    let host = RpgWorld(player: RpgSaveStore.newPlayer(name: "host", cls: .warrior, id: 1))
+    var ids: [Int] = []
+    for (k, cls) in classes.enumerated() {
+        let id = 2 + k
+        var p = build(cls, level: level, mapID: def.id, id: id)
+        p.pos = RpgMap.center(def.portals.first { !$0.waypoint }?.at ?? RpgTile(x: 14, y: 17))
+        p.pos.x += CGFloat(k * 12)
+        p.inventory = level >= 70 ? ["hp5": 12, "mp3": 8] : (level >= 30 ? ["hp3": 20, "mp1": 10] : ["hp2": 20, "mp0": 10])
+        host.addPlayer(p)
+        if level >= RpgJobs.advanceLevel { host.perform(.advance(1), for: id) }
+        for _ in 0..<2 { host.perform(.promote, for: id) }
+        ids.append(id)
+    }
+    for id in ids.dropFirst() { host.perform(.invite(ids[0]), for: id) }
+    var t = 0.0, deaths = 0
+    var dead: [Int: Bool] = [:]
+    while t < limit {
+        var inputs: [Int: RpgInput] = [:]
+        for (k, id) in ids.enumerated() {
+            guard let me = host.player(id) else { continue }
+            if me.dead { if dead[id] != true { deaths += 1 }; dead[id] = true } else { dead[id] = false }
+            if let b = (host.mobs[me.map] ?? []).first(where: { $0.def.id == boss.id }), b.dead { return (t, deaths) }
+            guard let target = (host.mobs[me.map] ?? []).first(where: { !$0.dead && $0.def.id == boss.id }), !me.dead else { continue }
+            var input = RpgInput()
+            let dx = target.pos.x - me.pos.x, dy = target.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
+            let want: CGFloat = ranged.contains(classes[k]) ? 90 : 16
+            let go: CGFloat = d > 80 ? 80 : max(0, d - want)
+            input.pos = CGPoint(x: me.pos.x + dx / d * go, y: me.pos.y + dy / d * go)
+            input.facing = CGVector(dx: dx / d, dy: dy / d)
+            input.attack = true
+            if d < 180 { for (slot, sk) in me.slots.enumerated() where sk != nil { input.slots.insert(slot) } }
+            inputs[id] = input
+            if me.hp < me.maxHP * 0.45 { host.perform(.hpPotion, for: id) }
+            if me.mp < me.maxMP * 0.25 { host.perform(.mpPotion, for: id) }
+        }
+        host.step(1.0 / 30, inputs: inputs)
+        t += 1.0 / 30
+    }
+    return (nil, deaths)
+}
+
+if ProcessInfo.processInfo.environment["PARTY"] != nil {
+    let parties: [(String, [RpgClass])] = [("전사+성직자+마법사+궁수", [.warrior, .cleric, .mage, .archer]), ("도적+격투가+소환사+메카닉", [.rogue, .monk, .summoner, .mechanic]), ("2인 전사+성직자", [.warrior, .cleric])]
+    print("party boss duel: seconds to kill (total deaths), limit 400 s")
+    for (name, members) in parties {
+        var row = pad(name, 28)
+        for l in [35, 50, 65, 80, 100] { let (t, d) = partyDuel(members, level: l, limit: 400); row += pad("Lv\(l) " + (t.map { "\(Int($0))s" } ?? ">400s") + " (\(d))", 18) }
+        print(row)
+    }
+    exit(0)
+}
+
 if ProcessInfo.processInfo.environment["BOSS"] != nil {
     let bossLevels = [20, 35, 50, 65, 80, 100]
     print("solo boss duel: seconds to kill (deaths), limit 300 s")

@@ -243,7 +243,7 @@ struct RpgMob {
     var chargeDir: CGVector?
     var lastHitBy: Int?
     var summoned = false
-    /// Bosses grow with the raid: HP x(1 + 0.75 per extra player in the room).
+    /// Bosses grow with the raid: HP x(1 + 1.25 per extra player in the room).
     var hpScale = 1.0
     /// A rare golden variant: 3× HP, 1.5× attack, 4× XP and gold, better drops (see `RpgWorld.eliteChance`).
     var elite = false
@@ -1905,7 +1905,7 @@ final class RpgWorld {
         // Raid scaling: a boss grows (never shrinks mid-fight) with everyone standing in its room.
         let crowd = Double(max(1, players.filter { $0.map == mapID }.count))
         for k in list.indices where list[k].def.behavior == .boss && !list[k].dead {
-            let want = 1 + 0.9 * (crowd - 1)
+            let want = 1 + 1.25 * (crowd - 1)
             if want > list[k].hpScale { list[k].hp *= want / list[k].hpScale; list[k].hpScale = want }
         }
         var spawned: [RpgMob] = []
