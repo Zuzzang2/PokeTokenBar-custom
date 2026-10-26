@@ -34,6 +34,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var tab = 0
     private var waitingKey = false
     private var saveClock = 0.0
+    private var fallenAt: CFTimeInterval?
 
     init(frame: NSRect, world: RpgWorld, localID: Int) {
         self.world = world
@@ -350,6 +351,9 @@ final class RpgView: NSView, NSTextFieldDelegate {
             all[localID] = input
             world.step(dt, inputs: all)
         }
+        if me?.fallen == true {
+            if fallenAt == nil { fallenAt = now; saveNow() } else if let at = fallenAt, now - at > 6 { fallenAt = nil; onExit?(); return }
+        }
         saveClock += dt
         if saveClock > 10 { saveClock = 0; saveNow() }
         needsDisplay = true
@@ -398,6 +402,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.fill(f, KartArt.rgb(255, 250, 200), p.x, p.y - 6, 1, 1)
         }
         for trap in world.traps where trap.map == me.map { RpgArt.trap(f, at: trap.pos, time: t) }
+        for g in world.graves where g.map == me.map { RpgArt.grave(f, at: CGPoint(x: g.x, y: g.y)) }
         for d in world.drops where d.map == me.map {
             let reserved = d.owner != nil && d.owner != localID && t - d.at < 30
             if reserved { f.setAlpha(0.35) }
@@ -723,6 +728,16 @@ final class RpgView: NSView, NSTextFieldDelegate {
                  color: locked ? NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1) : (portal.waypoint ? Self.gold : NSColor(red: 0.7, green: 0.85, blue: 1, alpha: 1)),
                  weight: .bold, align: .center)
         }
+        // Tombstones of fallen hardcore heroes: level and name, and how they fell when you stand close.
+        for g in world.graves where g.map == me.map {
+            let s = screen(CGPoint(x: g.x, y: g.y - 20))
+            text("☠ Lv\(g.level) \(g.name)", at: CGPoint(x: s.x, y: s.y - 14), size: 10, color: NSColor(white: 0.85, alpha: 0.9), weight: .bold, align: .center)
+            if hypot(CGFloat(g.x) - me.pos.x, CGFloat(g.y) - me.pos.y) < 36 {
+                let day = Date(timeIntervalSince1970: g.date).formatted(.dateTime.month().day())
+                text("\(g.cls.name) · \(g.cause)에게 쓰러짐 · \(day)", at: CGPoint(x: s.x, y: s.y - 28), size: 10,
+                     color: NSColor(red: 1, green: 0.8, blue: 0.6, alpha: 1), weight: .semibold, align: .center)
+            }
+        }
         // Other players: name tags; everyone: chat bubbles.
         for p in world.players where p.map == me.map {
             let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - 18))
@@ -803,6 +818,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         let t = world.time
         box(ctx, CGRect(x: 10, y: 10, width: 262, height: 96))
         text("\(me.name)  ·  \(me.title) Lv\(me.level)", at: CGPoint(x: 20, y: 14), size: 14)
+        if me.hardcore { text("하드코어", at: CGPoint(x: 262, y: 16), size: 11, color: NSColor(red: 1, green: 0.4, blue: 0.4, alpha: 1), align: .right) }
         bar(ctx, CGRect(x: 20, y: 40, width: 240, height: 12), me.hp / me.maxHP, NSColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1),
             label: "\(Int(me.hp)) / \(Int(me.maxHP))")
         bar(ctx, CGRect(x: 20, y: 58, width: 240, height: 10), me.mp / me.maxMP, NSColor(red: 0.3, green: 0.55, blue: 1, alpha: 1),
@@ -908,7 +924,12 @@ final class RpgView: NSView, NSTextFieldDelegate {
         text("이동 방향키   공격 \(b.label(.attack))   상호작용 \(b.label(.interact))   가방 \(b.label(.inventory))   스킬 \(b.label(.skills))   의뢰 \(b.label(.quests))   파티 \(b.label(.party))   키설정 \(b.label(.keys))   미니맵 \(b.label(.minimap))   도감 \(b.label(.codex))   나가기 Esc",
              at: CGPoint(x: bounds.midX, y: bounds.height - 16), size: 10, color: NSColor(white: 1, alpha: 0.6), weight: .semibold, align: .center)
 
-        if me.dead {
+        if me.fallen {
+            box(ctx, CGRect(x: bounds.midX - 220, y: bounds.midY - 60, width: 440, height: 96), alpha: 0.85)
+            text("☠ 영원히 잠들었습니다", at: CGPoint(x: bounds.midX, y: bounds.midY - 54), size: 26, color: NSColor(red: 1, green: 0.45, blue: 0.45, alpha: 1), align: .center)
+            text("하드코어 Lv\(me.level) \(me.name) — 이 자리에 묘비가 남았어요", at: CGPoint(x: bounds.midX, y: bounds.midY - 16), size: 13, color: Self.dim, align: .center)
+            text("잠시 후 타이틀로 돌아갑니다", at: CGPoint(x: bounds.midX, y: bounds.midY + 6), size: 11, color: Self.dim, weight: .semibold, align: .center)
+        } else if me.dead {
             box(ctx, CGRect(x: bounds.midX - 160, y: bounds.midY - 40, width: 320, height: 64), alpha: 0.7)
             text("쓰러졌다…", at: CGPoint(x: bounds.midX, y: bounds.midY - 36), size: 22, align: .center)
             text("잠시 후 마을에서 부활합니다", at: CGPoint(x: bounds.midX, y: bounds.midY - 6), size: 13, color: Self.dim, align: .center)
@@ -1250,5 +1271,20 @@ final class RpgView: NSView, NSTextFieldDelegate {
         let book = q.book.flatMap(RpgItems.item).map { " · \($0.name)" } ?? ""
         text("보상: \(q.gold)G · 경험치 \(q.xp) · 강화석 \(q.stones)\(book)   (Lv\(def.level) 지역)", at: CGPoint(x: r.minX + 56, y: r.minY + 28), size: 10,
              color: Self.dim, weight: .semibold)
+    }
+}
+
+extension RpgArt {
+    /// A small stone tombstone with a cross, standing where a hardcore hero fell.
+    static func grave(_ ctx: CGContext, at p: CGPoint) {
+        let x = p.x.rounded(), y = p.y.rounded()
+        KartArt.fill(ctx, rgb(0, 0, 0, 0.3), x - 6, y, 12, 3)
+        KartArt.fill(ctx, outline, x - 5, y - 13, 10, 14)
+        KartArt.fill(ctx, rgb(150, 150, 160), x - 4, y - 12, 8, 12)
+        KartArt.fill(ctx, rgb(180, 180, 190), x - 4, y - 12, 2, 12)
+        KartArt.fill(ctx, outline, x - 3, y - 14, 6, 1)
+        KartArt.fill(ctx, rgb(90, 90, 100), x - 1, y - 10, 2, 7)
+        KartArt.fill(ctx, rgb(90, 90, 100), x - 3, y - 8, 6, 2)
+        KartArt.fill(ctx, rgb(110, 90, 70), x - 6, y, 12, 1)
     }
 }

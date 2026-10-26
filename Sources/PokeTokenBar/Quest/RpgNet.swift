@@ -26,6 +26,8 @@ struct RpgPlayerPub: Codable, Sendable {
     let bubble: String?
     let bubbleLeft: Double
     var partyID: Int? = nil
+    var hardcore: Bool? = nil
+    var fallen: Bool? = nil
     /// 2차 전직 (nil or 0 = not advanced); optional so peers on an older build still decode snapshots.
     var job: Int? = nil
     var combo: Int? = nil
@@ -67,6 +69,7 @@ struct RpgSnapshot: Codable, Sendable {
     let toasts: [RpgToast]
     let chat: [RpgChat]
     let shake: Double
+    var graves: [RpgGrave] = []
     var pets: [RpgPetPub]? = nil
     var towerFloor: Int? = nil
 }
@@ -93,4 +96,6 @@ enum RpgNetMessage: Codable, Sendable {
     case chat(peer: String, text: String)
     case snapshot(RpgSnapshot)
     case privateState(peer: String, state: RpgPrivate)
+    /// Client → host: tombstones this player has seen, so they appear for everyone.
+    case graves(peer: String, list: [RpgGrave])
 }
