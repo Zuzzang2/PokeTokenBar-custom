@@ -48,6 +48,26 @@ enum RpgArt {
         "....KSKSSKSK....", "....KSSSSSSK....", ".....KSSSSK.....", "....KKPPPPKK....", "...KPKPPPPKPK...", "...KSKpPPpKSK...",
         "....KPPPPPPK....", "...KPPPPPPPPK...", "...KppppppppK...", "....KKKKKKKK....",
     ]
+    static let rogue: RpgGrid = [
+        "......KKKK......", ".....KZZZZK.....", "....KZZZZZZK....", "....KZKKKKZK....", "....KSKSSKSK....", ".....KSSSSK.....",
+        "....KKzzzzKK....", "...KZKzzzzKZK...", "...KSKzRRzKSK...", "....KKzzzzKK....", "....KzzKKzzK....", "....KZZKKZZK....",
+        "....KzzKKzzK....", "....KLLKKLLK....", "....KllKKllK....", "....KKK..KKK....",
+    ]
+    static let cleric: RpgGrid = [
+        "......KKKK......", ".....KYYYYK.....", "....KCCCCCCK....", "....KCKCCKCK....", "....KSKSSKSK....", ".....KSSSSK.....",
+        "....KKWWWWKK....", "...KWKWYYWKWK...", "...KSKWWWWKSK...", "....KKWWWWKK....", "....KWWWWWWK....", "...KWWYYYYWWK...",
+        "...KCCCCCCCCK...", "....KCCKKCCK....", "....KccKKccK....", "....KKK..KKK....",
+    ]
+    static let monk: RpgGrid = [
+        "................", ".....KKKKKK.....", "....KHHHHHHK....", "....KRRRRRRK....", "....KSKSSKSK....", ".....KSSSSK.....",
+        "....KKSSSSKK....", "...KFKSSSSKFK...", "...KSKFFFFKSK...", "....KKFFFFKK....", "....KFFFFFFK....", "....KFFKKFFK....",
+        "....KffKKffK....", "....KSSKKSSK....", "....KssKKssK....", "....KKK..KKK....",
+    ]
+    static let summoner: RpgGrid = [
+        ".......KK.......", "......KOOK......", ".....KAAAAK.....", "....KAAYAAAK....", "..KKAAAAAAAAKK..", "..KaaaaaaaaaaK..",
+        "....KSKSSKSK....", "....KSSSSSSK....", ".....KSSSSK.....", "....KKEEEEKK....", "...KEKEEEEKEK...", "...KSKeEEeKSK...",
+        "....KEEEEEEK....", "...KEEEEEEEEK...", "...KeeeeeeeeK...", "....KKKKKKKK....",
+    ]
     static let villager: RpgGrid = [
         "......KKKK......", ".....KHHHHK.....", "....KHHHHHHK....", "....KHSSSSHK....", "....KSKSSKSK....", "....KSSSSSSK....",
         ".....KSSSSK.....", "....KKWWWWKK....", "...KCKWWWWKCK...", "...KSKWWWWKSK...", "....KKWWWWKK....", "....KCCCCCCK....",
@@ -99,6 +119,8 @@ enum RpgArt {
     private static let specs: [String: SpriteSpec] = [
         "warrior": SpriteSpec(grid: warrior, swap: [:]), "archer": SpriteSpec(grid: archer, swap: [:]),
         "mage": SpriteSpec(grid: mage, swap: [:]), "villager": SpriteSpec(grid: villager, swap: [:]),
+        "rogue": SpriteSpec(grid: rogue, swap: [:]), "cleric": SpriteSpec(grid: cleric, swap: [:]), "monk": SpriteSpec(grid: monk, swap: [:]),
+        "summoner": SpriteSpec(grid: summoner, swap: ["E": rgb(70, 150, 170), "e": rgb(40, 100, 120)]),
         "slime": SpriteSpec(grid: slime, swap: [:]),
         "blueslime": SpriteSpec(grid: slime, swap: ["E": rgb(100, 160, 255), "e": rgb(50, 96, 200)]),
         "goldslime": SpriteSpec(grid: slime, swap: ["E": rgb(255, 214, 70), "e": rgb(214, 150, 30)]),
@@ -213,7 +235,8 @@ enum RpgArt {
         let e = elem(w.element)
         switch cls {
         case .warrior: return ["B": e.mid]
-        case .archer, .mage: return ["Y": e.mid]
+        case .archer, .mage, .cleric, .summoner: return ["Y": e.mid]
+        case .rogue, .monk: return ["R": e.mid]
         }
     }
 
@@ -223,6 +246,26 @@ enum RpgArt {
         "..............KK", ".............KBK", "............KBEK", "...........KBEK.", "..........KBEK..", ".........KBEK...",
         "........KBEK....", ".......KBEK.....", "..KK..KBEK......", "..KGKKBEK.......", "...KGGEK........", "....KGGK........",
         "...KHKKGK.......", "..KHK..KGK......", ".KJK....KK......", ".KK.............",
+    ]
+    private static let daggerT: RpgGrid = [
+        "................", "................", "...........KK...", "..........KBK...", ".........KBEK...", "........KBEK....",
+        ".......KBEK.....", "......KBEK......", ".....KBEK.......", "..KK.KEK........", "..KGKKK.........", "...KGGK.........",
+        "....KHK.........", ".....KK.........", "................", "................",
+    ]
+    private static let maceT: RpgGrid = [
+        "................", "......KKKK......", ".....KBBBBK.....", "....KBWBBEBK....", "....KBBBBEBK....", "....KBBBEEBK....",
+        ".....KEEEEK.....", "......KGGK......", "......KHHK......", "......KHHK......", "......KHHK......", "......KHHK......",
+        "......KKKK......", "................", "................", "................",
+    ]
+    private static let clawT: RpgGrid = [
+        "................", "....K.K.K.......", "....KBKBKBK.....", "...KBBBBBBBK....", "..KBWBBBBBEK....", "..KBBBBBBEEK....",
+        "..KBBEEEEEEK....", "...KGGGGGGK.....", "...KGHHHHGK.....", "....KGGGGK......", "....KKKKKK......", "................",
+        "................", "................", "................", "................",
+    ]
+    private static let rodT: RpgGrid = [
+        "................", ".........KKKK...", "........KOWOOK..", "........KOOOOK..", "........KOOEOK..", ".........KKKK...",
+        "........KGK.....", ".......KGK......", "......KBK.......", ".....KBK........", "....KHK.........", "...KHK..........",
+        "..KHK...........", ".KKK............", "................", "................",
     ]
     private static let bowT: RpgGrid = [
         "....KK..........", "...KWBK.........", "...KW.KBK.......", "...KW..KBK......", "...KW...KBK.....", "...KW....KBK....",
@@ -316,7 +359,28 @@ enum RpgArt {
                 ["B": rgb(60, 30, 30), "G": rgb(255, 130, 40), "H": rgb(30, 14, 14), "O": rgb(255, 80, 30), "J": rgb(255, 230, 120)],
                 ["B": rgb(40, 10, 40), "G": rgb(255, 60, 120), "H": rgb(20, 6, 20), "O": rgb(120, 30, 160), "J": rgb(255, 140, 240)],
             ]
-            let table = cls == .warrior ? swords : (cls == .archer ? bows : staffs)
+            // The four newer classes share one nine-tier palette (wood/rust, steel, fire, ice, thunder, holy, desert, lava, cosmic).
+            func tones(_ main: CGColor, _ shade: CGColor, _ accent: CGColor, _ handle: CGColor) -> [Character: CGColor] {
+                ["B": main, "E": shade, "G": accent, "H": handle, "O": accent, "W": rgb(255, 255, 255)]
+            }
+            let shared: [[Character: CGColor]] = [
+                tones(rgb(170, 116, 64), rgb(120, 80, 44), rgb(110, 70, 40), rgb(90, 60, 36)),
+                tones(rgb(200, 206, 220), rgb(130, 140, 160), rgb(150, 160, 180), rgb(100, 70, 44)),
+                tones(rgb(255, 170, 70), rgb(200, 60, 30), rgb(240, 190, 60), rgb(70, 30, 26)),
+                tones(rgb(200, 240, 255), rgb(80, 170, 240), rgb(60, 110, 190), rgb(40, 60, 110)),
+                tones(rgb(255, 236, 120), rgb(236, 170, 30), rgb(70, 70, 90), rgb(40, 40, 56)),
+                tones(rgb(255, 255, 255), rgb(236, 190, 60), rgb(240, 200, 70), rgb(70, 90, 200)),
+                tones(rgb(240, 226, 180), rgb(190, 160, 90), rgb(60, 150, 120), rgb(90, 60, 40)),
+                tones(rgb(255, 150, 70), rgb(170, 40, 20), rgb(60, 30, 30), rgb(40, 20, 20)),
+                tones(rgb(240, 230, 255), rgb(170, 90, 240), rgb(60, 20, 70), rgb(30, 10, 40)),
+            ]
+            let table: [[Character: CGColor]]
+            switch cls {
+            case .warrior: table = swords
+            case .archer: table = bows
+            case .mage: table = staffs
+            case .rogue, .cleric, .monk, .summoner: table = shared
+            }
             return table[min(item.tier, table.count - 1)]
         case .armor:
             let tones: [(CGColor, CGColor)] = [
@@ -343,6 +407,10 @@ enum RpgArt {
             case .warrior: (rgb(190, 60, 50), rgb(120, 30, 30))
             case .archer: (rgb(60, 150, 80), rgb(30, 90, 50))
             case .mage: (rgb(110, 70, 190), rgb(60, 36, 120))
+            case .rogue: (rgb(70, 70, 96), rgb(34, 34, 56))
+            case .cleric: (rgb(240, 230, 170), rgb(190, 170, 90))
+            case .monk: (rgb(230, 130, 50), rgb(160, 80, 20))
+            case .summoner: (rgb(50, 160, 170), rgb(25, 100, 110))
             }
             return ["B": cover.0, "E": cover.1, "J": rgb(240, 200, 70)]
         case .stone:
@@ -379,7 +447,16 @@ enum RpgArt {
         if let img = iconCache[item.id] { return img }
         let template: RpgGrid
         switch item.kind {
-        case .weapon(let cls): template = cls == .warrior ? swordT : (cls == .archer ? bowT : staffT)
+        case .weapon(let cls):
+            switch cls {
+            case .warrior: template = swordT
+            case .archer: template = bowT
+            case .mage: template = staffT
+            case .rogue: template = daggerT
+            case .cleric: template = maceT
+            case .monk: template = clawT
+            case .summoner: template = rodT
+            }
         case .armor: template = armorT
         case .potionHP, .potionMP: template = potionT
         case .scroll: template = scrollT

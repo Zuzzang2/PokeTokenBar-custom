@@ -921,6 +921,19 @@ final class RpgWorld {
             fire(from: p, angle: angle, kind: .arrow, damage: atk, speed: 230, range: 170)
         case .mage:
             fire(from: p, angle: angle, kind: .orb, damage: atk * 1.15, speed: 170, range: 140)
+        case .rogue:
+            effect(.slash(angle: angle, radius: 9), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 6), p.element, duration: 0.2)
+            for v in mobIDs(inArcOf: p, range: 20, cosLimit: 0.1) { damageMob(v, map: p.map, base: atk, by: p.id, element: p.element, skill: false) }
+        case .cleric:
+            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.05, speed: 190, range: 150, element: p.element == .base ? .holy : p.element)
+        case .monk:
+            // Three quick punches per attack.
+            for k in 0..<3 {
+                schedule(Double(k) * 0.06, p.map, ahead(p, 12), radius: 16, damage: atk * 0.85, owner: p.id, element: p.element,
+                         fx: .slash(angle: angle + Double(k - 1) * 0.5, radius: 8))
+            }
+        case .summoner:
+            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.1, speed: 120, range: 160, element: p.element == .base ? .cosmic : p.element)
         }
     }
 
@@ -1073,6 +1086,216 @@ final class RpgWorld {
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.18)
                 schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32))
             }
+        // 도적
+        case "r_flurry":
+            for k in 0..<4 {
+                schedule(Double(k) * 0.07, p.map, ahead(p, 14), radius: 18, damage: power, owner: p.id, element: e,
+                         fx: .slash(angle: angle + (k % 2 == 0 ? 0.5 : -0.5), radius: 13))
+            }
+        case "r_step", "j_ass1":
+            var to = p.pos
+            let reach = skill == "j_ass1" ? 84.0 : 70.0
+            for st in stride(from: 6.0, through: reach, by: 6) {
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(angle) * st), y: p.pos.y + CGFloat(sin(angle) * st))
+                if map(p.map).canStand(c) { to = c } else { break }
+            }
+            players[i].dash = (to, [], power)
+            players[i].posLockUntil = time + 0.5
+            players[i].invulnerable = 0.4
+            effect(.slash(angle: angle, radius: 13), p.map, CGPoint(x: to.x, y: to.y - 6), e)
+        case "r_venom":
+            effect(.burst(radius: 28), p.map, p.pos, .poison)
+            for v in mobIDs(near: p.pos, radius: 34, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .poison, skill: true) }
+        case "r_smoke":
+            effect(.burst(radius: 34), p.map, p.pos, .base)
+            players[i].invulnerable = max(players[i].invulnerable, 2)
+            for v in mobIDs(near: p.pos, radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .ice, skill: true) }
+        case "r_stab":
+            if let t = nearestMobs(p, 90, 1).first {
+                effect(.spark(crit: true), p.map, t.pos, e)
+                damageMob(t.id, map: p.map, base: power * 1.7, by: p.id, element: e, skill: true)
+            } else { toast("주변에 적이 없어요"); refund = true }
+        case "r_blades":
+            for k in 0..<7 { fire(from: p, angle: angle + (Double(k) - 3) * 0.14, kind: .arrow, damage: power, speed: 260, range: 150) }
+        case "r_vanish":
+            players[i].focusUntil = time + 12
+            players[i].buffUntil["speed"] = time + 12
+            players[i].invulnerable = max(players[i].invulnerable, 0.5)
+            effect(.levelUp, p.map, p.pos, .wind, duration: 1)
+            toast("은신! 치명타·공속·이동속도 상승")
+        case "r_ult", "j_ass2":
+            let targets = nearestMobs(p, 160, 8)
+            if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
+                players[i].invulnerable = max(players[i].invulnerable, 0.2 + Double(targets.count) * 0.12)
+                for (k, t) in targets.enumerated() {
+                    schedule(Double(k) * 0.12, p.map, t.pos, radius: 16, damage: power, owner: p.id, element: .cosmic, stun: 0.5, fx: .slash(angle: Double(k) * 1.1, radius: 16))
+                }
+                shake = max(shake, 1)
+            }
+        case "j_poi1":
+            let c = ahead(p, 40)
+            effect(.burst(radius: 44), p.map, c, .poison)
+            hitArea(c, 46, p, power, .poison)
+        case "j_poi2":
+            for k in 0..<3 { schedule(Double(k) * 0.4, p.map, ahead(p, 40), radius: 44, damage: power, owner: p.id, element: .poison, fx: .burst(radius: 40)) }
+        // 성직자
+        case "c_smite":
+            fire(from: p, angle: angle, kind: .bigArrow, damage: power, speed: 300, range: 190, element: .holy)
+        case "c_heal":
+            healNearby(p, fraction: 0.25 + 0.025 * Double(lv - 1), radius: 80)
+        case "c_bless":
+            for k in alliesNear(p, 90) { players[k].rageUntil = time + 12; effect(.levelUp, p.map, players[k].pos, .holy, duration: 1) }
+            toast("축복! 주변 동료의 공격력이 올랐어요")
+        case "c_nova":
+            effect(.burst(radius: 40), p.map, p.pos, .holy)
+            hitArea(p.pos, 42, p, power, .holy)
+            healNearby(p, fraction: 0.15, radius: 60)
+        case "c_ward":
+            for k in alliesNear(p, 90) { players[k].ironUntil = time + 10; effect(.levelUp, p.map, players[k].pos, .base, duration: 1) }
+            toast("수호 방벽! 받는 피해 감소")
+        case "c_judge":
+            let targets = nearestMobs(p, 140, 5)
+            if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
+                for (k, t) in targets.enumerated() { schedule(0.2 + Double(k) * 0.12, p.map, t.pos, radius: 20, damage: power, owner: p.id, element: .holy, fx: .strike) }
+            }
+        case "c_purify":
+            healNearby(p, fraction: 0.4, radius: 80)
+            for k in alliesNear(p, 80) { players[k].ironUntil = time + 6 }
+        case "c_ult":
+            for k in 0..<10 {
+                let a = rand(0, .pi * 2), d = rand(15, 110)
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
+                effect(.telegraph(radius: 30), p.map, c, .holy, duration: 0.25 + Double(k) * 0.14)
+                schedule(0.25 + Double(k) * 0.14, p.map, c, radius: 30, damage: power, owner: p.id, element: .holy, fx: .burst(radius: 30))
+            }
+            healNearby(p, fraction: 0.2, radius: 100)
+            shake = max(shake, 1.5)
+        case "j_pal1":
+            for k in alliesNear(p, 80) { players[k].ironUntil = time + 12 }
+            healNearby(p, fraction: 0.10, radius: 80)
+            toast("성스러운 방패! 받는 피해 감소")
+        case "j_pal2":
+            let c = ahead(p, 16)
+            effect(.burst(radius: 46), p.map, c, .holy, duration: 0.4)
+            shake = max(shake, 1.5)
+            for v in mobIDs(near: c, radius: 46, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .holy, skill: true, stun: 1.5) }
+        case "j_arc1":
+            healNearby(p, fraction: 0.5, radius: 100)
+        case "j_arc2":
+            for k in alliesNear(p, 100) { players[k].rageUntil = time + 12; players[k].ironUntil = time + 12; effect(.levelUp, p.map, players[k].pos, .holy, duration: 1) }
+            toast("신의 은총! 공격력 상승 + 피해 감소")
+        // 격투가
+        case "k_punch":
+            var to = p.pos
+            for st in stride(from: 6.0, through: 28, by: 6) {
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(angle) * st), y: p.pos.y + CGFloat(sin(angle) * st))
+                if map(p.map).canStand(c) { to = c } else { break }
+            }
+            players[i].dash = (to, [], power)
+            players[i].posLockUntil = time + 0.4
+            players[i].invulnerable = 0.3
+            for k in 1...2 { schedule(Double(k) * 0.1, p.map, ahead(p, 22), radius: 20, damage: power, owner: p.id, element: e, fx: .slash(angle: angle, radius: 11)) }
+        case "k_spin":
+            effect(.burst(radius: 26), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 4), e)
+            effect(.slash(angle: angle, radius: 14), p.map, p.pos, e)
+            effect(.slash(angle: angle + .pi, radius: 14), p.map, p.pos, e)
+            hitArea(p.pos, 30, p, power, e)
+        case "k_palm":
+            fire(from: p, angle: angle, kind: .orb, damage: power, speed: 240, range: 170)
+        case "k_qi":
+            let heal = players[i].maxHP * 0.2
+            players[i].hp = min(players[i].maxHP, players[i].hp + heal)
+            players[i].focusUntil = time + 12
+            float("+\(Int(heal))", p.map, p.pos, .heal)
+            effect(.levelUp, p.map, p.pos, .wind, duration: 1)
+            toast("기공! 공속 상승")
+        case "k_dragon":
+            let c = ahead(p, 16)
+            effect(.burst(radius: 26), p.map, c, e)
+            players[i].invulnerable = max(players[i].invulnerable, 0.3)
+            for v in mobIDs(near: c, radius: 28, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
+        case "k_barrage":
+            for k in 0..<8 { schedule(Double(k) * 0.06, p.map, ahead(p, 18), radius: 20, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13)) }
+        case "k_iron":
+            players[i].ironUntil = time + 10
+            let heal = players[i].maxHP * 0.15
+            players[i].hp = min(players[i].maxHP, players[i].hp + heal)
+            float("+\(Int(heal))", p.map, p.pos, .heal)
+            effect(.levelUp, p.map, p.pos, .base, duration: 1)
+            toast("금강불괴! 받는 피해 감소")
+        case "k_ult":
+            for k in 0..<12 { schedule(Double(k) * 0.08, p.map, ahead(p, 22), radius: 26, damage: power, owner: p.id, element: e, fx: .burst(radius: 18)) }
+            shake = max(shake, 1.2)
+        case "j_fk1":
+            let c = ahead(p, 20)
+            effect(.burst(radius: 36), p.map, c, e, duration: 0.4)
+            shake = max(shake, 1)
+            hitArea(c, 38, p, power, e)
+        case "j_fk2":
+            for k in 0..<12 { schedule(Double(k) * 0.06, p.map, ahead(p, 20), radius: 24, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13)) }
+        case "j_asc1":
+            let heal = players[i].maxHP * 0.35
+            players[i].hp = min(players[i].maxHP, players[i].hp + heal)
+            players[i].ironUntil = time + 6
+            float("+\(Int(heal))", p.map, p.pos, .heal)
+            effect(.levelUp, p.map, p.pos, .holy, duration: 1)
+        case "j_asc2":
+            effect(.burst(radius: 40), p.map, p.pos, e)
+            players[i].ironUntil = time + 8
+            for v in mobIDs(near: p.pos, radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
+        // 소환사
+        case "s_orb":
+            fire(from: p, angle: angle, kind: .orb, damage: power, speed: 190, range: 200, element: p.element == .base ? .cosmic : p.element)
+        case "s_wolf":
+            for k in 1...6 { schedule(Double(k) * 0.05, p.map, ahead(p, Double(k) * 18), radius: 16, damage: power, owner: p.id, element: e, fx: .slash(angle: angle, radius: 14)) }
+        case "s_golem":
+            let c = ahead(p, 36)
+            for k in 0..<4 { schedule(0.3 + Double(k) * 0.7, p.map, c, radius: 28, damage: power, owner: p.id, element: e, stun: 0.5, fx: .burst(radius: 26)) }
+            shake = max(shake, 0.8)
+        case "s_curse":
+            let c = ahead(p, 40)
+            effect(.burst(radius: 40), p.map, c, .poison)
+            for v in mobIDs(near: c, radius: 44, map: p.map) {
+                damageMob(v, map: p.map, base: power, by: p.id, element: .poison, skill: true)
+                damageMob(v, map: p.map, base: power * 0.2, by: p.id, element: .ice, skill: true)
+            }
+        case "s_bats":
+            for k in 0..<8 {
+                let a = Double(k) / 8 * .pi * 2
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * 28), y: p.pos.y + CGFloat(sin(a) * 28))
+                schedule(Double(k) * 0.12, p.map, c, radius: 18, damage: power, owner: p.id, element: e, fx: .slash(angle: a + .pi / 2, radius: 12))
+            }
+        case "s_drain":
+            let targets = nearestMobs(p, 80, 5)
+            if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
+                for t in targets { damageMob(t.id, map: p.map, base: power, by: p.id, element: .poison, skill: true) }
+                let heal = players[i].maxHP * 0.08 * Double(targets.count)
+                players[i].hp = min(players[i].maxHP, players[i].hp + heal)
+                float("+\(Int(heal))", p.map, p.pos, .heal)
+                effect(.levelUp, p.map, p.pos, .poison, duration: 0.8)
+            }
+        case "s_dragon":
+            for k in 1...5 { schedule(Double(k) * 0.08, p.map, ahead(p, Double(k) * 20), radius: 22 + Double(k) * 3, damage: power, owner: p.id, element: .fire, fx: .burst(radius: 16)) }
+        case "s_ult", "j_beast2":
+            for k in 0..<(skill == "s_ult" ? 10 : 8) {
+                let a = rand(0, .pi * 2), d = rand(20, 120)
+                let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
+                effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.15)
+                schedule(0.25 + Double(k) * 0.15, p.map, c, radius: 30, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 30))
+            }
+            shake = max(shake, 1.5)
+        case "j_nec1":
+            for k in 0..<5 { schedule(Double(k) * 0.15, p.map, ahead(p, 20 + Double(k) * 14), radius: 20, damage: power, owner: p.id, element: .poison, fx: .slash(angle: angle, radius: 12)) }
+        case "j_nec2":
+            for (k, r) in [30.0, 50.0, 70.0].enumerated() { schedule(Double(k) * 0.35, p.map, p.pos, radius: r, damage: power, owner: p.id, element: .cosmic, fx: .burst(radius: r)) }
+        case "j_beast1":
+            for k in 0..<5 {
+                let a = angle + (Double(k) - 2) * 0.3
+                for step in 1...3 {
+                    let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * Double(step) * 20), y: p.pos.y + CGFloat(sin(a) * Double(step) * 20))
+                    schedule(Double(step) * 0.07, p.map, c, radius: 16, damage: power * 0.4, owner: p.id, element: e, fx: .slash(angle: a, radius: 12))
+                }
+            }
         // 2차 전직 skills (RpgJobs)
         case "j_bash":
             let c = ahead(p, 18)
@@ -1136,6 +1359,27 @@ final class RpgWorld {
         if !refund {
             players[i].mp -= Double(def.mp)
             players[i].cooldowns[skill] = def.cooldown
+        }
+    }
+
+    /// Living monsters within `radius` of `p`, closest first.
+    private func nearestMobs(_ p: RpgPlayer, _ radius: Double, _ limit: Int) -> [RpgMob] {
+        Array((mobs[p.map] ?? []).filter { !$0.dead && !$0.airborne && dist($0.pos, p.pos) < radius }
+            .sorted { dist($0.pos, p.pos) < dist($1.pos, p.pos) }.prefix(limit))
+    }
+
+    /// Player indices (the caster included) standing within `radius` of `p` on the same map.
+    private func alliesNear(_ p: RpgPlayer, _ radius: Double) -> [Int] {
+        players.indices.filter { players[$0].map == p.map && !players[$0].dead && dist(players[$0].pos, p.pos) < radius }
+    }
+
+    /// Heals `fraction` of max HP for everyone near the caster.
+    private func healNearby(_ p: RpgPlayer, fraction: Double, radius: Double) {
+        for k in alliesNear(p, radius) {
+            let amount = players[k].maxHP * fraction
+            players[k].hp = min(players[k].maxHP, players[k].hp + amount)
+            float("+\(Int(amount))", p.map, players[k].pos, .heal)
+            effect(.levelUp, p.map, players[k].pos, .wind, duration: 0.9)
         }
     }
 
@@ -1317,7 +1561,7 @@ final class RpgWorld {
                 if shared.count >= 3 {
                     for owner in rolls {
                         guard let p = player(owner) else { continue }
-                        let mythic = p.cls == .warrior ? "sword8" : (p.cls == .archer ? "bow8" : "staff8")
+                        let mythic = p.cls.weaponPrefix + "8"
                         var bonus = Array(repeating: "stone", count: 3 + shared.count)
                         if rng.int(1000) < 15 + 2 * m.def.level / 10 { bonus.append(rng.int(2) == 0 ? mythic : "armor7") }
                         for item in bonus {
@@ -2061,7 +2305,7 @@ extension RpgWorld {
             if floor % 5 == 0 { rewards += Array(repeating: "stone", count: 1 + floor / 10) }
             if floor % 10 == 0 {
                 let tier = floor >= 30 ? 7 : 6
-                let weapon = (players[i].cls == .warrior ? "sword" : players[i].cls == .archer ? "bow" : "staff") + "\(tier)"
+                let weapon = players[i].cls.weaponPrefix + "\(tier)"
                 rewards.append(floor % 20 == 10 ? weapon : "armor\(tier)")
             }
             for (k, item) in rewards.enumerated() where RpgItems.item(item) != nil {

@@ -6,29 +6,35 @@ import Foundation
 // is a plain Sendable value so a lobby host can later run the same world for nearby players.
 
 enum RpgClass: String, Codable, CaseIterable, Sendable {
-    case warrior, archer, mage
+    case warrior, archer, mage, rogue, cleric, monk, summoner
 
     private var index: Int { Self.allCases.firstIndex(of: self)! }
-    var name: String { ["전사", "궁수", "마법사"][index] }
+    var name: String { ["전사", "궁수", "마법사", "도적", "성직자", "격투가", "소환사"][index] }
     var blurb: String {
         switch self {
         case .warrior: return "튼튼한 몸과 검으로 앞에서 싸워요. 버프와 광역기가 강해요."
         case .archer: return "멀리서 활을 쏴요. 치명타와 연사, 덫과 독화살."
         case .mage: return "몸은 약하지만 강력한 원소 마법과 순간이동, 치유."
+        case .rogue: return "빠르게 파고들어 베는 근접 직업. 치명타, 독, 은신과 암살."
+        case .cleric: return "신성한 빛으로 적을 태우고 동료를 치유하고 지켜요."
+        case .monk: return "맨손 연타와 기공의 달인. 빠른 공격과 단단한 몸."
+        case .summoner: return "정령과 소환수를 불러 싸워요. 저주와 생명 흡수, 대악마 강림."
         }
     }
-    var baseHP: Int { [130, 95, 80][index] }
-    var hpPerLevel: Int { [22, 15, 12][index] }
-    var baseMP: Int { [30, 40, 70][index] }
-    var mpPerLevel: Int { [4, 5, 8][index] }
-    var baseAttack: Int { [11, 10, 12][index] }
-    var attackPerLevel: Double { [3.2, 3.2, 3.6][index] }
-    var baseDefense: Int { [6, 4, 3][index] }
-    var defensePerLevel: Double { [2.2, 1.4, 1.1][index] }
-    var speed: Double { [72, 80, 68][index] }
-    var attackInterval: Double { [0.42, 0.5, 0.6][index] }
-    var critChance: Double { [0.08, 0.16, 0.08][index] }
-    var starterWeapon: String { ["sword0", "bow0", "staff0"][index] }
+    var baseHP: Int { [130, 95, 80, 100, 110, 125, 85][index] }
+    var hpPerLevel: Int { [22, 15, 12, 16, 18, 20, 13][index] }
+    var baseMP: Int { [30, 40, 70, 35, 60, 40, 65][index] }
+    var mpPerLevel: Int { [4, 5, 8, 4, 7, 5, 7][index] }
+    var baseAttack: Int { [11, 10, 12, 11, 9, 10, 11][index] }
+    var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 2.8, 3.2, 3.6][index] }
+    var baseDefense: Int { [6, 4, 3, 4, 5, 5, 3][index] }
+    var defensePerLevel: Double { [2.2, 1.4, 1.1, 1.4, 1.8, 1.9, 1.1][index] }
+    var speed: Double { [72, 80, 68, 90, 70, 82, 70][index] }
+    var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.30, 0.65][index] }
+    var critChance: Double { [0.08, 0.16, 0.08, 0.22, 0.06, 0.10, 0.07][index] }
+    /// Item id prefix of this class's weapons ("sword" -> sword0...sword8).
+    var weaponPrefix: String { ["sword", "bow", "staff", "dagger", "mace", "claw", "rod"][index] }
+    var starterWeapon: String { weaponPrefix + "0" }
     var skills: [RpgSkillDef] { RpgSkills.all.filter { $0.cls == self } }
 }
 
@@ -103,6 +109,42 @@ enum RpgSkills {
         s("m_pillar", "화염 기둥", .mage, 22, 24, 8, 1.6, "일직선으로 이어지는 불기둥"),
         s("m_heal", "치유", .mage, 28, 30, 14, 0, "HP 30% 회복 (레벨당 +3%)"),
         s("m_ult", "메테오 스톰", .mage, 35, 70, 45, 3.2, max: 5, "주변에 운석 8개 낙하"),
+
+        s("r_flurry", "난도질", .rogue, 1, 8, 3, 0.7, starter: true, "전방을 4번 빠르게 벤다"),
+        s("r_step", "그림자 걸음", .rogue, 1, 8, 5, 1.2, starter: true, "앞으로 파고들며 벤다 (무적)"),
+        s("r_venom", "독날", .rogue, 8, 14, 6, 1.0, price: 700, "주변에 독을 뿌려 중독시킨다"),
+        s("r_smoke", "연막", .rogue, 12, 18, 14, 0.6, price: 1800, "2초간 무적, 주변 적을 둔화"),
+        s("r_stab", "급소 찌르기", .rogue, 16, 16, 7, 3.4, "가장 가까운 적의 급소를 찔러 큰 피해"),
+        s("r_blades", "비수 난무", .rogue, 22, 22, 8, 0.9, "비수 7발을 부채꼴로 던진다"),
+        s("r_vanish", "은신", .rogue, 28, 24, 25, 0, "12초간 치명타·공속·이동속도 상승"),
+        s("r_ult", "암살", .rogue, 35, 60, 40, 3.2, max: 5, "근처 적들을 차례로 순간 타격"),
+
+        s("c_smite", "성광", .cleric, 1, 10, 3, 1.6, starter: true, "빛줄기를 쏜다 (신성)"),
+        s("c_heal", "치유의 빛", .cleric, 1, 14, 6, 0, starter: true, "자신과 주변 동료 HP 25% 회복 (레벨당 +2.5%)"),
+        s("c_bless", "축복", .cleric, 8, 18, 20, 0, price: 700, "주변 동료의 공격력을 12초간 올린다"),
+        s("c_nova", "성스러운 폭발", .cleric, 12, 22, 9, 1.8, price: 1800, "주변을 폭발시키고 동료를 회복"),
+        s("c_ward", "수호 방벽", .cleric, 16, 24, 25, 0, "주변 동료가 10초간 받는 피해 -40%"),
+        s("c_judge", "심판", .cleric, 22, 26, 10, 1.1, "적 머리 위에 빛기둥 5발"),
+        s("c_purify", "정화", .cleric, 28, 30, 18, 0, "주변 동료 HP 40% 회복 + 6초 피해 감소"),
+        s("c_ult", "천상의 심판", .cleric, 35, 70, 45, 3.0, max: 5, "넓은 범위에 빛의 비 + 동료 회복"),
+
+        s("k_punch", "정권", .monk, 1, 8, 3, 0.9, starter: true, "짧게 파고들며 3연타"),
+        s("k_spin", "회축", .monk, 1, 10, 5, 1.7, starter: true, "회전하며 주변을 찬다"),
+        s("k_palm", "장풍", .monk, 8, 14, 5, 2.0, price: 700, "기를 모아 쏘아 보낸다"),
+        s("k_qi", "기공", .monk, 12, 20, 18, 0, price: 1800, "HP 20% 회복 + 12초간 공속 상승"),
+        s("k_dragon", "승룡권", .monk, 16, 18, 8, 2.4, "올려쳐 적을 기절시킨다"),
+        s("k_barrage", "연환권", .monk, 22, 22, 9, 0.7, "전방을 8번 연타"),
+        s("k_iron", "금강불괴", .monk, 28, 24, 25, 0, "10초간 받는 피해 -40% + HP 15% 회복"),
+        s("k_ult", "천상 연타", .monk, 35, 60, 40, 3.4, max: 5, "보이지 않는 연타 12번"),
+
+        s("s_orb", "정령탄", .summoner, 1, 10, 3, 1.5, starter: true, "정령이 구슬을 쏜다"),
+        s("s_wolf", "늑대 소환", .summoner, 1, 12, 5, 2.0, starter: true, "늑대가 직선으로 달려가 물어뜯는다"),
+        s("s_golem", "골렘 소환", .summoner, 8, 18, 8, 0.9, price: 700, "골렘이 4번 내려찍는다"),
+        s("s_curse", "저주", .summoner, 12, 20, 10, 0.5, price: 1800, "범위 중독과 둔화"),
+        s("s_bats", "박쥐떼", .summoner, 16, 22, 8, 0.8, "박쥐 떼가 주변을 휘감는다"),
+        s("s_drain", "생명 흡수", .summoner, 22, 24, 7, 2.2, "피해를 주고 HP를 회복"),
+        s("s_dragon", "용 소환", .summoner, 28, 28, 10, 2.6, "용의 숨결이 전방을 쓸어낸다"),
+        s("s_ult", "대악마 강림", .summoner, 35, 70, 45, 3.2, max: 5, "대악마가 주변을 폭격한다"),
     ]
     private static let byID: [String: RpgSkillDef] = Dictionary(uniqueKeysWithValues: (all + RpgJobs.skills).map { ($0.id, $0) })
     static func def(_ id: String) -> RpgSkillDef? { byID[id] }
@@ -181,6 +223,14 @@ enum RpgItems {
                          [.base, .base, .fire, .ice, .wind, .holy, .wind, .ice, .cosmic])
         items += weapons(.mage, "staff", ["나무 지팡이", "수정 지팡이", "화염 지팡이", "빙결 지팡이", "뇌운 지팡이", "우주의 지팡이", "빙하의 지팡이", "화산 지팡이", "마왕의 홀"],
                          [.base, .base, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic])
+        items += weapons(.rogue, "dagger", ["녹슨 단검", "강철 단검", "독니 단검", "서리 단검", "번개 단검", "그림자 단검", "사막의 쿠크리", "용암 단검", "별을 베는 단검"],
+                         [.base, .base, .poison, .ice, .thunder, .cosmic, .wind, .fire, .cosmic])
+        items += weapons(.cleric, "mace", ["나무 철퇴", "강철 철퇴", "화염 철퇴", "서리 철퇴", "뇌전 철퇴", "성스러운 철퇴", "사막의 홀", "빙하의 철퇴", "천상의 철퇴"],
+                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .ice, .holy])
+        items += weapons(.monk, "claw", ["가죽 권갑", "강철 권갑", "화염 권갑", "서리 권갑", "뇌전 권갑", "기공 권갑", "모래폭풍 권갑", "용암 권갑", "용왕의 권갑"],
+                         [.base, .base, .fire, .ice, .thunder, .holy, .wind, .fire, .cosmic])
+        items += weapons(.summoner, "rod", ["나무 소환봉", "뼈 소환봉", "화염 소환봉", "서리 소환봉", "뇌운 소환봉", "영혼의 소환봉", "빙하의 소환봉", "화산 소환봉", "대악마의 소환봉"],
+                         [.base, .poison, .fire, .ice, .thunder, .cosmic, .ice, .fire, .cosmic])
         let armors: [(String, Int, Int, Int, Bool)] = [
             ("천 옷", 0, 2, 40, true), ("가죽 갑옷", 0, 6, 260, true), ("사슬 갑옷", 1, 12, 900, true), ("미스릴 갑옷", 2, 20, 3200, true),
             ("용비늘 갑옷", 3, 34, 12000, false), ("사막 전사의 갑옷", 2, 50, 16000, true), ("빙하 갑옷", 3, 75, 45000, false),

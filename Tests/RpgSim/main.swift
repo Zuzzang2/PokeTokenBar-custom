@@ -505,5 +505,111 @@ do {
     check(lowest >= 8 && spent > 0, "protection scrolls stop +8 gear from dropping (used \(spent))")
 }
 
+// MARK: seven classes
+do {
+    check(RpgClass.allCases.count == 7, "there are 7 classes")
+    for cls in RpgClass.allCases {
+        let weapons = (0..<9).allSatisfy { RpgItems.item("\(cls.weaponPrefix)\($0)")?.kind == .weapon(cls) }
+        check(weapons && RpgItems.item(cls.starterWeapon) != nil, "\(cls.name) has nine weapon tiers")
+        check(cls.skills.count == 8 && cls.skills.filter(\.starter).count == 2, "\(cls.name) has 8 skills, 2 of them starters")
+        let sprite = MainActor.assumeIsolated { RpgArt.sprite(cls.rawValue) != nil }
+        check(sprite, "\(cls.name) has a sprite")
+        let p = RpgSaveStore.newPlayer(name: "t", cls: cls, id: 1)
+        check(p.skills.count == 2 && p.slots.compactMap { $0 }.count == 2, "\(cls.name) starts with its two starter skills on the hotbar")
+        var hi = p
+        hi.level = 30
+        check(hi.maxHP > p.maxHP && hi.attack(at: 0) > p.attack(at: 0), "\(cls.name) grows with level")
+        // 2차 전직: both branches work at Lv20 and teach the first skill.
+        for job in 1...2 {
+            var q = RpgSaveStore.newPlayer(name: "t", cls: cls, id: 1)
+            q.level = 20
+            let w = RpgWorld(player: q)
+            w.perform(.advance(job), for: 1)
+            let got = w.player(1)!
+            let first = RpgJobs.def(cls, job)!.skills[0]
+            check(got.job == job && got.skills[first] != nil, "\(cls.name) job \(job) (\(RpgJobs.def(cls, job)!.name)) advances and learns \(first)")
+        }
+    }
+    check(RpgJobs.all.count == 14 && RpgJobs.skills.count == 28, "14 advanced jobs with 28 job skills")
+}
+
+/// A level-60 player of `cls` standing in the thickest cluster of desert monsters, hurt, with `skill` on slot 0.
+func skillBench(_ cls: RpgClass, job: Int, skill: String) -> (RpgWorld, RpgMob)? {
+    let w = world(level: 1)
+    var seed = RpgSaveStore.newPlayer(name: "caster", cls: cls, id: 2)
+    seed.level = 60
+    seed.map = .desert
+    seed.pos = RpgMap.center(RpgMaps.def(.desert).portals.first!.arrive)
+    w.addPlayer(seed)
+    let all = (w.mobs[.desert] ?? []).filter { !$0.dead }
+    guard let center = all.max(by: { a, b in
+        all.filter { hypot($0.pos.x - a.pos.x, $0.pos.y - a.pos.y) < 50 }.count < all.filter { hypot($0.pos.x - b.pos.x, $0.pos.y - b.pos.y) < 50 }.count
+    }) else { return nil }
+    let map = RpgMap(RpgMaps.def(.desert))
+    for off in [CGPoint(x: -40, y: 0), CGPoint(x: 40, y: 0), CGPoint(x: 0, y: -40), CGPoint(x: 0, y: 40), CGPoint(x: -25, y: 25)] {
+        var p = seed
+        p.pos = CGPoint(x: center.pos.x + off.x, y: center.pos.y + off.y)
+        guard map.canStand(p.pos) else { continue }
+        p.job = job
+        p.skills[skill] = 1
+        p.slots[0] = skill
+        p.hp = p.maxHP * 0.3
+        p.mp = p.maxMP
+        w.addPlayer(p)
+        return (w, center)
+    }
+    return nil
+}
+
+do {
+    var failed: [String] = []
+    var tried = 0
+    var defs: [(RpgClass, Int, RpgSkillDef)] = []
+    for cls in RpgClass.allCases {
+        for sk in cls.skills { defs.append((cls, 0, sk)) }
+        for job in 1...2 { for id in RpgJobs.def(cls, job)!.skills { defs.append((cls, job, RpgSkills.def(id)!)) } }
+    }
+    for (cls, job, sk) in defs {
+        var ok = false
+        for _ in 0..<4 where !ok {   // a cluster behind scenery may not be reachable: try a fresh world
+            guard let (w, center) = skillBench(cls, job: job, skill: sk.id) else { continue }
+            let me = w.player(2)!
+            let near = { (w: RpgWorld) in (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.reduce(0.0) { $0 + $1.hp } }
+            let hpBefore = near(w), mobsBefore = (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.count
+            // Face the cluster (a remote-style report), then cast.
+            let dx = center.pos.x - me.pos.x, dy = center.pos.y - me.pos.y, d = max(1, hypot(dx, dy))
+            var input = RpgInput()
+            input.pos = me.pos
+            input.facing = CGVector(dx: dx / d, dy: dy / d)
+            w.step(1.0 / 30, inputs: [2: input])
+            let before = w.player(2)!
+            w.perform(.cast(0), for: 2)
+            let cast = w.player(2)!
+            let spent = (cast.cooldowns[sk.id] ?? 0) > 0 && cast.mp < before.mp
+            for _ in 0..<75 { w.step(1.0 / 30, inputs: [2: input]) }
+            let after = w.player(2)!
+            let hpAfter = near(w)
+            let aliveAfter = (w.mobs[.desert] ?? []).filter { !$0.dead && hypot($0.pos.x - me.pos.x, $0.pos.y - me.pos.y) < 130 }.count
+            let damaged = hpAfter < hpBefore - 1 || aliveAfter < mobsBefore
+            let healed = after.hp > before.hp
+            let buffed = after.rageUntil > before.rageUntil || after.ironUntil > before.ironUntil || after.focusUntil > before.focusUntil
+                || after.shieldUntil > before.shieldUntil || after.invulnerable > before.invulnerable || after.buffUntil["speed"] != nil || after.dash != nil
+            ok = spent && (sk.power > 0 ? damaged : (healed || buffed))
+            tried += 1
+        }
+        if !ok { failed.append("\(cls.name)/\(sk.name)") }
+    }
+    check(failed.isEmpty, "all \(defs.count) skills work when cast (\(failed.isEmpty ? "ok" : "failing: " + failed.joined(separator: ", ")))")
+}
+do {
+    // The four new classes can actually fight with their basic attack.
+    for cls in [RpgClass.rogue, .cleric, .monk, .summoner] {
+        let (w, id) = fieldWorld(level: 20, cls: cls)
+        hunt(w, id: id, seconds: 30)
+        let kills = w.player(id)!.kills.values.reduce(0, +)
+        check(kills > 0, "\(cls.name) kills monsters with basic attacks (\(kills) in 30 s)")
+    }
+}
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

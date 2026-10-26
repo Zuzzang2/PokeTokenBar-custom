@@ -392,17 +392,17 @@ struct RpgTitleView: View {
                         Text("이름")
                         TextField("모험가", text: $name).textFieldStyle(.roundedBorder).frame(width: 200)
                     }
-                    HStack(spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
                         ForEach(RpgClass.allCases, id: \.self) { c in
                             Button { cls = c } label: {
                                 VStack(spacing: 6) {
-                                    RpgSpriteImage(key: c.rawValue).frame(width: 72, height: 72)
+                                    RpgSpriteImage(key: c.rawValue).frame(width: 64, height: 64)
                                     Text(c.name).font(.headline)
                                     Text(c.blurb).font(.caption).foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.center).frame(height: 44)
+                                        .multilineTextAlignment(.center).frame(height: 56)
                                 }
                                 .padding(10)
-                                .frame(width: 170)
+                                .frame(maxWidth: .infinity)
                                 .background(RoundedRectangle(cornerRadius: 10).fill(cls == c ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08)))
                                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(cls == c ? Color.accentColor : .clear, lineWidth: 2))
                             }
@@ -426,7 +426,7 @@ struct RpgTitleView: View {
                 }
                 .padding(6)
             }
-            .frame(maxWidth: 580)
+            .frame(maxWidth: 780)
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
