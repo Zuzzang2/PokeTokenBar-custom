@@ -44,6 +44,13 @@ final class EchoCoreTests: XCTestCase {
             [(30, "r"), (15, "rj"), (30, "r"), (15, "rj"), (10, "r"), (20, "rj"), (13, "r")],
             [(30, "r"), (15, "rj"), (30, "r"), (15, "rj"), (10, "r"), (20, "rj"), (300, "r")],
         ],
+        "return": [[(68, "l")], [(112, "r")], [(400, "r")]],
+        "finale": [
+            [(300, "r")],
+            [(24, "r"), (15, "rj"), (300, "r")],
+            [(24, "r"), (15, "rj"), (100, "r"), (15, "rj"), (10, "r"), (20, "rj"), (14, "r")],
+            [(24, "r"), (15, "rj"), (100, "r"), (15, "rj"), (10, "r"), (20, "rj"), (300, "r")],
+        ],
     ]
 
     func testEveryLevelParses() throws {
@@ -161,4 +168,19 @@ final class EchoCoreTests: XCTestCase {
         while w.status == .play { w = EchoCore.step(w, input(w.frame), peers: [mate]) }
         XCTAssertEqual(w.status, .won)
     }
+
+    func testFinaleNeedsEachOfItsThreeEchoes() {
+        let f = solutions["finale"]!
+        for skip in 0..<3 {
+            let loops = f.enumerated().filter { $0.offset != skip }.map(\.element)
+            XCTAssertNotEqual(play(level("finale"), loops).last?.status, .won, "finale cleared without echo \(skip)")
+        }
+    }
+
+    func testReturnNeedsBothEchoes() {
+        let r = solutions["return"]!
+        XCTAssertNotEqual(play(level("return"), [r[0], r[2]]).last?.status, .won)
+        XCTAssertNotEqual(play(level("return"), [r[1], r[2]]).last?.status, .won)
+    }
 }
+
