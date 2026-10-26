@@ -321,6 +321,8 @@ final class RpgWorld {
     /// How many times the per-map monster counts in `RpgMaps` are multiplied (bosses excluded), and how fast they come back.
     static let monsterDensity = 1.5
     static let respawnDelay = 6.0
+    /// Seconds a killed monster stays down (bosses included); cowards (golden slimes) wait longer.
+    static func respawnDelay(for behavior: RpgBehavior) -> Double { behavior == .coward ? 30 : respawnDelay }
     static let eliteHP = 3.0
     static let eliteAttack = 1.5
     static func comboBonus(_ combo: Int) -> Double { min(0.5, Double(combo / 10) * 0.05) }
@@ -920,7 +922,7 @@ final class RpgWorld {
         case .archer:
             fire(from: p, angle: angle, kind: .arrow, damage: atk, speed: 230, range: 170)
         case .mage:
-            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.15, speed: 170, range: 140)
+            fire(from: p, angle: angle, kind: .orb, damage: atk * 1.3, speed: 220, range: 165)
         case .rogue:
             effect(.slash(angle: angle, radius: 9), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 6), p.element, duration: 0.2)
             for v in mobIDs(inArcOf: p, range: 20, cosLimit: 0.1) { damageMob(v, map: p.map, base: atk, by: p.id, element: p.element, skill: false) }
@@ -1509,7 +1511,7 @@ final class RpgWorld {
         m.dead = true
         m.diedAt = time
         m.dotTicks = 0
-        m.respawnAt = m.summoned || map == .tower ? .infinity : time + (m.def.behavior == .boss ? 90 : (m.def.behavior == .coward ? 30 : Self.respawnDelay))
+        m.respawnAt = m.summoned || map == .tower ? .infinity : time + Self.respawnDelay(for: m.def.behavior)
         list[k] = m
         mobs[map] = list
         if m.def.behavior == .boss {
@@ -2045,6 +2047,14 @@ final class RpgWorld {
 
     // MARK: projectiles & pickups
 
+    /// Share of max MP a mage's basic orb gives back on a hit, so spells are fed by fighting, not only by potions.
+    static let orbManaGain = 0.03
+
+    private func orbManaGain(_ ownerID: Int) {
+        guard let i = players.firstIndex(where: { $0.id == ownerID }), players[i].cls == .mage else { return }
+        players[i].mp = min(players[i].maxMP, players[i].mp + players[i].maxMP * Self.orbManaGain)
+    }
+
     private func stepShots(_ dt: Double) {
         var keep: [RpgShot] = []
         for var s in shots {
@@ -2062,6 +2072,7 @@ final class RpgWorld {
                 var done = false
                 for v in mobIDs(near: foot, radius: s.kind == .bigArrow ? 8 : 5, map: s.map) where !s.hit.contains(v) {
                     s.hit.insert(v)
+                    if s.kind == .orb { orbManaGain(s.ownerID) }
                     if s.kind == .orb, s.element == .fire {
                         explode(s)
                     } else {

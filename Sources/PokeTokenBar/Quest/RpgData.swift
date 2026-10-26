@@ -23,12 +23,12 @@ enum RpgClass: String, Codable, CaseIterable, Sendable {
     }
     var baseHP: Int { [130, 95, 80, 100, 110, 125, 85][index] }
     var hpPerLevel: Int { [22, 15, 12, 16, 18, 20, 13][index] }
-    var baseMP: Int { [30, 40, 70, 35, 60, 40, 65][index] }
-    var mpPerLevel: Int { [4, 5, 8, 4, 7, 5, 7][index] }
+    var baseMP: Int { [30, 40, 140, 35, 60, 40, 65][index] }
+    var mpPerLevel: Int { [4, 5, 16, 4, 7, 5, 7][index] }
     var baseAttack: Int { [11, 10, 12, 11, 9, 10, 11][index] }
     var attackPerLevel: Double { [3.2, 3.2, 3.6, 3.4, 2.8, 3.2, 3.6][index] }
     var baseDefense: Int { [6, 4, 3, 4, 5, 5, 3][index] }
-    var defensePerLevel: Double { [2.2, 1.4, 1.1, 1.4, 1.8, 1.9, 1.1][index] }
+    var defensePerLevel: Double { [2.2, 1.4, 1.6, 1.4, 1.8, 1.9, 1.1][index] }
     var speed: Double { [72, 80, 68, 90, 70, 82, 70][index] }
     var attackInterval: Double { [0.42, 0.5, 0.6, 0.32, 0.55, 0.30, 0.65][index] }
     var critChance: Double { [0.08, 0.16, 0.08, 0.22, 0.06, 0.10, 0.07][index] }
@@ -101,14 +101,14 @@ enum RpgSkills {
         s("a_focus", "집중", .archer, 28, 24, 25, 0, "12초간 치명타 +40%, 공격속도 +30%"),
         s("a_ult", "폭풍의 화살", .archer, 35, 60, 40, 3.5, max: 5, "거대한 관통 화살 5발"),
 
-        s("m_blast", "원소 폭발", .mage, 1, 16, 4, 2.2, starter: true, "앞쪽 범위 폭발 (무기 속성에 따라 변화)"),
-        s("m_chain", "연쇄 마법", .mage, 1, 18, 6, 1.7, starter: true, "적 4마리를 차례로 잇는 마법"),
-        s("m_blink", "순간이동", .mage, 8, 14, 6, 1.5, price: 700, "앞으로 순간이동, 떠난 자리 폭발"),
-        s("m_shield", "마나 실드", .mage, 12, 20, 25, 0, price: 1800, "15초간 받는 피해 70%를 MP로"),
-        s("m_blizzard", "블리자드", .mage, 16, 28, 12, 0.5, "4초간 얼음 장판 (둔화 + 지속 피해)"),
-        s("m_pillar", "화염 기둥", .mage, 22, 24, 8, 1.6, "일직선으로 이어지는 불기둥"),
-        s("m_heal", "치유", .mage, 28, 30, 14, 0, "HP 30% 회복 (레벨당 +3%)"),
-        s("m_ult", "메테오 스톰", .mage, 35, 70, 45, 3.2, max: 5, "주변에 운석 8개 낙하"),
+        s("m_blast", "원소 폭발", .mage, 1, 16, 2, 2.2, starter: true, "앞쪽 범위 폭발 (무기 속성에 따라 변화)"),
+        s("m_chain", "연쇄 마법", .mage, 1, 18, 3, 1.7, starter: true, "적 4마리를 차례로 잇는 마법"),
+        s("m_blink", "순간이동", .mage, 8, 14, 3, 1.5, price: 700, "앞으로 순간이동, 떠난 자리 폭발"),
+        s("m_shield", "마나 실드", .mage, 10, 20, 12.5, 0, price: 900, "15초간 받는 피해 70%를 MP로"),
+        s("m_blizzard", "블리자드", .mage, 16, 28, 6, 0.5, price: 2500, "4초간 얼음 장판 (둔화 + 지속 피해)"),
+        s("m_pillar", "화염 기둥", .mage, 22, 24, 4, 1.6, price: 4000, "일직선으로 이어지는 불기둥"),
+        s("m_heal", "치유", .mage, 28, 30, 7, 0, price: 6000, "HP 30% 회복 (레벨당 +3%)"),
+        s("m_ult", "메테오 스톰", .mage, 35, 70, 22.5, 3.2, price: 30000, max: 5, "주변에 운석 8개 낙하"),
 
         s("r_flurry", "난도질", .rogue, 1, 8, 3, 0.7, starter: true, "전방을 4번 빠르게 벤다"),
         s("r_step", "그림자 걸음", .rogue, 1, 8, 5, 1.2, starter: true, "앞으로 파고들며 벤다 (무적)"),
