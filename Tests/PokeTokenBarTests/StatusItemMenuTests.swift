@@ -43,6 +43,7 @@ final class StatusItemMenuTests: XCTestCase {
             .init(title: "대결 (테스트)…", keyEquivalent: "b", action: .openBattle),
             .init(title: "카트 (테스트)…", keyEquivalent: "k", action: .openKart),
             .init(title: "아레나 (테스트)…", keyEquivalent: "a", action: .openArena),
+            .init(title: "픽셀 모험 (테스트)…", keyEquivalent: "g", action: .openQuest),
             nil,
             .init(title: "최근 버전으로 업데이트 (main)…", keyEquivalent: "u", action: .updateToLatest),
             nil,

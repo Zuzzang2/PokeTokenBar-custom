@@ -1,0 +1,582 @@
+import AppKit
+import CoreGraphics
+
+// SPIKE: all of 픽셀 모험's art, drawn in code: 16×16 character and monster sprites (character grids +
+// palettes), weapon and item icons, the tile set, town buildings, portals and the weapon effects.
+// Sprites are baked once into CGImages; effects are drawn per frame into the low-res frame bitmap.
+
+typealias RpgGrid = [String]
+
+@MainActor
+enum RpgArt {
+    static func rgb(_ r: Int, _ g: Int, _ b: Int, _ a: CGFloat = 1) -> CGColor { KartArt.rgb(r, g, b, a) }
+    static let outline = rgb(28, 22, 38)
+
+    static let palette: [Character: CGColor] = [
+        "K": rgb(28, 22, 38), "S": rgb(244, 196, 152), "s": rgb(206, 146, 112),
+        "M": rgb(186, 196, 210), "m": rgb(120, 132, 152), "R": rgb(206, 54, 54), "r": rgb(140, 30, 34),
+        "Y": rgb(240, 190, 50), "B": rgb(226, 236, 246), "L": rgb(150, 96, 52), "l": rgb(104, 64, 36),
+        "G": rgb(72, 164, 76), "g": rgb(40, 104, 48), "P": rgb(126, 74, 188), "p": rgb(82, 42, 134),
+        "O": rgb(110, 226, 255), "W": rgb(250, 250, 250), "H": rgb(112, 70, 40),
+        "E": rgb(96, 206, 116), "e": rgb(50, 144, 74), "A": rgb(116, 72, 156), "a": rgb(76, 44, 108),
+        "C": rgb(244, 226, 186), "c": rgb(204, 172, 132), "X": rgb(232, 226, 210), "x": rgb(170, 162, 146),
+        "F": rgb(255, 140, 40), "f": rgb(255, 220, 90), "Z": rgb(150, 150, 165), "z": rgb(100, 100, 116),
+        "N": rgb(130, 122, 112), "n": rgb(92, 86, 80), "Q": rgb(255, 150, 60),
+    ]
+
+    private static func overlay(_ g: RpgGrid, _ marks: [(Int, Int, Character)]) -> RpgGrid {
+        var rows = g.map { Array($0) }
+        for (x, y, c) in marks where y < rows.count && x < rows[y].count { rows[y][x] = c }
+        return rows.map { String($0) }
+    }
+
+    // MARK: sprite grids
+
+    static let warrior: RpgGrid = overlay([
+        "......KKKK......", ".....KMMMMK.....", "....KMMBMMMK....", "....KMMMMMMK....", "....KKKKKKKK....", "....KSKSSKSK....",
+        "....KSSSSSSK....", ".....KSSSSK.....", "...KKRKKKKRKK...", "..KRRMMMMMMRRK..", "..KRKMMYYMMKRK..", "..KSKmMMMMmKSK..",
+        "...KKLLLLLLKK...", "....KMMKKMMK....", "....KmmKKmmK....", "....KKK..KKK....",
+    ], [])
+    static let archer: RpgGrid = overlay([
+        "................", ".....KKKKKK.....", "....KGGGGGGK....", "...KGGGGGGGGK...", "...KgKKKKKKgK...", "....KSKSSKSK....",
+        "....KSSSSSSK....", ".....KSSSSK.....", "....KKGGGGKK....", "...KLKGGGGKLK...", "...KSKgLLgKSK...", "....KKGGGGKK....",
+        "....KgGKKGgK....", "....KLLKKLLK....", "....KllKKllK....", "....KKK..KKK....",
+    ], [(13, 6, "K"), (13, 7, "L"), (14, 5, "K"), (14, 6, "Y"), (13, 8, "L")])
+    static let mage: RpgGrid = overlay([
+        ".......KK.......", "......KPPK......", ".....KPPPPK.....", "....KPPYPPPK....", "..KKPPPPPPPPKK..", "..KppppppppppK..",
+        "....KSKSSKSK....", "....KSSSSSSK....", ".....KSSSSK.....", "....KKPPPPKK....", "...KPKPPPPKPK...", "...KSKpPPpKSK...",
+        "....KPPPPPPK....", "...KPPPPPPPPK...", "...KppppppppK...", "....KKKKKKKK....",
+    ], [])
+    static let villager: RpgGrid = [
+        "......KKKK......", ".....KHHHHK.....", "....KHHHHHHK....", "....KHSSSSHK....", "....KSKSSKSK....", "....KSSSSSSK....",
+        ".....KSSSSK.....", "....KKWWWWKK....", "...KCKWWWWKCK...", "...KSKWWWWKSK...", "....KKWWWWKK....", "....KCCCCCCK....",
+        "....KCCKKCCK....", "....KccKKccK....", "....KKK..KKK....", "................",
+    ]
+    static let slime: RpgGrid = [
+        "................", "................", "................", "................", "................", "......KKKK......",
+        "....KKEEEEKK....", "...KEEWEEEEEK...", "..KEEWWEEEEEEK..", "..KEEEEEEEEEEK..", ".KEEEKEEEEKEEEK.", ".KEEEKEEEEKEEEK.",
+        ".KeEEEEEEEEEEeK.", ".KeeEEEKKEEEeeK.", "..KeeeeeeeeeeK..", "...KKKKKKKKKK...",
+    ]
+    static let bat: RpgGrid = [
+        "................", "................", "................", "KK............KK", "KAK....KK....KAK", "KAAK..KAAK..KAAK",
+        "KAAAKKAAAAKKAAAK", "KAAAAAAAAAAAAAAK", ".KAaAAWAAWAAaAK.", "..KaAAAAAAAAaK..", "...KAAKWWKAAK...", "....KK.KK.KK....",
+        "................", "................", "................", "................",
+    ]
+    static let mushroom: RpgGrid = [
+        "................", "................", "......KKKK......", "....KKRRRRKK....", "...KRRWWRRRRK...", "..KRRWWRRRWWRK..",
+        "..KRRRRRRRWWRK..", ".KRRWWRRRRRRRRK.", ".KrRWWRRRRRWWrK.", ".KKKKKKKKKKKKKK.", "....KCCCCCCK....", "....KCKCCKCK....",
+        "....KCCCCCCK....", "....KcCCCCcK....", "...KKKK..KKKK...", "................",
+    ]
+    static let skeleton: RpgGrid = [
+        "......KKKK......", ".....KXXXXK.....", "....KXXXXXXK....", "....KXKXXKXK....", "....KXXXXXXK....", ".....KXKKXK.....",
+        "......KXXK......", "....KKXXXXKK....", "...KXKxKKxKXK...", "...KXKXXXXKXK...", "...KXKxKKxKXK...", "....K.KXXK.K....",
+        ".....KXKKXK.....", ".....KXK.KXK....", "....KXXK.KXXK...", "....KKK...KKK...",
+    ]
+    static let wolf: RpgGrid = [
+        "................", "................", "................", "...K............", "..KZK......KKK..", "..KZZKKKKKKZZZK.",
+        ".KZZZZZZZZZZZK..", "KRZKZZZZZZZZZK..", "KZZZZZZZZZZZZZK.", ".KKzZZZZZZZZZZZK", "...KZzKKKKZZKzK.", "...KZK....KZKK..",
+        "...KzK....KzK...", "...KK.....KK....", "................", "................",
+    ]
+    static let golem: RpgGrid = [
+        "................", "....KKKKKKKK....", "...KNNNNNNNNK...", "...KNQNNNNQNK...", "...KNNNNNNNNK...", ".KKKKNNNNNNKKKK.",
+        "KNNNKNNnnNNKNNNK", "KNNNKNnNNnNKNNNK", "KNNKNNNNNNNNKNNK", ".KKKNNNNNNNNKKK.", "....KNNNNNNK....", "....KNNKKNNK....",
+        "...KNNNKKNNNK...", "...KnnnK.KnnnK..", "...KKKKK.KKKKK..", "................",
+    ]
+    static let crown: RpgGrid = ["K.K.K.K", "KYKYKYK", "KYYYYYK", "KYRYOYK", "KKKKKKK"]
+
+    private static let spriteGrids: [String: (RpgGrid, [Character: CGColor])] = [
+        "warrior": (warrior, [:]), "archer": (archer, [:]), "mage": (mage, [:]), "villager": (villager, [:]),
+        "slime": (slime, [:]),
+        "blueslime": (slime, ["E": rgb(100, 160, 255), "e": rgb(50, 96, 200)]),
+        "goldslime": (slime, ["E": rgb(255, 214, 70), "e": rgb(214, 150, 30)]),
+        "slimeking": (slime, ["E": rgb(110, 220, 130), "e": rgb(46, 140, 80)]),
+        "bat": (bat, [:]),
+        "cavebat": (bat, ["A": rgb(70, 74, 100), "a": rgb(44, 46, 66), "W": rgb(255, 80, 80)]),
+        "mushroom": (mushroom, [:]),
+        "brownshroom": (mushroom, ["R": rgb(170, 110, 60), "r": rgb(120, 76, 40)]),
+        "skeleton": (skeleton, [:]),
+        "skelarcher": (overlay(skeleton, [(1, 6, "L"), (0, 7, "L"), (0, 8, "L"), (0, 9, "L"), (1, 10, "L"), (2, 7, "W"), (2, 8, "W"), (2, 9, "W")]), [:]),
+        "wolf": (wolf, [:]),
+        "golem": (golem, [:]),
+    ]
+
+    private static var spriteCache: [String: CGImage] = [:]
+
+    /// A sprite as a 16×16 image (a bigger one for the boss), optionally tinted for class variants.
+    static func sprite(_ key: String, tint: [Character: CGColor] = [:]) -> CGImage? {
+        let cacheKey = key + tint.keys.sorted().map(String.init).joined()
+        if let img = spriteCache[cacheKey] { return img }
+        guard let (grid, swap) = spriteGrids[key] else { return nil }
+        let colors = palette.merging(swap) { _, new in new }.merging(tint) { _, new in new }
+        let scale = key == "slimeking" ? 2 : 1
+        guard let ctx = KartArt.context(width: 16 * scale, height: (key == "slimeking" ? 20 : 16) * scale) else { return nil }
+        let yOffset = key == "slimeking" ? 4 * scale : 0
+        for (row, line) in grid.enumerated() {
+            for (col, ch) in line.enumerated() {
+                guard let c = colors[ch] else { continue }
+                KartArt.fill(ctx, c, CGFloat(col * scale), CGFloat(row * scale + yOffset), CGFloat(scale), CGFloat(scale))
+            }
+        }
+        if key == "slimeking" {
+            for (row, line) in crown.enumerated() {
+                for (col, ch) in line.enumerated() {
+                    guard let c = colors[ch] else { continue }
+                    KartArt.fill(ctx, c, CGFloat(9 + col * 2), CGFloat(6 + row * 2), 2, 2)
+                }
+            }
+        }
+        let img = ctx.makeImage()
+        spriteCache[cacheKey] = img
+        return img
+    }
+
+    /// Weapon tint on the class sprite: blade, bowstring or staff orb take the element colour.
+    static func classTint(_ cls: RpgClass, weapon: RpgItem?) -> [Character: CGColor] {
+        guard let w = weapon, w.element != .base else { return [:] }
+        let e = elem(w.element)
+        switch cls {
+        case .warrior: return ["B": e.mid]
+        case .archer: return ["Y": e.mid]
+        case .mage: return ["Y": e.mid]
+        }
+    }
+
+    // MARK: icons
+
+    private static let swordT: RpgGrid = [
+        "..............KK", ".............KBK", "............KBEK", "...........KBEK.", "..........KBEK..", ".........KBEK...",
+        "........KBEK....", ".......KBEK.....", "..KK..KBEK......", "..KGKKBEK.......", "...KGGEK........", "....KGGK........",
+        "...KHKKGK.......", "..KHK..KGK......", ".KJK....KK......", ".KK.............",
+    ]
+    private static let bowT: RpgGrid = [
+        "....KK..........", "...KWBK.........", "...KW.KBK.......", "...KW..KBK......", "...KW...KBK.....", "...KW....KBK....",
+        "...KW....KGK....", "...KW....KGK....", "...KW....KGK....", "...KW....KBK....", "...KW...KBK.....", "...KW..KBK......",
+        "...KW.KBK.......", "...KWBK.........", "....KK..........", "................",
+    ]
+    private static let staffT: RpgGrid = [
+        "..........KKK...", ".........KOOOK..", "........KOOJOOK.", "........KOOOOOK.", "........KOOOOOK.", ".........KOOOK..",
+        "........KGKKK...", ".......KBK......", "......KBK.......", ".....KBK........", "....KBK.........", "...KBK..........",
+        "..KBK...........", ".KHK............", ".KK.............", "................",
+    ]
+    private static let armorT: RpgGrid = [
+        "................", "...KKK....KKK...", "..KBBBKKKKBBBK..", ".KBBBBBEEBBBBBK.", ".KBBKBBBBBBKBBK.", ".KBK.KBBBBK.KBK.",
+        ".KK..KBBBBK..KK.", ".....KBEEBK.....", ".....KBBBBK.....", ".....KBBBBK.....", ".....KEBBEK.....", ".....KBBBBK.....",
+        ".....KKKKKK.....", "................", "................", "................",
+    ]
+    private static let potionT: RpgGrid = [
+        "................", "......KKKK......", "......KCCK......", "......KCCK......", ".....KKBBKK.....", "....KBBBBBBK....",
+        "...KBWBBBBBBK...", "...KBWBBBBBBK...", "...KBBBBBBBBK...", "...KEBBBBBBEK...", "....KEEEEEEK....", ".....KKKKKK.....",
+        "................", "................", "................", "................",
+    ]
+    private static let scrollT: RpgGrid = [
+        "................", "................", "...KKKKKKKKKK...", "..KCCCCCCCCCCK..", "..KcKKKKKKKKcK..", "...KCCCCCCCCK...",
+        "...KCKKKKKKCK...", "...KCCCCCCCCK...", "...KCKKKKKKCK...", "...KCCCCCCCCK...", "..KcKKKKKKKKcK..", "..KCCCCCCCCCCK..",
+        "...KKKKKKKKKK...", "................", "................", "................",
+    ]
+
+    private static func itemColors(_ item: RpgItem) -> [Character: CGColor] {
+        switch item.kind {
+        case .weapon(let cls):
+            let tier = Int(item.id.last.flatMap { Int(String($0)) } ?? 0)
+            let swords: [[Character: CGColor]] = [
+                ["B": rgb(196, 150, 96), "E": rgb(140, 96, 56), "G": rgb(120, 80, 44), "H": rgb(96, 64, 36), "J": rgb(150, 110, 70)],
+                ["B": rgb(230, 236, 246), "E": rgb(150, 162, 186), "G": rgb(120, 130, 150), "H": rgb(110, 70, 40), "J": rgb(90, 150, 240)],
+                ["B": rgb(255, 214, 90), "E": rgb(236, 86, 30), "G": rgb(160, 40, 30), "H": rgb(70, 40, 30), "J": rgb(255, 120, 40)],
+                ["B": rgb(220, 250, 255), "E": rgb(80, 170, 240), "G": rgb(60, 110, 190), "H": rgb(40, 60, 110), "J": rgb(170, 238, 255)],
+                ["B": rgb(255, 246, 170), "E": rgb(236, 170, 30), "G": rgb(70, 70, 90), "H": rgb(40, 40, 56), "J": rgb(255, 232, 80)],
+                ["B": rgb(255, 255, 255), "E": rgb(236, 190, 60), "G": rgb(240, 200, 70), "H": rgb(70, 90, 200), "J": rgb(120, 220, 255)],
+            ]
+            let bows: [[Character: CGColor]] = [
+                ["B": rgb(170, 116, 64), "G": rgb(110, 70, 40), "W": rgb(240, 240, 230)],
+                ["B": rgb(170, 180, 200), "G": rgb(90, 60, 40), "W": rgb(240, 240, 230)],
+                ["B": rgb(236, 96, 40), "G": rgb(120, 40, 30), "W": rgb(255, 220, 90)],
+                ["B": rgb(110, 190, 250), "G": rgb(50, 90, 160), "W": rgb(220, 250, 255)],
+                ["B": rgb(90, 200, 120), "G": rgb(40, 110, 70), "W": rgb(220, 255, 230)],
+                ["B": rgb(250, 220, 110), "G": rgb(70, 90, 200), "W": rgb(255, 255, 255)],
+            ]
+            let staffs: [[Character: CGColor]] = [
+                ["B": rgb(170, 116, 64), "G": rgb(110, 70, 40), "H": rgb(90, 60, 36), "O": rgb(150, 220, 120), "J": rgb(230, 255, 220)],
+                ["B": rgb(150, 110, 80), "G": rgb(180, 190, 210), "H": rgb(90, 60, 36), "O": rgb(150, 200, 255), "J": rgb(255, 255, 255)],
+                ["B": rgb(120, 50, 40), "G": rgb(240, 190, 60), "H": rgb(70, 30, 26), "O": rgb(255, 120, 40), "J": rgb(255, 240, 160)],
+                ["B": rgb(80, 110, 170), "G": rgb(200, 230, 255), "H": rgb(40, 60, 110), "O": rgb(120, 220, 255), "J": rgb(255, 255, 255)],
+                ["B": rgb(70, 70, 96), "G": rgb(240, 200, 60), "H": rgb(40, 40, 56), "O": rgb(255, 232, 80), "J": rgb(255, 255, 230)],
+                ["B": rgb(60, 40, 110), "G": rgb(240, 200, 80), "H": rgb(30, 20, 60), "O": rgb(170, 110, 255), "J": rgb(120, 230, 255)],
+            ]
+            let table = cls == .warrior ? swords : (cls == .archer ? bows : staffs)
+            return table[min(tier, table.count - 1)]
+        case .armor:
+            let tones: [(CGColor, CGColor)] = [(rgb(220, 210, 180), rgb(170, 160, 130)), (rgb(170, 116, 64), rgb(120, 80, 44)),
+                                               (rgb(180, 190, 206), rgb(120, 130, 150)), (rgb(170, 230, 255), rgb(90, 160, 220)),
+                                               (rgb(220, 70, 60), rgb(240, 190, 60))]
+            let tier = Int(item.id.last.flatMap { Int(String($0)) } ?? 0)
+            let t = tones[min(tier, tones.count - 1)]
+            return ["B": t.0, "E": t.1]
+        case .potionHP:
+            return item.id == "hp1" ? ["B": rgb(255, 150, 50), "E": rgb(200, 90, 30)] : ["B": rgb(230, 60, 60), "E": rgb(160, 30, 40)]
+        case .potionMP:
+            return ["B": rgb(80, 140, 255), "E": rgb(40, 80, 190)]
+        case .scroll:
+            return [:]
+        }
+    }
+
+    private static var iconCache: [String: CGImage] = [:]
+
+    /// 16×16 item icon with a rarity aura for epic and legendary gear.
+    static func icon(_ item: RpgItem) -> CGImage? {
+        if let img = iconCache[item.id] { return img }
+        let template: RpgGrid
+        switch item.kind {
+        case .weapon(let cls): template = cls == .warrior ? swordT : (cls == .archer ? bowT : staffT)
+        case .armor: template = armorT
+        case .potionHP, .potionMP: template = potionT
+        case .scroll: template = scrollT
+        }
+        let colors = palette.merging(itemColors(item)) { _, new in new }
+        guard let ctx = KartArt.context(width: 18, height: 18) else { return nil }
+        if item.rarity >= 2 {
+            let glow = elem(item.element == .base ? .holy : item.element).mid.copy(alpha: item.rarity == 3 ? 0.6 : 0.38) ?? outline
+            for (row, line) in template.enumerated() {
+                for (col, ch) in line.enumerated() where ch != "." {
+                    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                        let nx = col + dx, ny = row + dy
+                        let outside = ny < 0 || ny >= template.count || nx < 0 || nx >= line.count || Array(template[ny])[nx] == "."
+                        if outside { KartArt.fill(ctx, glow, CGFloat(1 + nx), CGFloat(1 + ny), 1, 1) }
+                    }
+                }
+            }
+        }
+        for (row, line) in template.enumerated() {
+            for (col, ch) in line.enumerated() {
+                guard let c = colors[ch] else { continue }
+                KartArt.fill(ctx, c, CGFloat(1 + col), CGFloat(1 + row), 1, 1)
+            }
+        }
+        let img = ctx.makeImage()
+        iconCache[item.id] = img
+        return img
+    }
+
+    static let rarityColors: [NSColor] = [NSColor(white: 0.8, alpha: 1), NSColor(red: 0.45, green: 0.68, blue: 1, alpha: 1),
+                                          NSColor(red: 0.78, green: 0.52, blue: 1, alpha: 1), NSColor(red: 1, green: 0.68, blue: 0.2, alpha: 1)]
+
+    // MARK: tiles
+
+    static func renderMap(_ map: RpgMap) -> CGImage? {
+        let size = map.pixelSize
+        guard let ctx = KartArt.context(width: Int(size.width), height: Int(size.height)) else { return nil }
+        var rng = KartRNG(seed: map.def.seed &+ 99)
+        let fill = KartArt.fill
+        for y in 0..<map.height {
+            for x in 0..<map.width {
+                let px = CGFloat(x * 16), py = CGFloat(y * 16)
+                let t = map.at(x, y)
+                switch t {
+                case .grass, .flower, .darkGrass:
+                    let dark = t == .darkGrass
+                    fill(ctx, dark ? rgb(70, 140, 66) : rgb(104, 180, 84), px, py, 16, 16)
+                    for _ in 0..<10 {
+                        fill(ctx, rng.int(2) == 0 ? (dark ? rgb(58, 120, 56) : rgb(88, 160, 72)) : (dark ? rgb(88, 160, 78) : rgb(128, 200, 100)),
+                             px + CGFloat(rng.int(16)), py + CGFloat(rng.int(16)), 1, 1)
+                    }
+                    if rng.int(5) == 0 { let tx = px + CGFloat(rng.int(13)), ty = py + CGFloat(rng.int(13)); fill(ctx, dark ? rgb(50, 110, 50) : rgb(70, 140, 60), tx, ty, 1, 2); fill(ctx, dark ? rgb(50, 110, 50) : rgb(70, 140, 60), tx + 2, ty, 1, 2) }
+                    if t == .flower {
+                        let colors = [rgb(255, 255, 255), rgb(255, 120, 160), rgb(255, 220, 60), rgb(170, 140, 255)]
+                        for _ in 0..<3 {
+                            let fx = px + 2 + CGFloat(rng.int(12)), fy = py + 2 + CGFloat(rng.int(12))
+                            fill(ctx, colors[rng.int(colors.count)], fx, fy, 1, 1)
+                            fill(ctx, rgb(255, 240, 120), fx, fy, 1, 1)
+                            fill(ctx, colors[rng.int(colors.count)], fx - 1, fy, 1, 1); fill(ctx, colors[rng.int(colors.count)], fx + 1, fy, 1, 1)
+                        }
+                    }
+                case .path, .sand:
+                    fill(ctx, t == .sand ? rgb(226, 206, 150) : rgb(206, 176, 124), px, py, 16, 16)
+                    for _ in 0..<8 { fill(ctx, rng.int(2) == 0 ? rgb(184, 152, 104) : rgb(222, 196, 146), px + CGFloat(rng.int(16)), py + CGFloat(rng.int(16)), 1, 1) }
+                    if rng.int(4) == 0 { fill(ctx, rgb(150, 140, 130), px + CGFloat(rng.int(14)), py + CGFloat(rng.int(14)), 2, 1) }
+                case .stone:
+                    fill(ctx, rgb(190, 178, 158), px, py, 16, 16)
+                    fill(ctx, rgb(166, 154, 136), px, py, 16, 1); fill(ctx, rgb(166, 154, 136), px, py, 1, 16)
+                    fill(ctx, rgb(166, 154, 136), px, py + 8, 16, 1); fill(ctx, rgb(166, 154, 136), px + CGFloat((y % 2) * 8), py, 1, 8)
+                    if rng.int(3) == 0 { fill(ctx, rgb(206, 196, 178), px + CGFloat(2 + rng.int(10)), py + CGFloat(2 + rng.int(10)), 2, 1) }
+                case .tree:
+                    fill(ctx, map.def.kind == .forest ? rgb(70, 140, 66) : rgb(104, 180, 84), px, py, 16, 16)
+                    fill(ctx, rgb(0, 0, 0, 0.22), px + 2, py + 12, 12, 3)
+                    fill(ctx, rgb(104, 66, 36), px + 7, py + 9, 3, 6)
+                    ctx.setFillColor(outline); ctx.fillEllipse(in: CGRect(x: px, y: py - 1, width: 16, height: 13))
+                    ctx.setFillColor(map.def.kind == .forest ? rgb(36, 100, 50) : rgb(46, 120, 56)); ctx.fillEllipse(in: CGRect(x: px + 1, y: py, width: 14, height: 11))
+                    ctx.setFillColor(map.def.kind == .forest ? rgb(60, 136, 66) : rgb(80, 160, 76)); ctx.fillEllipse(in: CGRect(x: px + 3, y: py + 1, width: 7, height: 5))
+                case .water:
+                    fill(ctx, rgb(70, 140, 220), px, py, 16, 16)
+                    for _ in 0..<2 { fill(ctx, rgb(170, 220, 255), px + CGFloat(rng.int(12)), py + CGFloat(rng.int(15)), CGFloat(2 + rng.int(3)), 1) }
+                    if !map.at(x, y - 1).blocks || map.at(x, y - 1) != .water { fill(ctx, rgb(140, 200, 250), px, py, 16, 1) }
+                case .rock:
+                    fill(ctx, map.def.kind == .forest ? rgb(70, 140, 66) : rgb(104, 180, 84), px, py, 16, 16)
+                    ctx.setFillColor(outline); ctx.fillEllipse(in: CGRect(x: px + 1, y: py + 3, width: 14, height: 12))
+                    ctx.setFillColor(rgb(150, 146, 140)); ctx.fillEllipse(in: CGRect(x: px + 2, y: py + 4, width: 12, height: 10))
+                    fill(ctx, rgb(190, 186, 180), px + 5, py + 6, 4, 2)
+                case .caveFloor, .torch, .bossFloor:
+                    let boss = t == .bossFloor || map.def.kind == .boss
+                    fill(ctx, boss ? rgb(70, 62, 78) : rgb(80, 72, 66), px, py, 16, 16)
+                    for _ in 0..<7 { fill(ctx, rng.int(2) == 0 ? (boss ? rgb(56, 50, 64) : rgb(66, 58, 54)) : (boss ? rgb(90, 80, 100) : rgb(98, 88, 80)), px + CGFloat(rng.int(16)), py + CGFloat(rng.int(16)), 1, 1) }
+                    if rng.int(6) == 0 { fill(ctx, rgb(120, 110, 100), px + CGFloat(rng.int(13)), py + CGFloat(rng.int(13)), 2, 2) }
+                    if t == .torch {
+                        fill(ctx, rgb(100, 70, 40), px + 7, py + 4, 2, 9)
+                        fill(ctx, outline, px + 6, py + 3, 4, 2)
+                    }
+                case .caveWall:
+                    fill(ctx, rgb(40, 34, 40), px, py, 16, 16)
+                    if !map.at(x, y + 1).blocks {
+                        fill(ctx, rgb(96, 84, 82), px, py + 8, 16, 8)
+                        fill(ctx, rgb(120, 108, 100), px, py + 8, 16, 2)
+                        for _ in 0..<4 { fill(ctx, rgb(70, 62, 60), px + CGFloat(rng.int(15)), py + 10 + CGFloat(rng.int(5)), 2, 1) }
+                    }
+                    for _ in 0..<3 { fill(ctx, rgb(56, 48, 56), px + CGFloat(rng.int(15)), py + CGFloat(rng.int(8)), 2, 1) }
+                case .fountain:
+                    fill(ctx, rgb(190, 178, 158), px, py, 16, 16)
+                }
+            }
+        }
+        if map.def.kind == .town {
+            // Fountain over its four tiles, then the shops.
+            let fx: CGFloat = 15 * 16, fy: CGFloat = 12 * 16
+            ctx.setFillColor(outline); ctx.fillEllipse(in: CGRect(x: fx - 1, y: fy + 3, width: 34, height: 28))
+            ctx.setFillColor(rgb(150, 150, 160)); ctx.fillEllipse(in: CGRect(x: fx, y: fy + 4, width: 32, height: 26))
+            ctx.setFillColor(rgb(90, 170, 240)); ctx.fillEllipse(in: CGRect(x: fx + 3, y: fy + 7, width: 26, height: 20))
+            fill(ctx, rgb(150, 150, 160), fx + 15, fy - 2, 3, 14)
+            fill(ctx, rgb(200, 240, 255), fx + 13, fy - 5, 7, 3)
+            fill(ctx, rgb(200, 240, 255), fx + 11, fy - 2, 1, 4); fill(ctx, rgb(200, 240, 255), fx + 21, fy - 2, 1, 4)
+            for b in map.buildings { house(ctx, b) }
+        }
+        return ctx.makeImage()
+    }
+
+    private static func house(_ ctx: CGContext, _ b: RpgBuilding) {
+        let fill = KartArt.fill
+        let x = CGFloat(b.x * 16), y = CGFloat(b.y * 16), w = CGFloat(b.w * 16), h = CGFloat(b.h * 16)
+        let roof: (CGColor, CGColor) = switch b.shop {
+        case .weapon: (rgb(70, 110, 200), rgb(50, 80, 160))
+        case .armor: (rgb(200, 70, 60), rgb(150, 50, 44))
+        case .potion: (rgb(80, 160, 90), rgb(56, 120, 66))
+        }
+        let roofH = h * 0.45
+        fill(ctx, rgb(0, 0, 0, 0.25), x + 4, y + h - 2, w, 5)
+        fill(ctx, outline, x + 3, y + roofH - 1, w - 6, h - roofH + 1)
+        fill(ctx, rgb(240, 226, 196), x + 4, y + roofH, w - 8, h - roofH - 1)
+        for wy in stride(from: y + roofH + 4, to: y + h - 1, by: 5) { fill(ctx, rgb(220, 204, 172), x + 4, wy, w - 8, 1) }
+        // Roof as stacked slabs.
+        let rows = Int(roofH)
+        for r in 0..<rows {
+            let inset = CGFloat(rows - r) * 0.5
+            fill(ctx, r % 4 == 3 ? roof.1 : roof.0, x + inset, y + CGFloat(r), w - inset * 2, 1)
+        }
+        fill(ctx, outline, x, y + roofH - 1, w, 1)
+        // Door and windows.
+        let dx = x + w / 2 - 6
+        fill(ctx, outline, dx, y + h - 17, 12, 17); fill(ctx, rgb(140, 90, 50), dx + 1, y + h - 16, 10, 16)
+        fill(ctx, rgb(240, 190, 50), dx + 8, y + h - 9, 1, 1)
+        for wx in [x + 8, x + w - 20] {
+            fill(ctx, outline, wx, y + roofH + 5, 12, 10); fill(ctx, rgb(140, 210, 255), wx + 1, y + roofH + 6, 10, 8)
+            fill(ctx, rgb(220, 245, 255), wx + 1, y + roofH + 6, 4, 2)
+        }
+        // Hanging sign with the shop's item.
+        let sx = x + w / 2 - 9, sy = y + 4
+        fill(ctx, outline, sx, sy, 18, 13); fill(ctx, rgb(170, 120, 70), sx + 1, sy + 1, 16, 11)
+        let sample: RpgItem? = switch b.shop {
+        case .weapon: RpgItems.item("sword1")
+        case .armor: RpgItems.item("armor2")
+        case .potion: RpgItems.item("hp0")
+        }
+        if let s = sample, let ic = icon(s) { KartArt.draw(ic, in: ctx, rect: CGRect(x: sx + 4, y: sy + 1, width: 10, height: 10)) }
+    }
+
+    // MARK: portals & pickups
+
+    static func portal(_ ctx: CGContext, at p: CGPoint, time: Double, locked: Bool) {
+        let base: (CGColor, CGColor, CGColor) = locked
+            ? (rgb(120, 60, 60), rgb(200, 90, 90), rgb(255, 180, 180))
+            : (rgb(60, 80, 200), rgb(120, 170, 255), rgb(220, 240, 255))
+        ctx.setFillColor(rgb(0, 0, 0, 0.3)); ctx.fillEllipse(in: CGRect(x: p.x - 9, y: p.y + 2, width: 18, height: 6))
+        ctx.setFillColor(base.0); ctx.fillEllipse(in: CGRect(x: p.x - 8, y: p.y - 18, width: 16, height: 22))
+        ctx.setFillColor(base.1); ctx.fillEllipse(in: CGRect(x: p.x - 6, y: p.y - 16, width: 12, height: 18))
+        for k in 0..<6 {
+            let a = time * 3 + Double(k) * .pi / 3
+            let r = 4.5 + sin(time * 2 + Double(k)) * 1.5
+            KartArt.fill(ctx, base.2, (p.x + cos(a) * r).rounded(), (p.y - 7 + sin(a) * r * 1.4).rounded(), 1, 1)
+        }
+        ctx.setFillColor(base.2.copy(alpha: 0.7) ?? base.2); ctx.fillEllipse(in: CGRect(x: p.x - 2, y: p.y - 10, width: 4, height: 6))
+    }
+
+    static func coin(_ ctx: CGContext, at p: CGPoint, time: Double) {
+        let bob = (sin(time * 5) * 1.5).rounded()
+        KartArt.fill(ctx, rgb(0, 0, 0, 0.25), p.x - 3, p.y + 2, 6, 2)
+        KartArt.fill(ctx, outline, p.x - 3, p.y - 6 + bob, 6, 7)
+        KartArt.fill(ctx, rgb(255, 210, 60), p.x - 2, p.y - 5 + bob, 4, 5)
+        KartArt.fill(ctx, rgb(255, 250, 190), p.x - 1, p.y - 5 + bob, 1, 2)
+    }
+
+    // MARK: effects
+
+    struct Elem { let core: CGColor, mid: CGColor, edge: CGColor, spark: CGColor }
+
+    static func elem(_ e: RpgElement) -> Elem {
+        switch e {
+        case .base: return Elem(core: rgb(255, 255, 255), mid: rgb(214, 222, 236), edge: rgb(140, 150, 176), spark: rgb(255, 255, 255))
+        case .fire: return Elem(core: rgb(255, 250, 200), mid: rgb(255, 196, 60), edge: rgb(236, 86, 30), spark: rgb(196, 40, 30))
+        case .ice: return Elem(core: rgb(255, 255, 255), mid: rgb(170, 238, 255), edge: rgb(70, 166, 238), spark: rgb(220, 250, 255))
+        case .thunder: return Elem(core: rgb(255, 255, 230), mid: rgb(255, 232, 80), edge: rgb(236, 166, 30), spark: rgb(255, 255, 255))
+        case .wind: return Elem(core: rgb(240, 255, 240), mid: rgb(150, 240, 170), edge: rgb(56, 168, 100), spark: rgb(255, 255, 255))
+        case .holy: return Elem(core: rgb(255, 255, 255), mid: rgb(255, 240, 170), edge: rgb(236, 186, 60), spark: rgb(255, 255, 255))
+        case .cosmic: return Elem(core: rgb(255, 240, 255), mid: rgb(204, 140, 255), edge: rgb(110, 60, 200), spark: rgb(120, 220, 255))
+        }
+    }
+
+    static func dot(_ c: CGContext, _ x: Double, _ y: Double, _ color: CGColor, _ s: CGFloat = 1) {
+        KartArt.fill(c, color, CGFloat(x.rounded()), CGFloat(y.rounded()), s, s)
+    }
+
+    static func ring(_ c: CGContext, _ cx: Double, _ cy: Double, _ r: Double, _ color: CGColor, squash: Double = 1) {
+        var a = 0.0
+        while a < .pi * 2 { dot(c, cx + cos(a) * r, cy + sin(a) * r * squash, color); a += 0.5 / max(r, 1) }
+    }
+
+    static func disc(_ c: CGContext, _ cx: Double, _ cy: Double, _ r: Double, _ color: CGColor, squash: Double = 1) {
+        c.setFillColor(color)
+        c.fillEllipse(in: CGRect(x: cx - r, y: cy - r * squash, width: r * 2, height: r * 2 * squash))
+    }
+
+    static func line(_ c: CGContext, _ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double, _ color: CGColor) {
+        let n = max(1, Int(max(abs(x1 - x0), abs(y1 - y0))))
+        for i in 0...n { let t = Double(i) / Double(n); dot(c, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, color) }
+    }
+
+    static func star(_ c: CGContext, _ x: Double, _ y: Double, _ len: Int, _ color: CGColor, _ core: CGColor) {
+        guard len > 0 else { return }
+        for k in 1...len {
+            let a = k == len ? color : core
+            let d = Double(k)
+            dot(c, x + d, y, a); dot(c, x - d, y, a); dot(c, x, y + d, a); dot(c, x, y - d, a)
+            if k <= len / 2 { dot(c, x + d, y + d, color); dot(c, x - d, y - d, color); dot(c, x + d, y - d, color); dot(c, x - d, y + d, color) }
+        }
+        dot(c, x, y, core)
+    }
+
+    static func bolt(_ c: CGContext, from: CGPoint, to: CGPoint, seed: UInt64, _ e: Elem) {
+        var r = KartRNG(seed: seed)
+        var pts = [from]
+        let n = max(3, Int(hypot(to.x - from.x, to.y - from.y) / 6))
+        for i in 1..<n {
+            let t = CGFloat(i) / CGFloat(n)
+            pts.append(CGPoint(x: from.x + (to.x - from.x) * t + CGFloat(r.int(7) - 3), y: from.y + (to.y - from.y) * t + CGFloat(r.int(5) - 2)))
+        }
+        pts.append(to)
+        for i in 0..<(pts.count - 1) {
+            line(c, pts[i].x - 1, pts[i].y, pts[i + 1].x - 1, pts[i + 1].y, e.edge)
+            line(c, pts[i].x + 1, pts[i].y, pts[i + 1].x + 1, pts[i + 1].y, e.mid)
+            line(c, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, e.core)
+        }
+    }
+
+    /// Weapon swing arc around the attacker, facing `angle`; frame 0…5.
+    static func slash(_ c: CGContext, at p: CGPoint, angle: Double, frame k: Int, element: RpgElement, radius: Double = 11) {
+        let e = elem(element)
+        let start = angle - 1.6, end = angle + 1.4
+        let head = [0.25, 0.55, 0.85, 1.0, 1.0, 1.0][min(5, k)], tail = [0.0, 0.0, 0.0, 0.35, 0.65, 0.92][min(5, k)]
+        let cur = start + (end - start) * head, from = start + (end - start) * tail
+        var a = from
+        while a <= cur {
+            let age = (cur - a) / (end - start)
+            let thick = max(1, 4.5 * (1 - age * 1.3) * (k >= 4 ? 0.6 : 1))
+            var r = radius
+            while r < radius + thick {
+                let color = age < 0.12 ? e.core : (age < 0.4 ? e.mid : e.edge)
+                dot(c, p.x + cos(a) * r, p.y + sin(a) * r, r > radius + thick - 1 ? e.edge : color)
+                r += 0.5
+            }
+            a += 0.025
+        }
+        var rnd = KartRNG(seed: UInt64(31 + k))
+        switch element {
+        case .fire where k >= 1:
+            for i in 0..<10 {
+                let aa = from + (cur - from) * Double(i) / 10
+                dot(c, p.x + cos(aa) * (radius + 1 + Double(rnd.int(4))), p.y + sin(aa) * (radius + 1) - Double(k * 2 + i % 3),
+                    [e.spark, e.edge, e.mid][i % 3], i % 4 == 0 ? 2 : 1)
+            }
+        case .ice where k >= 2:
+            for i in 0..<6 {
+                let aa = start + (end - start) * Double(i) / 5, d = radius + 2 + Double(k - 1) * 3
+                let x = p.x + cos(aa) * d, y = p.y + sin(aa) * d
+                dot(c, x, y - 1, e.core); dot(c, x - 1, y, e.mid); dot(c, x + 1, y, e.mid); dot(c, x, y + 1, e.edge)
+            }
+        case .holy where k >= 2:
+            star(c, p.x + cos(angle) * (radius + 2), p.y + sin(angle) * (radius + 2), [0, 0, 3, 6, 7, 4][min(5, k)], e.mid, e.core)
+        case .wind where k >= 1:
+            for i in 0..<8 { let aa = from + (cur - from) * Double(i) / 8; dot(c, p.x + cos(aa) * (radius + 4), p.y + sin(aa) * (radius + 4), e.mid) }
+        default:
+            if k == 3 { star(c, p.x + cos(end) * radius, p.y + sin(end) * radius, 2, e.mid, e.core) }
+        }
+    }
+
+    static func burst(_ c: CGContext, at p: CGPoint, frame k: Int, element: RpgElement, radius: Double) {
+        let e = elem(element)
+        let r = radius * [0.4, 0.75, 1.0, 1.1, 1.15, 1.2][min(5, k)]
+        if k < 4 {
+            disc(c, p.x, p.y, r, e.edge.copy(alpha: 0.55) ?? e.edge, squash: 0.6)
+            disc(c, p.x, p.y, r * 0.6, e.mid.copy(alpha: 0.75) ?? e.mid, squash: 0.6)
+            disc(c, p.x, p.y, r * 0.25, e.core, squash: 0.6)
+        }
+        ring(c, p.x, p.y, r + 1, k >= 4 ? e.edge : e.spark, squash: 0.6)
+        var rnd = KartRNG(seed: UInt64(k * 3 + 1))
+        for _ in 0..<10 {
+            let a = Double(rnd.int(628)) / 100, d = r + Double(rnd.int(4))
+            dot(c, p.x + cos(a) * d, p.y + sin(a) * d * 0.6 - Double(k), [e.spark, e.mid, e.edge][rnd.int(3)])
+        }
+    }
+
+    static func iceSpikes(_ c: CGContext, at p: CGPoint, frame k: Int, radius: Double) {
+        let e = elem(.ice)
+        var rnd = KartRNG(seed: 77)
+        for i in 0..<7 {
+            let a = Double(i) / 7 * .pi * 2
+            let x = p.x + cos(a) * radius * 0.6 * Double(rnd.int(100)) / 100, y = p.y + sin(a) * radius * 0.35 * Double(rnd.int(100)) / 100
+            let grow = [0.2, 0.6, 1.0, 1.0, 0.8, 0.4][min(5, max(0, k - i % 2))]
+            let h = 12 * grow
+            guard h >= 1 else { continue }
+            for yy in 0..<Int(h) {
+                let w = max(0, 2.5 * (1 - Double(yy) / h))
+                for dx in Int(-w)...Int(w) { dot(c, x + Double(dx), y - Double(yy), dx < 0 ? e.core : (dx == 0 ? e.mid : e.edge)) }
+            }
+        }
+        ring(c, p.x, p.y, radius * 0.8 + Double(k), e.mid.copy(alpha: 0.6) ?? e.mid, squash: 0.4)
+    }
+
+    static func meteor(_ c: CGContext, at p: CGPoint, frame k: Int, radius: Double) {
+        let e = elem(.cosmic), f = elem(.fire)
+        if k < 3 {
+            let t = Double(k) / 3
+            let x = p.x + 24 * (1 - t), y = p.y - 40 * (1 - t)
+            for i in 0..<10 { dot(c, x + Double(i), y - Double(i) * 1.6, i < 3 ? f.mid : (i < 6 ? e.mid : e.edge), i < 5 ? 2 : 1) }
+            disc(c, x, y, 3.5, rgb(110, 80, 70)); disc(c, x - 0.5, y + 0.5, 2.2, rgb(150, 110, 90))
+        } else {
+            burst(c, at: p, frame: (k - 3) * 2, element: .cosmic, radius: radius)
+            burst(c, at: p, frame: (k - 3) * 2 + 1, element: .fire, radius: radius * 0.6)
+        }
+    }
+
+    static func hitSpark(_ c: CGContext, at p: CGPoint, frame k: Int, crit: Bool, element: RpgElement) {
+        let e = elem(crit ? .fire : element)
+        let s = [2, 4, 5, 3][min(3, k)]
+        star(c, p.x, p.y, s + (crit ? 2 : 0), e.mid, e.core)
+        if crit, k >= 1 { ring(c, p.x, p.y, Double(k * 3 + 3), e.edge) }
+    }
+
+    static func levelUp(_ c: CGContext, at p: CGPoint, frame k: Int) {
+        let e = elem(.holy)
+        ring(c, p.x, p.y + 2, Double(5 + k * 2), e.mid, squash: 0.35)
+        for i in 0..<6 {
+            let x = p.x - 10 + Double(i) * 4, y = p.y - Double((k * 5 + i * 7) % 30)
+            line(c, x, y, x, y + 3, i % 2 == 0 ? e.mid : e.edge)
+            dot(c, x, y - 1, e.core)
+        }
+    }
+}

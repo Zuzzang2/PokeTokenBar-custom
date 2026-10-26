@@ -7,7 +7,7 @@ import AppKit
 @MainActor
 enum StatusItemMenu {
     enum Action: Equatable {
-        case refresh, openDex, openSettings, toggleFloatingPet, openBattle, openKart, openArena, updateToLatest, quit
+        case refresh, openDex, openSettings, toggleFloatingPet, openBattle, openKart, openArena, openQuest, updateToLatest, quit
     }
 
     struct Entry: Equatable {
@@ -31,6 +31,7 @@ enum StatusItemMenu {
             Entry(title: "대결 (테스트)…", keyEquivalent: "b", action: .openBattle),   // SPIKE
             Entry(title: "카트 (테스트)…", keyEquivalent: "k", action: .openKart),     // SPIKE
             Entry(title: "아레나 (테스트)…", keyEquivalent: "a", action: .openArena),  // SPIKE
+            Entry(title: "픽셀 모험 (테스트)…", keyEquivalent: "g", action: .openQuest), // SPIKE
             nil,
             Entry(title: updateInProgress ? "업데이트 중…" : "최근 버전으로 업데이트 (main)…", keyEquivalent: "u",
                   action: updateInProgress ? nil : .updateToLatest),
