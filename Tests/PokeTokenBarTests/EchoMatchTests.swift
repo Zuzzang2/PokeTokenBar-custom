@@ -89,7 +89,7 @@ final class EchoMatchTests: XCTestCase {
         m.advanceLevel()
         XCTAssertEqual(m.level, 1)
         XCTAssertTrue(m.echoes.isEmpty)
-        XCTAssertEqual(m.totalLoops, 2)
+        XCTAssertEqual(m.rewinds, 1, "moving to the next level is not a rewind")
     }
 
     // Review finding: finishing the last level pinned solo progress at the last level forever.
@@ -103,7 +103,18 @@ final class EchoMatchTests: XCTestCase {
         var m = EchoMatch(players: ["a"], level: 3, priorLoops: 20)
         m.beginCollecting()
         m.startNextLoop(maxPerPlayer: 1)
-        XCTAssertEqual(m.totalLoops, 21)
+        XCTAssertEqual(m.rewinds, 21)
+    }
+
+    // Review finding: level changes and erases were counted as rewinds, inflating the ending.
+    func testOnlyRewoundLoopsCountAsRewinds() {
+        var m = EchoMatch(players: ["a"], level: 0)
+        m.beginCollecting()
+        m.receive(run("a"))
+        m.startNextLoop(maxPerPlayer: 1)
+        m.erase(lastOf: "a")
+        m.advanceLevel()
+        XCTAssertEqual(m.rewinds, 1)
     }
 }
 

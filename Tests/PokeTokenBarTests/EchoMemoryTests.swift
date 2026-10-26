@@ -63,4 +63,28 @@ final class EchoMemoryTests: XCTestCase {
         XCTAssertEqual(back?[1].facing, -1)
         XCTAssertEqual(back?[1].x ?? 0, 70.9, accuracy: 0.5)
     }
+
+    // Review finding: in co-op, reaching the shrine alone is not a clear and must not be remembered.
+    func testCoopArrivalWithoutAClearIsNotRemembered() {
+        let memory = EchoMemory(defaults: defaults)
+        let me = EchoRosterEntry(id: "me", trainer: "잭", pokemonName: "뮤", speciesID: 151, isShiny: false)
+        let mate = EchoRosterEntry(id: "zz", trainer: "에디", pokemonName: "피카츄", speciesID: 25, isShiny: false)
+        var v: EchoGameView?
+        let view = EchoGameView(frame: NSRect(x: 0, y: 0, width: 960, height: 540), roster: [me, mate], meID: "me",
+                                hostID: "me", gameID: "g", startLevel: 0, memory: memory,
+                                send: { v?.handle($0) }, sendState: { _ in })
+        v = view
+        view.begin()
+        // "1. 깨어남": jump the blocks and the spikes into the shrine; the teammate never arrives.
+        for (n, keys) in [(45, "r"), (15, "rj"), (55, "r"), (15, "rj"), (46, "r"), (15, "rj"), (100, "r")] {
+            key(view, 124, down: true)
+            if keys.contains("j") { key(view, 49, down: true) }
+            view.advance(frames: n)
+            key(view, 49, down: false)
+        }
+        XCTAssertTrue(view.exitedIDs.contains("me"))
+        XCTAssertNotEqual(view.mode, .clear)
+        XCTAssertNil(memory.lastWin(level: "wake"))
+    }
 }
+
