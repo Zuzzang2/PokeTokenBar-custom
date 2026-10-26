@@ -780,7 +780,7 @@ extension RpgArt {
     fileprivate static func heroImage(_ px: [Character], _ pal: [Character: CGColor], tone: Int) -> CGImage? {
         let n = heroSize
         guard let ctx = KartArt.context(width: n, height: n) else { return nil }
-        let ghostLine = rgb(120, 150, 210, 0.85), white = rgb(255, 255, 255)
+        let ghostLine = rgb(84, 112, 196, 0.9), white = rgb(255, 255, 255)
         for y in 0..<n {
             for x in 0..<n {
                 let ch = px[y * n + x]
@@ -1153,7 +1153,7 @@ extension RpgArt {
         func wy(_ cy: Double) -> CGFloat { CGFloat(ay - 29 + cy) }
         c.saveGState()
         defer { c.restoreGState() }
-        c.setAlpha(alpha * (ghost ? 0.8 : 1))
+        c.setAlpha(alpha * (ghost ? 0.9 : 1))
         // A see-through hero (stealth) fades as one picture: compose it in a small layer so the weapon and arm
         // don't double up where they cross the body.
         let group = alpha < 1 && extras
@@ -1162,7 +1162,7 @@ extension RpgArt {
             c.beginTransparencyLayer(auxiliaryInfo: nil)
         }
         defer { if group { c.endTransparencyLayer() } }
-        let base = group ? 1 : alpha * (ghost ? 0.8 : 1)
+        let base = group ? 1 : alpha * (ghost ? 0.9 : 1)
         c.setAlpha(base)
         let glow = heroGlow(p.cls, palette: pal)
         if pose.action == .cast, art.robe {
