@@ -15,17 +15,20 @@ import Foundation
 //   passive 1/0.97/1/1.05/1 · flyer 0.72/0.96/0.7/0.85/0.85 · ranged 0.75/0.95/0.72/0.92/0.95 · swarm 0.38/0.72/0.5/0.5/0.5
 //   charger 1.27/1.05/0.95/1.27/1.27 · exploder 0.6/1.28/0.5/1.1/1.1 · coward 0.8/0/1/1.2/5 (golden slime is 15x in a hidden room)
 //   tank (slow aggressive) HP 1.4 at Lv13 fading to 1.15 at Lv38, def 1.15, XP 1.15 fading to 1, gold 1.1
-// The curve reproduces the shipped monsters within about ±10%. Bosses: mid boss 30x / final boss 40x a same-level
-// normal's HP, 1.4x / 1.5x attack, 7x / 10x XP, 8x / 12x gold (the shipped bosses run ~100-225x HP; raise `hp` to match them).
+// The curve reproduces the shipped monsters within about ±10%. Bosses: mid boss 85x / final boss 95x a same-level
+// normal's HP, 1.4x / 1.5x attack, 13.5x / 15x XP, 17x / 20x gold, so HP, attack, XP and gold rise with level across all eight.
 // Signature gear spends the budget of one shipped tier in a different spread and is never better than the next tier on every stat.
 
 enum RpgCoastRegion {
     private static func door(_ x: Int, _ y: Int, _ to: String, _ ax: Int, _ ay: Int, gate: Int = 1) -> RpgPortal {
         RpgMaps.p(x, y, RpgMapID(to), ax, ay, minLevel: gate)
     }
-    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] { RpgClass.allCases.map { ("\($0.weaponPrefix)\(t)", chance) } }
-    private static let books16 = ["book_w_iron", "book_a_back", "book_m_blizzard", "book_r_stab", "book_c_ward", "book_k_dragon", "book_s_bats"]
-    private static let books22 = ["book_w_cyclone", "book_a_trap", "book_m_pillar", "book_r_blades", "book_c_judge", "book_k_barrage", "book_s_drain"]
+    /// Every class's weapon of tier `t`; the mechanic's gun is left out because `RpgMonsters` copies each rod drop into a gun drop.
+    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] {
+        RpgClass.allCases.filter { $0 != .mechanic }.map { ("\($0.weaponPrefix)\(t)", chance) }
+    }
+    private static let books16 = ["book_w_iron", "book_a_back", "book_m_blizzard", "book_r_stab", "book_c_ward", "book_k_dragon", "book_s_bats", "book_x_flame"]
+    private static let books22 = ["book_w_cyclone", "book_a_trap", "book_m_pillar", "book_r_blades", "book_c_judge", "book_k_barrage", "book_s_drain", "book_x_barrier"]
 
     static let region = RpgRegion(
         id: "coast", name: "해안 대륙", blurb: "파도 소리와 해적의 뱃노래가 뒤섞이는 햇살 가득한 해안",
@@ -102,10 +105,10 @@ enum RpgCoastRegion {
             RpgMonsters.m("coast_harpooner", "유령 작살꾼", "coast_harpooner", 20, 565, 68, 16, 34, 255, 60...95, .ranged,
                           [("hp2", 0.06), ("mp0", 0.1), ("coast_coin", 0.08), ("coast_pearl", 0.015), ("coast_ring", 0.003), ("coast_amulet", 0.003), ("stone", 0.08)]
                           + books16.map { ($0, 0.004) }),
-            RpgMonsters.boss("coast_kingcrab", "집게 대왕", "coast_kingcrab", 15, 13000, 72, 14, 30, 1050, 350...500, .golem, minion: "coast_crab", element: .ice,
+            RpgMonsters.boss("coast_kingcrab", "집게 대왕", "coast_kingcrab", 15, 37500, 72, 14, 30, 2000, 700...1050, .golem, minion: "coast_crab", element: .ice,
                              [("hp1", 1), ("coast_shell", 1), ("coast_shell", 1), ("coast_pearl", 0.5), ("coast_coconut", 0.6), ("coast_boots", 0.25), ("coast_hat", 0.2),
                               ("armor3", 0.15), ("armor4", 0.06)] + weapons(tier: 5, 0.03)),
-            RpgMonsters.boss("coast_captain", "외눈 선장 그로그", "coast_captain", 22, 34500, 122, 25, 36, 3460, 850...1300, .skeleton, minion: "coast_deckhand",
+            RpgMonsters.boss("coast_captain", "외눈 선장 그로그", "coast_captain", 22, 82500, 122, 25, 36, 5200, 1450...2150, .skeleton, minion: "coast_deckhand",
                              element: .fire,
                              [("hp2", 1), ("coast_coin", 1), ("coast_coin", 1), ("coast_pearl", 0.6), ("coast_rum", 0.6), ("coast_cutlass", 0.2), ("coast_rod", 0.2),
                               ("coast_coat", 0.2), ("coast_ring", 0.15), ("coast_amulet", 0.15), ("coast_hat", 0.15), ("coast_boots", 0.15), ("armor5", 0.1), ("armor4", 0.12),
@@ -129,29 +132,29 @@ enum RpgCoastRegion {
             RpgItem(id: "coast_rod", name: "산호초 소환봉", kind: .weapon(.summoner), rarity: 2, attack: 30, defense: 0, heal: 0, price: 7000, element: .ice, inShop: false),
             RpgItem(id: "coast_coat", name: "선장의 붉은 코트", kind: .armor, rarity: 2, attack: 0, defense: 38, heal: 0, price: 13000, element: .base, inShop: false),
         ],
-        // ponytail: ContentChecks only accepts generic band materials in recipes, so these use the band's mat_* drops; switch to
-        // coast_shell / coast_coin / coast_pearl once that check also counts the region monsters' drops.
+        // Region materials: shells drop everywhere, coins from the pirates, pearls rarely (and from both bosses).
         recipes: [
-            RpgRecipe(id: "coast_ring", output: "coast_ring", count: 1, materials: ["mat_bone": 8, "mat_sting": 4, "stone": 2], gold: 3200),
-            RpgRecipe(id: "coast_amulet", output: "coast_amulet", count: 1, materials: ["mat_bone": 8, "mat_sting": 3, "stone": 2], gold: 3000),
-            RpgRecipe(id: "coast_hat", output: "coast_hat", count: 1, materials: ["mat_hide": 6, "mat_bone": 6], gold: 2600),
-            RpgRecipe(id: "coast_boots", output: "coast_boots", count: 1, materials: ["mat_hide": 8, "mat_bone": 4], gold: 2600),
-            RpgRecipe(id: "coast_cutlass", output: "coast_cutlass", count: 1, materials: ["mat_bone": 10, "mat_sting": 6, "stone": 4], gold: 6000),
-            RpgRecipe(id: "coast_rod", output: "coast_rod", count: 1, materials: ["mat_bone": 10, "mat_sting": 6, "stone": 4], gold: 6000),
-            RpgRecipe(id: "coast_coat", output: "coast_coat", count: 1, materials: ["mat_bone": 8, "mat_sting": 8, "stone": 5], gold: 8000),
+            RpgRecipe(id: "coast_ring", output: "coast_ring", count: 1, materials: ["coast_shell": 8, "coast_coin": 4, "coast_pearl": 1, "stone": 2], gold: 3200),
+            RpgRecipe(id: "coast_amulet", output: "coast_amulet", count: 1, materials: ["coast_shell": 8, "coast_coin": 3, "coast_pearl": 1, "stone": 2], gold: 3000),
+            RpgRecipe(id: "coast_hat", output: "coast_hat", count: 1, materials: ["coast_shell": 10, "coast_coin": 4], gold: 2600),
+            RpgRecipe(id: "coast_boots", output: "coast_boots", count: 1, materials: ["coast_shell": 12, "coast_coin": 2], gold: 2600),
+            RpgRecipe(id: "coast_cutlass", output: "coast_cutlass", count: 1, materials: ["coast_coin": 8, "coast_pearl": 2, "stone": 4], gold: 6000),
+            RpgRecipe(id: "coast_rod", output: "coast_rod", count: 1, materials: ["coast_shell": 10, "coast_pearl": 2, "stone": 4], gold: 6000),
+            RpgRecipe(id: "coast_coat", output: "coast_coat", count: 1, materials: ["coast_shell": 6, "coast_coin": 8, "coast_pearl": 2, "stone": 5], gold: 8000),
         ])
 }
 
-/// `top` drawn over `base` at column `x`, row `y`; dots in `top` keep the base pixel.
-private func paint(_ base: RpgGrid, _ top: RpgGrid, x: Int = 0, y: Int = 0) -> RpgGrid {
-    var rows = base.map { Array($0) }
-    for (dy, line) in top.enumerated() {
-        for (dx, ch) in line.enumerated() where ch != "." && rows.indices.contains(y + dy) && rows[y + dy].indices.contains(x + dx) { rows[y + dy][x + dx] = ch }
-    }
-    return rows.map { String($0) }
-}
-
 extension RpgArt {
+    /// `top` drawn over `base` at column `x`, row `y`; dots in `top` keep the base pixel. Shared by the coast, jungle, mushroom and
+    /// ancient sprites (`overlay` takes single cells and is private to `RpgArt`).
+    static func stamp(_ base: RpgGrid, _ top: RpgGrid, x: Int = 0, y: Int = 0) -> RpgGrid {
+        var rows = base.map { Array($0) }
+        for (dy, line) in top.enumerated() {
+            for (dx, ch) in line.enumerated() where ch != "." && rows.indices.contains(y + dy) && rows[y + dy].indices.contains(x + dx) { rows[y + dy][x + dx] = ch }
+        }
+        return rows.map { String($0) }
+    }
+
     /// Monster sprites for this region, keyed by the monster's `sprite` id (see `RpgArt.specs` for the shape).
     static let specsCoast: [String: SpriteSpec] = [
         "coast_crab": SpriteSpec(grid: coastCrab, swap: [:]),
@@ -161,18 +164,18 @@ extension RpgArt {
         "coast_urchin": SpriteSpec(grid: coastUrchin, swap: [:]),
         "coast_seal": SpriteSpec(grid: coastSeal, swap: ["Z": rgb(150, 160, 175), "z": rgb(100, 110, 128), "C": rgb(214, 220, 230)]),
         "coast_jelly": SpriteSpec(grid: coastJelly, swap: ["A": rgb(150, 200, 255), "a": rgb(90, 140, 230)]),
-        "coast_deckhand": SpriteSpec(grid: paint(skeleton, coastBandana), swap: [:]),
-        "coast_crossbow": SpriteSpec(grid: paint(paint(warrior, coastTricorn), coastCrossbow, y: 8),
+        "coast_deckhand": SpriteSpec(grid: stamp(skeleton, coastBandana), swap: [:]),
+        "coast_crossbow": SpriteSpec(grid: stamp(stamp(warrior, coastTricorn), coastCrossbow, y: 8),
                                      swap: ["M": rgb(60, 70, 120), "m": rgb(36, 42, 80), "R": rgb(230, 230, 230), "D": rgb(40, 36, 52), "B": rgb(90, 70, 60)]),
         "coast_mimic": SpriteSpec(grid: coastChest, swap: [:]),
         "coast_keg": SpriteSpec(grid: coastBarrel, swap: [:]),
-        "coast_parrot": SpriteSpec(grid: paint(coastBird, coastCrest, y: 1),
+        "coast_parrot": SpriteSpec(grid: stamp(coastBird, coastCrest, y: 1),
                                    swap: ["W": rgb(230, 60, 50), "Z": rgb(60, 170, 80), "z": rgb(40, 110, 60), "Y": rgb(250, 210, 60), "R": rgb(250, 210, 60)]),
-        "coast_kelpgolem": SpriteSpec(grid: paint(golem, coastKelp), swap: ["N": rgb(84, 112, 110), "n": rgb(52, 76, 78), "Q": rgb(120, 255, 220)]),
-        "coast_harpooner": SpriteSpec(grid: paint(paint(mage, coastSouwester), coastHarpoon),
+        "coast_kelpgolem": SpriteSpec(grid: stamp(golem, coastKelp), swap: ["N": rgb(84, 112, 110), "n": rgb(52, 76, 78), "Q": rgb(120, 255, 220)]),
+        "coast_harpooner": SpriteSpec(grid: stamp(stamp(mage, coastSouwester), coastHarpoon),
                                       swap: ["P": rgb(230, 190, 50), "p": rgb(180, 140, 30), "S": rgb(190, 235, 235), "Y": rgb(240, 200, 60)]),
         "coast_kingcrab": SpriteSpec(grid: coastCrab, swap: ["R": rgb(230, 110, 40), "r": rgb(160, 60, 30)], boss: true),
-        "coast_captain": SpriteSpec(grid: paint(warrior, coastCaptainHat),
+        "coast_captain": SpriteSpec(grid: stamp(warrior, coastCaptainHat),
                                     swap: ["M": rgb(170, 40, 40), "m": rgb(110, 24, 30), "R": rgb(240, 190, 50), "D": rgb(30, 28, 40), "H": rgb(40, 30, 30), "L": rgb(40, 30, 30)],
                                     boss: true),
     ]

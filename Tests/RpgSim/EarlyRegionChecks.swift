@@ -45,14 +45,14 @@ func earlyRegionChecks() {
             return !(3...4).contains(defs.count) || Set(defs.map { "\($0.behavior)" }).count < 3 || !defs.allSatisfy { (b.lowerBound - 1...b.upperBound + 1).contains($0.level) }
         }.map(\.name)
         check(bad.isEmpty, "\(r.id): hunting grounds hold 3-4 kinds in 3+ behaviours inside their level band \(bad)")
-        // Boss rooms: one boss at the room's level behind a lower gate, 20-50x the HP and 1.2-1.8x the attack of shipped melee monsters ±3 levels.
+        // Boss rooms: one boss at the room's level behind a lower gate, 60-110x the HP and 1.2-1.8x the attack of shipped melee monsters ±3 levels.
         for room in rooms {
             let boss = RpgMonsters.def(room.monsters[0].monster), gate = r.maps.flatMap(\.portals).first { $0.to == room.id }?.minLevel ?? 99
             let melee = shipped.filter { $0.behavior == .aggressive && abs($0.level - boss.level) <= 3 }
             let hp = Double(boss.hp) / (Double(melee.map(\.hp).reduce(0, +)) / Double(max(1, melee.count)))
             let atk = Double(boss.attack) / (Double(melee.map(\.attack).reduce(0, +)) / Double(max(1, melee.count)))
             check(room.monsters.count == 1 && boss.behavior == .boss && band(room.levelText).lowerBound == boss.level && gate < boss.level && !melee.isEmpty
-                  && (20...50).contains(hp) && (1.2...1.8).contains(atk) && RpgMonsters.def(boss.minion).behavior != .boss,
+                  && (60...110).contains(hp) && (1.2...1.8).contains(atk) && RpgMonsters.def(boss.minion).behavior != .boss,
                   "\(r.id): \(boss.name) Lv\(boss.level) has \(Int(hp))x HP and \(String(format: "%.2f", atk))x attack of shipped melee monsters near its level")
         }
         // Normal monsters stay between half the weakest and 1.5x the strongest shipped monster within 4 levels, and pay 12-45 kills a level
@@ -66,6 +66,15 @@ func earlyRegionChecks() {
         check(bad.isEmpty, "\(r.id): normal monsters sit on the shipped stat curve and pay sane XP \(bad)")
         // Items: no trailing digits (the gear tier parser), and no signature gear beats the next shipped item of its kind on every stat.
         check(r.items.allSatisfy { $0.tier == 0 }, "\(r.id): item ids carry no tier digits")
+        // Gear drops are listed once per monster (a second copy would double it, as a gun copied from a rod would).
+        check(r.monsters.allSatisfy { m in let gear = RpgMonsters.def(m.id).drops.map(\.item).filter { RpgItems.item($0)?.isEquipment == true }; return Set(gear).count == gear.count },
+              "\(r.id): no monster lists the same gear twice")
+        // Recipes: the region's own materials plus stones and gold, and crafting never pays more than selling the result back.
+        let ownMaterials = Set(r.items.filter { $0.kind == .material }.map(\.id))
+        check(r.recipes.count == 7 && r.recipes.allSatisfy { rec in
+            rec.materials.keys.allSatisfy { $0 == "stone" || ownMaterials.contains($0) } && rec.materials.keys.contains { ownMaterials.contains($0) }
+                && (RpgItems.item(rec.output)?.sellPrice ?? .max) < rec.gold
+        }, "\(r.id): recipes take the region's own materials")
         bad = r.items.filter(\.isEquipment).compactMap { item in
             func stats(_ i: RpgItem) -> [Double] { [Double(i.attack), Double(i.defense), Double(i.bonusHP), Double(i.bonusMP), i.bonusCrit, i.bonusAttack, i.bonusSpeed] }
             guard let next = RpgItems.all.filter({ $0.kind == item.kind && !regionItems.contains($0.id) && $0.price > item.price }).min(by: { $0.price < $1.price })
@@ -76,6 +85,11 @@ func earlyRegionChecks() {
         check(bad.isEmpty, "\(r.id): signature gear is never better on every stat than the next shipped item \(bad)")
         check(specs.count == r.monsters.count && specs.values.allSatisfy { $0.grid.count == 16 && $0.grid.allSatisfy { $0.count == 16 } }, "\(r.id): one 16x16 sprite per monster")
     }
+    // Bosses: HP, attack, XP and gold climb with level across the four regions, as ContentChecks asks of the late bosses.
+    let bosses = regions.flatMap(\.monsters).filter { $0.behavior == .boss }.sorted { $0.level < $1.level }
+    check(bosses.count == 8 && zip(bosses, bosses.dropFirst()).allSatisfy { a, b in
+        a.level < b.level && a.hp < b.hp && a.attack < b.attack && a.xp < b.xp && a.gold.upperBound < b.gold.upperBound
+    }, "early bosses grow with level (\(bosses.map { "Lv\($0.level) \($0.hp)" }.joined(separator: ", ")))")
     // No two monsters in the game look the same, and the early regions' item icons all differ.
     let mine = Set(regions.flatMap(\.monsters).map(\.id))
     let looks = MainActor.assumeIsolated { RpgMonsters.all.map { RpgArt.sprite($0.sprite)?.dataProvider?.data as Data? } }

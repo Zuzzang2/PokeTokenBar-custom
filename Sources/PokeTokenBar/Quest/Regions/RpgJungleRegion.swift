@@ -5,15 +5,18 @@ import Foundation
 // Monster stats follow the curve documented in `RpgCoastRegion.swift` (shipped monsters interpolated, per-behaviour factors).
 //   frog 11 aggr · monkey 12 swarm · toucan 13 flyer · croc 15 charger · snake 16 aggr · flytrap 17 ranged · wasp 19 swarm
 //   idol 20 tank · mosquito 21 flyer · toad 22 exploder · shaman 24 ranged · jaguar 25 charger · gorilla 26 tank · thunderbird 28 flyer
-//   bosses: rafflesia 22 (30x HP), kongga 30 (40x HP). Signature gear spends the tier-3 accessory / tier-6 weapon / armor-5 budgets.
+//   bosses: rafflesia 21 (85x HP), kongga 30 (95x HP). Signature gear spends the tier-3 accessory / tier-6 weapon / armor-5 budgets.
 
 enum RpgJungleRegion {
     private static func door(_ x: Int, _ y: Int, _ to: String, _ ax: Int, _ ay: Int, gate: Int = 1) -> RpgPortal {
         RpgMaps.p(x, y, RpgMapID(to), ax, ay, minLevel: gate)
     }
-    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] { RpgClass.allCases.map { ("\($0.weaponPrefix)\(t)", chance) } }
-    private static let books22 = ["book_w_cyclone", "book_a_trap", "book_m_pillar", "book_r_blades", "book_c_judge", "book_k_barrage", "book_s_drain"]
-    private static let books28 = ["book_w_slam", "book_a_focus", "book_m_heal", "book_r_vanish", "book_c_purify", "book_k_iron", "book_s_dragon"]
+    /// Every class's weapon of tier `t`; the mechanic's gun is left out because `RpgMonsters` copies each rod drop into a gun drop.
+    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] {
+        RpgClass.allCases.filter { $0 != .mechanic }.map { ("\($0.weaponPrefix)\(t)", chance) }
+    }
+    private static let books22 = ["book_w_cyclone", "book_a_trap", "book_m_pillar", "book_r_blades", "book_c_judge", "book_k_barrage", "book_s_drain", "book_x_barrier"]
+    private static let books28 = ["book_w_slam", "book_a_focus", "book_m_heal", "book_r_vanish", "book_c_purify", "book_k_iron", "book_s_dragon", "book_x_drone"]
 
     static let region = RpgRegion(
         id: "jungle", name: "정글 대륙", blurb: "덩굴이 삼킨 고대 신전 너머로 부족의 북소리가 울리는 밀림",
@@ -54,7 +57,7 @@ enum RpgJungleRegion {
                       portals: [door(1, 15, "jungle_6", 45, 15, gate: 23), door(25, 1, "jungle_b2", 14, 17, gate: 27)],
                       monsters: RpgMaps.sp([("jungle_jaguar", 7), ("jungle_gorilla", 5), ("jungle_thunderbird", 13)]),
                       theme: RpgTheme(tint: .init(r: 0.3, g: 0.7, b: 1), tintAlpha: 0.35, blend: .color, darkness: 0.5), waypoint: true),
-            RpgMapDef(id: RpgMapID("jungle_b1"), name: "식인화의 둥지", levelText: "보스 Lv22", width: 28, height: 22, kind: .boss, seed: 2008,
+            RpgMapDef(id: RpgMapID("jungle_b1"), name: "식인화의 둥지", levelText: "보스 Lv21", width: 28, height: 22, kind: .boss, seed: 2008,
                       portals: [door(14, 20, "jungle_4", 25, 4, gate: 18)], monsters: RpgMaps.sp([("jungle_rafflesia", 1)]), zone: .forest,
                       theme: RpgTheme(tint: .init(r: 0.4, g: 0.75, b: 0.3), tintAlpha: 0.35, blend: .color)),
             RpgMapDef(id: RpgMapID("jungle_b2"), name: "대족장의 북 무대", levelText: "보스 Lv30", width: 28, height: 22, kind: .boss, seed: 2009,
@@ -93,11 +96,11 @@ enum RpgJungleRegion {
                            ("stone", 0.13)]),
             RpgMonsters.m("jungle_thunderbird", "천둥새", "jungle_thunderbird", 28, 1160, 112, 26, 58, 520, 85...135, .flyer,
                           [("mp1", 0.06), ("hp2", 0.06), ("jungle_amber", 0.015), ("bow6", 0.004), ("stone", 0.1)]),
-            RpgMonsters.boss("jungle_rafflesia", "식인화 라플레시아", "jungle_rafflesia", 22, 26000, 114, 24, 24, 2425, 600...850, .skeleton,
+            RpgMonsters.boss("jungle_rafflesia", "식인화 라플레시아", "jungle_rafflesia", 21, 68500, 107, 22, 24, 4200, 1150...1750, .skeleton,
                              minion: "jungle_snake", element: .poison,
                              [("hp2", 1), ("jungle_leaf", 1), ("jungle_leaf", 1), ("jungle_amber", 0.5), ("jungle_banana", 0.6), ("jungle_mask", 0.2), ("jungle_boots", 0.2),
                               ("armor5", 0.12)] + weapons(tier: 5, 0.04) + books22.map { ($0, 0.06) }),
-            RpgMonsters.boss("jungle_kongga", "대족장 콩가", "jungle_kongga", 30, 81500, 193, 42, 38, 7320, 1400...2150, .yeti, minion: "jungle_shaman",
+            RpgMonsters.boss("jungle_kongga", "대족장 콩가", "jungle_kongga", 30, 194000, 193, 42, 38, 11000, 2350...3550, .yeti, minion: "jungle_shaman",
                              element: .thunder,
                              [("hp2", 1), ("jungle_fang", 1), ("jungle_fang", 1), ("jungle_amber", 0.7), ("jungle_paint", 0.6), ("jungle_bow", 0.2), ("jungle_claw", 0.2),
                               ("jungle_armor", 0.2), ("jungle_ring", 0.15), ("jungle_amulet", 0.15), ("jungle_mask", 0.15), ("jungle_boots", 0.15), ("armor6", 0.08),
@@ -122,26 +125,18 @@ enum RpgJungleRegion {
             RpgItem(id: "jungle_claw", name: "재규어 발톱 권갑", kind: .weapon(.monk), rarity: 2, attack: 50, defense: 0, heal: 0, price: 12000, element: .thunder, inShop: false),
             RpgItem(id: "jungle_armor", name: "덩굴 갑주", kind: .armor, rarity: 2, attack: 0, defense: 56, heal: 0, price: 20000, element: .base, inShop: false),
         ],
-        // ponytail: generic band materials only (see the note in RpgCoastRegion.swift).
+        // Region materials: leaves early, fangs from the beasts, amber rarely (and from both bosses).
         recipes: [
-            RpgRecipe(id: "jungle_ring", output: "jungle_ring", count: 1, materials: ["mat_sting": 8, "mat_ice": 5, "stone": 4], gold: 7000),
-            RpgRecipe(id: "jungle_amulet", output: "jungle_amulet", count: 1, materials: ["mat_sting": 8, "mat_ice": 4, "stone": 4], gold: 6500),
-            RpgRecipe(id: "jungle_mask", output: "jungle_mask", count: 1, materials: ["mat_bone": 8, "mat_sting": 6, "stone": 2], gold: 6000),
-            RpgRecipe(id: "jungle_boots", output: "jungle_boots", count: 1, materials: ["mat_bone": 6, "mat_sting": 7, "stone": 2], gold: 6000),
-            RpgRecipe(id: "jungle_bow", output: "jungle_bow", count: 1, materials: ["mat_sting": 10, "mat_ice": 6, "stone": 6], gold: 11000),
-            RpgRecipe(id: "jungle_claw", output: "jungle_claw", count: 1, materials: ["mat_sting": 10, "mat_ice": 6, "stone": 6], gold: 11000),
-            RpgRecipe(id: "jungle_armor", output: "jungle_armor", count: 1, materials: ["mat_sting": 10, "mat_ice": 8, "stone": 7], gold: 12000),
+            RpgRecipe(id: "jungle_ring", output: "jungle_ring", count: 1, materials: ["jungle_leaf": 6, "jungle_fang": 6, "jungle_amber": 1, "stone": 4], gold: 7000),
+            RpgRecipe(id: "jungle_amulet", output: "jungle_amulet", count: 1, materials: ["jungle_leaf": 4, "jungle_fang": 6, "jungle_amber": 1, "stone": 4], gold: 6500),
+            RpgRecipe(id: "jungle_mask", output: "jungle_mask", count: 1, materials: ["jungle_leaf": 10, "jungle_fang": 4, "stone": 2], gold: 6000),
+            RpgRecipe(id: "jungle_boots", output: "jungle_boots", count: 1, materials: ["jungle_leaf": 8, "jungle_fang": 5, "stone": 2], gold: 6000),
+            RpgRecipe(id: "jungle_bow", output: "jungle_bow", count: 1, materials: ["jungle_leaf": 12, "jungle_fang": 6, "jungle_amber": 2, "stone": 6], gold: 11000),
+            RpgRecipe(id: "jungle_claw", output: "jungle_claw", count: 1, materials: ["jungle_fang": 10, "jungle_amber": 2, "stone": 6], gold: 11000),
+            RpgRecipe(id: "jungle_armor", output: "jungle_armor", count: 1, materials: ["jungle_leaf": 12, "jungle_fang": 8, "jungle_amber": 2, "stone": 7], gold: 12000),
         ])
 }
 
-/// `top` drawn over `base` at column `x`, row `y`; dots in `top` keep the base pixel.
-private func paint(_ base: RpgGrid, _ top: RpgGrid, x: Int = 0, y: Int = 0) -> RpgGrid {
-    var rows = base.map { Array($0) }
-    for (dy, line) in top.enumerated() {
-        for (dx, ch) in line.enumerated() where ch != "." && rows.indices.contains(y + dy) && rows[y + dy].indices.contains(x + dx) { rows[y + dy][x + dx] = ch }
-    }
-    return rows.map { String($0) }
-}
 private func mirrored(_ g: RpgGrid) -> RpgGrid { g.map { String($0.reversed()) } }
 
 extension RpgArt {
@@ -149,22 +144,22 @@ extension RpgArt {
     static let specsJungle: [String: SpriteSpec] = [
         "jungle_frog": SpriteSpec(grid: jungleFrog, swap: ["G": rgb(60, 140, 230), "g": rgb(30, 70, 160)]),
         "jungle_monkey": SpriteSpec(grid: jungleMonkey, swap: ["H": rgb(140, 90, 50), "S": rgb(235, 195, 150)]),
-        "jungle_toucan": SpriteSpec(grid: paint(coastBird, jungleBeak), swap: ["W": rgb(245, 240, 225), "Z": rgb(34, 30, 40), "z": rgb(20, 18, 26), "F": rgb(255, 150, 40)]),
+        "jungle_toucan": SpriteSpec(grid: stamp(coastBird, jungleBeak), swap: ["W": rgb(245, 240, 225), "Z": rgb(34, 30, 40), "z": rgb(20, 18, 26), "F": rgb(255, 150, 40)]),
         "jungle_croc": SpriteSpec(grid: jungleCroc, swap: ["G": rgb(80, 130, 64), "g": rgb(48, 86, 44)]),
         "jungle_snake": SpriteSpec(grid: jungleSnake, swap: ["G": rgb(110, 190, 60), "g": rgb(60, 120, 40), "Y": rgb(230, 220, 90)]),
         "jungle_flytrap": SpriteSpec(grid: junglePlant, swap: ["G": rgb(80, 170, 70), "R": rgb(220, 60, 80)]),
         "jungle_wasp": SpriteSpec(grid: jungleWasp, swap: ["Y": rgb(250, 200, 40), "W": rgb(215, 240, 255)]),
         "jungle_idol": SpriteSpec(grid: jungleTiki, swap: ["N": rgb(150, 112, 70), "n": rgb(104, 74, 44), "Q": rgb(255, 90, 40), "G": rgb(90, 160, 70)]),
         "jungle_mosquito": SpriteSpec(grid: jungleMosquito, swap: ["R": rgb(150, 40, 50), "r": rgb(70, 30, 40), "W": rgb(200, 230, 255), "M": rgb(110, 100, 90)]),
-        "jungle_toad": SpriteSpec(grid: paint(jungleFrog, jungleToadSac), swap: ["G": rgb(130, 118, 64), "g": rgb(88, 76, 42), "t": rgb(96, 84, 40), "C": rgb(240, 200, 120)]),
-        "jungle_shaman": SpriteSpec(grid: paint(jungleMonkey, jungleShamanMask), swap: ["H": rgb(110, 76, 56), "S": rgb(220, 180, 130), "Y": rgb(255, 220, 60)]),
+        "jungle_toad": SpriteSpec(grid: stamp(jungleFrog, jungleToadSac), swap: ["G": rgb(130, 118, 64), "g": rgb(88, 76, 42), "t": rgb(96, 84, 40), "C": rgb(240, 200, 120)]),
+        "jungle_shaman": SpriteSpec(grid: stamp(jungleMonkey, jungleShamanMask), swap: ["H": rgb(110, 76, 56), "S": rgb(220, 180, 130), "Y": rgb(255, 220, 60)]),
         // The wolf grid faces left and this id has no "wolf" in it, so it is mirrored to face right like the other side views.
-        "jungle_jaguar": SpriteSpec(grid: mirrored(paint(wolf, jungleSpots)), swap: ["Z": rgb(240, 166, 40), "z": rgb(186, 110, 30), "R": rgb(90, 220, 90)]),
+        "jungle_jaguar": SpriteSpec(grid: mirrored(stamp(wolf, jungleSpots)), swap: ["Z": rgb(240, 166, 40), "z": rgb(186, 110, 30), "R": rgb(90, 220, 90)]),
         "jungle_gorilla": SpriteSpec(grid: jungleGorilla, swap: ["z": rgb(64, 60, 70), "S": rgb(140, 118, 106)]),
-        "jungle_thunderbird": SpriteSpec(grid: paint(coastBird, coastCrest, y: 1),
+        "jungle_thunderbird": SpriteSpec(grid: stamp(coastBird, coastCrest, y: 1),
                                          swap: ["W": rgb(130, 200, 255), "Z": rgb(40, 74, 170), "z": rgb(24, 44, 116), "Y": rgb(255, 230, 60), "R": rgb(255, 240, 90)]),
         "jungle_rafflesia": SpriteSpec(grid: junglePlant, swap: ["G": rgb(70, 130, 60), "R": rgb(200, 40, 60)], boss: true),
-        "jungle_kongga": SpriteSpec(grid: paint(jungleGorilla, jungleWarPaint), swap: ["z": rgb(120, 116, 128), "S": rgb(150, 120, 100)], boss: true),
+        "jungle_kongga": SpriteSpec(grid: stamp(jungleGorilla, jungleWarPaint), swap: ["z": rgb(120, 116, 128), "S": rgb(150, 120, 100)], boss: true),
     ]
     /// Item icon colour overrides by item id, merged over the tier defaults (letters as in the icon templates).
     static let iconsJungle: [String: [Character: CGColor]] = [

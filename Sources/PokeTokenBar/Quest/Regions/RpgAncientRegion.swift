@@ -5,14 +5,17 @@ import Foundation
 // Monster stats follow the curve documented in `RpgCoastRegion.swift` (shipped monsters interpolated, per-behaviour factors).
 //   pigeon 20 swarm · raider 21 aggr · eye 23 flyer · scout 24 aggr · merchant 26 ranged · statue 27 tank · serpent 29 charger
 //   rusty 30 exploder · bookworm 32 swarm · scholar 33 ranged · guardian 34 tank · spider 36 charger · knight 37 aggr · star 38 flyer
-//   sphinx 40 tank · bosses: naga 33 (30x HP), colossus 42 (40x HP). Signature gear spends the tier-5 accessory / tier-7 weapon budgets.
+//   sphinx 40 tank · bosses: naga 33 (85x HP), colossus 42 (95x HP). Signature gear spends the tier-5 accessory / tier-7 weapon budgets.
 
 enum RpgAncientRegion {
     private static func door(_ x: Int, _ y: Int, _ to: String, _ ax: Int, _ ay: Int, gate: Int = 1) -> RpgPortal {
         RpgMaps.p(x, y, RpgMapID(to), ax, ay, minLevel: gate)
     }
-    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] { RpgClass.allCases.map { ("\($0.weaponPrefix)\(t)", chance) } }
-    private static let books35 = ["book_w_ult", "book_a_ult", "book_m_ult", "book_r_ult", "book_c_ult", "book_k_ult", "book_s_ult"]
+    /// Every class's weapon of tier `t`; the mechanic's gun is left out because `RpgMonsters` copies each rod drop into a gun drop.
+    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] {
+        RpgClass.allCases.filter { $0 != .mechanic }.map { ("\($0.weaponPrefix)\(t)", chance) }
+    }
+    private static let books35 = ["book_w_ult", "book_a_ult", "book_m_ult", "book_r_ult", "book_c_ult", "book_k_ult", "book_s_ult", "book_x_ult"]
 
     static let region = RpgRegion(
         id: "ancient", name: "고대 도시", blurb: "물에 잠긴 돌의 도시, 태엽 수호자들이 아직도 학자들을 지킨다",
@@ -92,10 +95,10 @@ enum RpgAncientRegion {
             RpgMonsters.m("ancient_sphinx", "별빛 스핑크스", "ancient_sphinx", 40, 5010, 210, 82, 30, 1450, 275...430, .aggressive,
                           [("hp3", 0.05), ("ancient_tablet", 0.1), ("ancient_core", 0.02), ("ancient_elixir", 0.04), ("armor6", 0.006), ("bow7", 0.003),
                            ("ancient_boots", 0.003), ("ancient_helmet", 0.003), ("stone", 0.19)] + books35.map { ($0, 0.002) }),
-            RpgMonsters.boss("ancient_naga", "수로의 여왕 나가", "ancient_naga", 33, 76000, 206, 45, 36, 6200, 1200...1800, .yeti, minion: "ancient_eye", element: .ice,
+            RpgMonsters.boss("ancient_naga", "수로의 여왕 나가", "ancient_naga", 33, 215500, 206, 45, 36, 11950, 2550...3800, .yeti, minion: "ancient_eye", element: .ice,
                              [("hp2", 1), ("ancient_crystal", 1), ("ancient_crystal", 1), ("ancient_core", 0.5), ("ancient_elixir", 0.6), ("ancient_boots", 0.2),
                               ("ancient_helmet", 0.2), ("armor6", 0.12)] + weapons(tier: 7, 0.04) + weapons(tier: 6, 0.06) + books35.map { ($0, 0.04) }),
-            RpgMonsters.boss("ancient_colossus", "태엽 거신 아틀라스", "ancient_colossus", 42, 208000, 345, 80, 30, 17000, 3600...5400, .golem,
+            RpgMonsters.boss("ancient_colossus", "태엽 거신 아틀라스", "ancient_colossus", 42, 494000, 345, 80, 30, 25500, 6000...9000, .golem,
                              minion: "ancient_rusty", element: .thunder,
                              [("hp3", 1), ("ancient_core", 1), ("ancient_gear", 1), ("ancient_tablet", 1), ("ancient_scroll", 0.6), ("ancient_sword", 0.2), ("ancient_rod", 0.2),
                               ("ancient_armor", 0.2), ("ancient_ring", 0.15), ("ancient_amulet", 0.15), ("ancient_helmet", 0.15), ("ancient_boots", 0.15), ("armor6", 0.2),
@@ -121,49 +124,40 @@ enum RpgAncientRegion {
             RpgItem(id: "ancient_rod", name: "별자리 소환봉", kind: .weapon(.summoner), rarity: 3, attack: 76, defense: 0, heal: 0, price: 38000, element: .cosmic, inShop: false),
             RpgItem(id: "ancient_armor", name: "자동인형 흉갑", kind: .armor, rarity: 3, attack: 0, defense: 70, heal: 0, price: 42000, element: .base, inShop: false),
         ],
-        // ponytail: generic band materials only (see the note in RpgCoastRegion.swift).
+        // Region materials: gears from the automatons, tablets from the stone folk, clockwork hearts rarely (and from both bosses).
         recipes: [
-            RpgRecipe(id: "ancient_ring", output: "ancient_ring", count: 1, materials: ["mat_magma": 10, "mat_dark": 6, "stone": 10], gold: 40000),
-            RpgRecipe(id: "ancient_amulet", output: "ancient_amulet", count: 1, materials: ["mat_magma": 10, "mat_dark": 5, "stone": 10], gold: 38000),
-            RpgRecipe(id: "ancient_helmet", output: "ancient_helmet", count: 1, materials: ["mat_ice": 9, "mat_magma": 6, "stone": 8], gold: 36000),
-            RpgRecipe(id: "ancient_boots", output: "ancient_boots", count: 1, materials: ["mat_ice": 8, "mat_magma": 7, "stone": 8], gold: 36000),
-            RpgRecipe(id: "ancient_sword", output: "ancient_sword", count: 1, materials: ["mat_magma": 12, "mat_dark": 6, "stone": 12], gold: 34000),
-            RpgRecipe(id: "ancient_rod", output: "ancient_rod", count: 1, materials: ["mat_magma": 12, "mat_dark": 6, "stone": 12], gold: 34000),
-            RpgRecipe(id: "ancient_armor", output: "ancient_armor", count: 1, materials: ["mat_magma": 12, "mat_dark": 8, "stone": 12], gold: 38000),
+            RpgRecipe(id: "ancient_ring", output: "ancient_ring", count: 1, materials: ["ancient_gear": 6, "ancient_tablet": 6, "ancient_core": 1, "stone": 10], gold: 40000),
+            RpgRecipe(id: "ancient_amulet", output: "ancient_amulet", count: 1, materials: ["ancient_gear": 4, "ancient_tablet": 6, "ancient_core": 1, "stone": 10], gold: 38000),
+            RpgRecipe(id: "ancient_helmet", output: "ancient_helmet", count: 1, materials: ["ancient_gear": 10, "ancient_tablet": 4, "stone": 8], gold: 36000),
+            RpgRecipe(id: "ancient_boots", output: "ancient_boots", count: 1, materials: ["ancient_gear": 10, "ancient_tablet": 3, "stone": 8], gold: 36000),
+            RpgRecipe(id: "ancient_sword", output: "ancient_sword", count: 1, materials: ["ancient_gear": 10, "ancient_tablet": 4, "ancient_core": 2, "stone": 12], gold: 34000),
+            RpgRecipe(id: "ancient_rod", output: "ancient_rod", count: 1, materials: ["ancient_tablet": 8, "ancient_core": 2, "stone": 12], gold: 34000),
+            RpgRecipe(id: "ancient_armor", output: "ancient_armor", count: 1, materials: ["ancient_gear": 12, "ancient_tablet": 6, "ancient_core": 2, "stone": 12], gold: 38000),
         ])
-}
-
-/// `top` drawn over `base` at column `x`, row `y`; dots in `top` keep the base pixel.
-private func paint(_ base: RpgGrid, _ top: RpgGrid, x: Int = 0, y: Int = 0) -> RpgGrid {
-    var rows = base.map { Array($0) }
-    for (dy, line) in top.enumerated() {
-        for (dx, ch) in line.enumerated() where ch != "." && rows.indices.contains(y + dy) && rows[y + dy].indices.contains(x + dx) { rows[y + dy][x + dx] = ch }
-    }
-    return rows.map { String($0) }
 }
 
 extension RpgArt {
     /// Monster sprites for this region, keyed by the monster's `sprite` id (see `RpgArt.specs` for the shape).
     static let specsAncient: [String: SpriteSpec] = [
-        "ancient_pigeon": SpriteSpec(grid: paint(coastBird, ancientPigeonNeck),
+        "ancient_pigeon": SpriteSpec(grid: stamp(coastBird, ancientPigeonNeck),
                                      swap: ["W": rgb(170, 180, 196), "Z": rgb(126, 132, 150), "z": rgb(88, 92, 110), "Y": rgb(230, 140, 60), "G": rgb(80, 200, 140),
                                             "P": rgb(170, 110, 200)]),
-        "ancient_raider": SpriteSpec(grid: paint(paint(rogue, ancientExplorerHat), ancientTorch), swap: ["Z": rgb(184, 150, 100), "z": rgb(134, 100, 60)]),
+        "ancient_raider": SpriteSpec(grid: stamp(stamp(rogue, ancientExplorerHat), ancientTorch), swap: ["Z": rgb(184, 150, 100), "z": rgb(134, 100, 60)]),
         "ancient_eye": SpriteSpec(grid: ancientEye, swap: ["N": rgb(150, 144, 130), "O": rgb(80, 230, 200)]),
         "ancient_scout": SpriteSpec(grid: ancientBot, swap: ["O": rgb(120, 255, 255), "Y": rgb(255, 230, 120)]),
-        "ancient_merchant": SpriteSpec(grid: paint(mage, ancientTurban), swap: ["P": rgb(60, 150, 150), "p": rgb(30, 100, 104), "S": rgb(180, 230, 220)]),
-        "ancient_statue": SpriteSpec(grid: paint(paint(warrior, ancientHoplite), coastHarpoon, y: 1),
+        "ancient_merchant": SpriteSpec(grid: stamp(mage, ancientTurban), swap: ["P": rgb(60, 150, 150), "p": rgb(30, 100, 104), "S": rgb(180, 230, 220)]),
+        "ancient_statue": SpriteSpec(grid: stamp(stamp(warrior, ancientHoplite), coastHarpoon, y: 1),
                                      swap: ["M": rgb(176, 170, 156), "m": rgb(130, 124, 112), "S": rgb(196, 190, 176), "s": rgb(150, 144, 130), "R": rgb(150, 144, 130),
                                             "r": rgb(110, 104, 94), "Y": rgb(150, 144, 130), "B": rgb(220, 216, 204), "L": rgb(130, 124, 112), "O": rgb(120, 255, 210)]),
-        "ancient_serpent": SpriteSpec(grid: paint(jungleSnake, ancientFins), swap: ["G": rgb(60, 150, 164), "g": rgb(30, 100, 110), "Y": rgb(200, 232, 222)]),
-        "ancient_rusty": SpriteSpec(grid: paint(ancientBot, ancientSteam), swap: ["T": rgb(170, 90, 50), "t": rgb(110, 56, 30), "O": rgb(255, 90, 50), "Y": rgb(255, 160, 60)]),
+        "ancient_serpent": SpriteSpec(grid: stamp(jungleSnake, ancientFins), swap: ["G": rgb(60, 150, 164), "g": rgb(30, 100, 110), "Y": rgb(200, 232, 222)]),
+        "ancient_rusty": SpriteSpec(grid: stamp(ancientBot, ancientSteam), swap: ["T": rgb(170, 90, 50), "t": rgb(110, 56, 30), "O": rgb(255, 90, 50), "Y": rgb(255, 160, 60)]),
         "ancient_bookworm": SpriteSpec(grid: ancientBook, swap: ["G": rgb(130, 200, 90), "R": rgb(150, 50, 60)]),
-        "ancient_scholar": SpriteSpec(grid: paint(paint(mage, ancientScholarFace), ancientBookHeld),
+        "ancient_scholar": SpriteSpec(grid: stamp(stamp(mage, ancientScholarFace), ancientBookHeld),
                                       swap: ["P": rgb(90, 110, 170), "p": rgb(56, 70, 120), "S": rgb(200, 220, 240), "Y": rgb(150, 220, 255)]),
-        "ancient_guardian": SpriteSpec(grid: paint(golem, ancientCrest), swap: ["N": rgb(230, 190, 80), "n": rgb(170, 130, 40), "Q": rgb(255, 80, 60)]),
+        "ancient_guardian": SpriteSpec(grid: stamp(golem, ancientCrest), swap: ["N": rgb(230, 190, 80), "n": rgb(170, 130, 40), "Q": rgb(255, 80, 60)]),
         "ancient_spider": SpriteSpec(grid: ancientSpider, swap: ["M": rgb(150, 160, 180), "m": rgb(100, 110, 130), "O": rgb(255, 80, 80), "Y": rgb(255, 210, 90)]),
-        "ancient_knight": SpriteSpec(grid: paint(paint(ancientBot, ancientPlume), ancientLance, y: 4), swap: ["T": rgb(120, 140, 170), "t": rgb(80, 96, 120), "O": rgb(120, 255, 255)]),
-        "ancient_star": SpriteSpec(grid: paint(coastStar, ancientSparkles), swap: ["F": rgb(255, 236, 140), "f": rgb(255, 255, 230)]),
+        "ancient_knight": SpriteSpec(grid: stamp(stamp(ancientBot, ancientPlume), ancientLance, y: 4), swap: ["T": rgb(120, 140, 170), "t": rgb(80, 96, 120), "O": rgb(120, 255, 255)]),
+        "ancient_star": SpriteSpec(grid: stamp(coastStar, ancientSparkles), swap: ["F": rgb(255, 236, 140), "f": rgb(255, 255, 230)]),
         "ancient_sphinx": SpriteSpec(grid: ancientSphinx, swap: ["T": rgb(220, 190, 120), "t": rgb(170, 140, 80), "B": rgb(60, 90, 200), "S": rgb(230, 200, 150)]),
         "ancient_naga": SpriteSpec(grid: ancientNaga, swap: ["G": rgb(40, 130, 150), "g": rgb(20, 84, 104), "Y": rgb(240, 214, 110), "R": rgb(230, 60, 90)], boss: true),
         "ancient_colossus": SpriteSpec(grid: ancientBot, swap: ["T": rgb(210, 170, 80), "t": rgb(150, 110, 40), "O": rgb(255, 80, 200), "Y": rgb(120, 255, 255)], boss: true),

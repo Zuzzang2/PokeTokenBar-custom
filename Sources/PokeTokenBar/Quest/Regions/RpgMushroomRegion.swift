@@ -5,15 +5,18 @@ import Foundation
 // Monster stats follow the curve documented in `RpgCoastRegion.swift` (shipped monsters interpolated, per-behaviour factors).
 //   snail 15 passive · soldier 17 aggr · pixie 19 flyer · pig 20 charger · puffball 21 exploder · firefly 22 swarm · gnome 23 aggr
 //   wizard 25 ranged · moth 28 flyer · wolf 29 charger · spore cannon 31 ranged · golem 32 tank · guard 33 aggr · jester 34 coward
-//   bosses: spore queen 28 (30x HP), mushroom king 36 (40x HP). Signature gear spends the tier-4 accessory / tier-6-7 weapon budgets.
+//   bosses: spore queen 28 (85x HP), mushroom king 36 (95x HP). Signature gear spends the tier-4 accessory / tier-6-7 weapon budgets.
 
 enum RpgMushroomRegion {
     private static func door(_ x: Int, _ y: Int, _ to: String, _ ax: Int, _ ay: Int, gate: Int = 1) -> RpgPortal {
         RpgMaps.p(x, y, RpgMapID(to), ax, ay, minLevel: gate)
     }
-    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] { RpgClass.allCases.map { ("\($0.weaponPrefix)\(t)", chance) } }
-    private static let books28 = ["book_w_slam", "book_a_focus", "book_m_heal", "book_r_vanish", "book_c_purify", "book_k_iron", "book_s_dragon"]
-    private static let books35 = ["book_w_ult", "book_a_ult", "book_m_ult", "book_r_ult", "book_c_ult", "book_k_ult", "book_s_ult"]
+    /// Every class's weapon of tier `t`; the mechanic's gun is left out because `RpgMonsters` copies each rod drop into a gun drop.
+    private static func weapons(tier t: Int, _ chance: Double) -> [(String, Double)] {
+        RpgClass.allCases.filter { $0 != .mechanic }.map { ("\($0.weaponPrefix)\(t)", chance) }
+    }
+    private static let books28 = ["book_w_slam", "book_a_focus", "book_m_heal", "book_r_vanish", "book_c_purify", "book_k_iron", "book_s_dragon", "book_x_drone"]
+    private static let books35 = ["book_w_ult", "book_a_ult", "book_m_ult", "book_r_ult", "book_c_ult", "book_k_ult", "book_s_ult", "book_x_ult"]
 
     static let region = RpgRegion(
         id: "mushroom", name: "버섯 왕국", blurb: "반짝이는 포자가 흩날리는, 버섯 왕이 다스리는 동화 속 왕국",
@@ -89,11 +92,11 @@ enum RpgMushroomRegion {
             RpgMonsters.m("mushroom_jester", "도망치는 궁정 광대", "mushroom_jester", 34, 2130, 0, 48, 50, 1120, 790...1235, .coward,
                           [("hp2", 0.3), ("mushroom_truffle", 0.3), ("mushroom_clover", 0.15), ("ring4", 0.03), ("amulet4", 0.03), ("mushroom_ring", 0.01),
                            ("mushroom_amulet", 0.01), ("stone", 0.3)]),
-            RpgMonsters.boss("mushroom_queen", "포자 여왕 티타니아", "mushroom_queen", 28, 48500, 163, 35, 40, 4290, 850...1250, .demon,
+            RpgMonsters.boss("mushroom_queen", "포자 여왕 티타니아", "mushroom_queen", 28, 137000, 163, 35, 40, 8300, 1750...2650, .demon,
                              minion: "mushroom_pixie", element: .poison,
                              [("hp2", 1), ("mushroom_spore", 1), ("mushroom_spore", 1), ("mushroom_truffle", 0.5), ("mushroom_dew", 0.6), ("mushroom_boots", 0.2),
                               ("mushroom_amulet", 0.2), ("armor6", 0.08), ("armor5", 0.12)] + weapons(tier: 6, 0.05) + books28.map { ($0, 0.06) }),
-            RpgMonsters.boss("mushroom_king", "버섯 대왕 송이", "mushroom_king", 36, 122500, 255, 54, 32, 10600, 2300...3400, .slime, minion: "mushroom_soldier",
+            RpgMonsters.boss("mushroom_king", "버섯 대왕 송이", "mushroom_king", 36, 290500, 255, 54, 32, 15900, 3800...5700, .slime, minion: "mushroom_soldier",
                              element: .holy,
                              [("hp3", 1), ("mushroom_cap", 1), ("mushroom_cap", 1), ("mushroom_truffle", 0.7), ("mushroom_soup", 0.6), ("mushroom_staff", 0.2),
                               ("mushroom_mace", 0.2), ("mushroom_armor", 0.2), ("mushroom_ring", 0.15), ("mushroom_amulet", 0.15), ("mushroom_helmet", 0.15),
@@ -119,45 +122,36 @@ enum RpgMushroomRegion {
             RpgItem(id: "mushroom_mace", name: "버섯 대왕의 홀", kind: .weapon(.cleric), rarity: 3, attack: 66, defense: 0, heal: 0, price: 25000, element: .holy, inShop: false),
             RpgItem(id: "mushroom_armor", name: "포자 망토", kind: .armor, rarity: 3, attack: 0, defense: 64, heal: 0, price: 28000, element: .base, inShop: false),
         ],
-        // ponytail: generic band materials only (see the note in RpgCoastRegion.swift).
+        // Region materials: spores everywhere, caps from the bigger folk, truffles rarely (the jester and both bosses carry more).
         recipes: [
-            RpgRecipe(id: "mushroom_ring", output: "mushroom_ring", count: 1, materials: ["mat_ice": 8, "mat_magma": 5, "stone": 6], gold: 20000),
-            RpgRecipe(id: "mushroom_amulet", output: "mushroom_amulet", count: 1, materials: ["mat_ice": 8, "mat_magma": 4, "stone": 6], gold: 18000),
-            RpgRecipe(id: "mushroom_helmet", output: "mushroom_helmet", count: 1, materials: ["mat_sting": 8, "mat_ice": 7, "stone": 4], gold: 17000),
-            RpgRecipe(id: "mushroom_boots", output: "mushroom_boots", count: 1, materials: ["mat_sting": 7, "mat_ice": 7, "stone": 4], gold: 17000),
-            RpgRecipe(id: "mushroom_staff", output: "mushroom_staff", count: 1, materials: ["mat_ice": 10, "mat_magma": 6, "stone": 8], gold: 22000),
-            RpgRecipe(id: "mushroom_mace", output: "mushroom_mace", count: 1, materials: ["mat_ice": 10, "mat_magma": 6, "stone": 8], gold: 22000),
-            RpgRecipe(id: "mushroom_armor", output: "mushroom_armor", count: 1, materials: ["mat_ice": 10, "mat_magma": 8, "stone": 9], gold: 24000),
+            RpgRecipe(id: "mushroom_ring", output: "mushroom_ring", count: 1, materials: ["mushroom_spore": 6, "mushroom_cap": 6, "mushroom_truffle": 1, "stone": 6], gold: 20000),
+            RpgRecipe(id: "mushroom_amulet", output: "mushroom_amulet", count: 1, materials: ["mushroom_spore": 4, "mushroom_cap": 6, "mushroom_truffle": 1, "stone": 6], gold: 18000),
+            RpgRecipe(id: "mushroom_helmet", output: "mushroom_helmet", count: 1, materials: ["mushroom_spore": 8, "mushroom_cap": 8, "stone": 4], gold: 17000),
+            RpgRecipe(id: "mushroom_boots", output: "mushroom_boots", count: 1, materials: ["mushroom_spore": 12, "mushroom_cap": 4, "stone": 4], gold: 17000),
+            RpgRecipe(id: "mushroom_staff", output: "mushroom_staff", count: 1, materials: ["mushroom_spore": 12, "mushroom_cap": 6, "mushroom_truffle": 2, "stone": 8], gold: 22000),
+            RpgRecipe(id: "mushroom_mace", output: "mushroom_mace", count: 1, materials: ["mushroom_cap": 10, "mushroom_truffle": 2, "stone": 8], gold: 22000),
+            RpgRecipe(id: "mushroom_armor", output: "mushroom_armor", count: 1, materials: ["mushroom_spore": 10, "mushroom_cap": 8, "mushroom_truffle": 2, "stone": 9], gold: 24000),
         ])
-}
-
-/// `top` drawn over `base` at column `x`, row `y`; dots in `top` keep the base pixel.
-private func paint(_ base: RpgGrid, _ top: RpgGrid, x: Int = 0, y: Int = 0) -> RpgGrid {
-    var rows = base.map { Array($0) }
-    for (dy, line) in top.enumerated() {
-        for (dx, ch) in line.enumerated() where ch != "." && rows.indices.contains(y + dy) && rows[y + dy].indices.contains(x + dx) { rows[y + dy][x + dx] = ch }
-    }
-    return rows.map { String($0) }
 }
 
 extension RpgArt {
     /// Monster sprites for this region, keyed by the monster's `sprite` id (see `RpgArt.specs` for the shape).
     static let specsMushroom: [String: SpriteSpec] = [
         "mushroom_snail": SpriteSpec(grid: mushroomSnail, swap: ["C": rgb(140, 196, 110), "c": rgb(84, 140, 70), "S": rgb(176, 196, 216), "s": rgb(124, 144, 176)]),
-        "mushroom_soldier": SpriteSpec(grid: paint(mushroomMan, coastHarpoon, y: 1), swap: [:]),
+        "mushroom_soldier": SpriteSpec(grid: stamp(mushroomMan, coastHarpoon, y: 1), swap: [:]),
         "mushroom_pixie": SpriteSpec(grid: mushroomPixie, swap: ["O": rgb(190, 255, 225), "H": rgb(255, 170, 220), "P": rgb(200, 120, 220)]),
         "mushroom_pig": SpriteSpec(grid: mushroomPig, swap: ["S": rgb(240, 172, 182), "s": rgb(200, 120, 140)]),
         "mushroom_bomb": SpriteSpec(grid: mushroomPuff, swap: ["C": rgb(242, 232, 204), "c": rgb(196, 176, 140), "P": rgb(170, 120, 80)]),
-        "mushroom_firefly": SpriteSpec(grid: paint(jungleWasp, mushroomGlowTail), swap: ["Y": rgb(96, 76, 56), "W": rgb(200, 230, 255), "f": rgb(220, 255, 120)]),
-        "mushroom_gnome": SpriteSpec(grid: paint(mushroomGnome, mushroomPickaxe), swap: ["B": rgb(70, 110, 190)]),
-        "mushroom_wizard": SpriteSpec(grid: paint(mage, mushroomCapHat), swap: ["P": rgb(70, 90, 160), "p": rgb(40, 56, 110)]),
+        "mushroom_firefly": SpriteSpec(grid: stamp(jungleWasp, mushroomGlowTail), swap: ["Y": rgb(96, 76, 56), "W": rgb(200, 230, 255), "f": rgb(220, 255, 120)]),
+        "mushroom_gnome": SpriteSpec(grid: stamp(mushroomGnome, mushroomPickaxe), swap: ["B": rgb(70, 110, 190)]),
+        "mushroom_wizard": SpriteSpec(grid: stamp(mage, mushroomCapHat), swap: ["P": rgb(70, 90, 160), "p": rgb(40, 56, 110)]),
         "mushroom_moth": SpriteSpec(grid: mushroomMoth, swap: ["A": rgb(156, 124, 186), "a": rgb(104, 82, 134), "Y": rgb(255, 220, 90)]),
         // The id contains "wolf", so the game already faces the (left-facing) wolf grid the right way.
-        "mushroom_wolf": SpriteSpec(grid: paint(wolf, mushroomFungi), swap: ["Z": rgb(150, 140, 120), "z": rgb(100, 92, 80), "R": rgb(200, 255, 120), "D": rgb(214, 60, 60)]),
-        "mushroom_cannon": SpriteSpec(grid: paint(junglePlant, mushroomSporePuffs), swap: ["G": rgb(180, 150, 200), "g": rgb(120, 96, 150), "R": rgb(90, 50, 120)]),
-        "mushroom_golem": SpriteSpec(grid: paint(golem, mushroomGolemCap), swap: ["N": rgb(170, 140, 110), "n": rgb(120, 96, 70), "Q": rgb(255, 255, 160)]),
-        "mushroom_guard": SpriteSpec(grid: paint(warrior, mushroomCapHelm), swap: ["M": rgb(240, 236, 220), "m": rgb(190, 180, 160)]),
-        "mushroom_jester": SpriteSpec(grid: paint(mushroomGnome, mushroomJesterHat), swap: ["B": rgb(230, 80, 160), "P": rgb(120, 70, 200)]),
+        "mushroom_wolf": SpriteSpec(grid: stamp(wolf, mushroomFungi), swap: ["Z": rgb(150, 140, 120), "z": rgb(100, 92, 80), "R": rgb(200, 255, 120), "D": rgb(214, 60, 60)]),
+        "mushroom_cannon": SpriteSpec(grid: stamp(junglePlant, mushroomSporePuffs), swap: ["G": rgb(180, 150, 200), "g": rgb(120, 96, 150), "R": rgb(90, 50, 120)]),
+        "mushroom_golem": SpriteSpec(grid: stamp(golem, mushroomGolemCap), swap: ["N": rgb(170, 140, 110), "n": rgb(120, 96, 70), "Q": rgb(255, 255, 160)]),
+        "mushroom_guard": SpriteSpec(grid: stamp(warrior, mushroomCapHelm), swap: ["M": rgb(240, 236, 220), "m": rgb(190, 180, 160)]),
+        "mushroom_jester": SpriteSpec(grid: stamp(mushroomGnome, mushroomJesterHat), swap: ["B": rgb(230, 80, 160), "P": rgb(120, 70, 200)]),
         "mushroom_queen": SpriteSpec(grid: mushroomPixie, swap: ["O": rgb(255, 180, 240), "H": rgb(255, 230, 120), "P": rgb(180, 60, 160)], boss: true),
         "mushroom_king": SpriteSpec(grid: mushroomMan, swap: ["R": rgb(240, 196, 60), "r": rgb(190, 140, 30)], boss: true),
     ]
