@@ -6,7 +6,7 @@ behind in pits so the next you can reach the exit.
 
 - Every echo adds a polyrhythmic voice to the music.
 - Revisit the title screen and your previous visit is still walking around.
-- Walk into an echo's path under a ceiling and you get a PARADOX.
+- Echoes are one-way platforms: walk and jump through them, land on their heads.
 
 ## Play
 
@@ -23,7 +23,7 @@ echo, Esc to clear all echoes, M to mute. Touch devices get on-screen buttons.
 
 | File | Role |
 |---|---|
-| `core.js` | Pure deterministic simulation: physics, plates, doors, echoes, paradox. No Phaser. |
+| `core.js` | Pure deterministic simulation: physics, plates, doors, one-way echoes. No Phaser. |
 | `levels.js` | 7 levels plus the title room, as 32x18 tile maps. |
 | `render.js` | Procedural drawing (no image assets). |
 | `audio.js` | Web Audio synth: sound effects and echo-driven music. |
