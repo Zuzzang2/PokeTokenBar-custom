@@ -58,6 +58,11 @@ enum DigimonCatalog {
               moves: [("dragon-claw", 1), ("sacred-sword", 1), ("flash-cannon", 30), ("fire-blast", 40),
                       ("dragon-pulse", 45), ("hyper-beam", 50)]),
 
+        // Not a Digimon: the unlock-gated `SecretMonster`, kept here to reuse bundled data and sprites.
+        Entry(id: 9101, names: ["ko": "무쇠깨비", "en": "Musoekkaebi", "ja": "ムセッケビ"], types: ["steel", "dark"],
+              stats: [255, 255, 255, 255, 255, 255], ability: "huge-power",
+              moves: []),
+
         Entry(id: 9011, names: ["ko": "뿔몬", "en": "Tsunomon", "ja": "ツノモン"], types: ["normal"],
               stats: [50, 38, 40, 38, 38, 42], ability: "run-away",
               moves: [("tackle", 1), ("leer", 5), ("powder-snow", 10)]),
@@ -138,6 +143,8 @@ enum DigimonCatalog {
         9082: [Skill("고마 박치기", "normal", true), Skill("물보라", "water", false), Skill("마블 샷", "water", false), Skill("파도 돌진", "water", true)],
         9083: [Skill("뿔 찌르기", "normal", true), Skill("얼음 작살", "ice", true), Skill("하푼 토네이도", "water", true), Skill("하푼 블리자드", "ice", false)],
         9084: [Skill("망치 휘두르기", "fighting", true), Skill("바다 해머", "water", true), Skill("벽력 해머", "electric", true), Skill("바다의 노여움", "water", false)],
+        9101: [Skill("도깨비 방망이", "steel", true), Skill("도깨비불", "fire", false),
+               Skill("씨름 메치기", "fighting", true), Skill("금 나와라 뚝딱", "ghost", false)],
         9085: [Skill("꼬리 휘두르기", "normal", true), Skill("해일", "water", false), Skill("심해 레이저", "water", false), Skill("해룡의 포효", "dragon", false)],
     ]
 
@@ -147,7 +154,7 @@ enum DigimonCatalog {
         [65, 80, 95, 110], [80, 95, 110, 125], [95, 110, 125, 140]]
     private static let slotAccuracy = [100, 100, 95, 90]
     /// Shiny-only branch members and Omegamon sit at other tiers than their id suggests.
-    private static let tierOverrides: [Int: Int] = [9006: 1, 9007: 2, 9008: 3, 9021: 5]
+    private static let tierOverrides: [Int: Int] = [9006: 1, 9007: 2, 9008: 3, 9021: 5, 9101: 5]
 
     private static func tier(of id: Int) -> Int {
         tierOverrides[id] ?? max(0, min(4, id - ((id / 10) * 10 + 1)))

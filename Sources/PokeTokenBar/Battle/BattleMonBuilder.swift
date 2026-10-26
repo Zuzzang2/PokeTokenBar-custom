@@ -43,7 +43,7 @@ enum BattleMonBuilder {
             out.append(BattleCandidate(id: entry.id, speciesID: entry.finalID, name: name,
                                        isShiny: entry.isShiny, profile: entry.profile, nature: entry.nature, isRaising: false))
         }
-        return out
+        return SecretMonster.withSecret(out, unlocked: SecretMonster.isUnlocked())
     }
 
     /// Dev fallback (raw `swift run` has no save): three random Pokémon so two local instances can battle.
@@ -66,7 +66,10 @@ enum BattleMonBuilder {
         profile.enrich(with: details)
         profile.level = 50
         let nature = candidate.nature ?? PokemonNature.allCases.randomElement()
-        let stats = PokemonStatCalculator.stats(details: details, profile: profile, nature: nature)
+        var stats = PokemonStatCalculator.stats(details: details, profile: profile, nature: nature)
+        if candidate.speciesID == SecretMonster.id {
+            stats = stats.map { PokemonComputedStat(name: $0.name, base: $0.base, iv: $0.iv, value: SecretMonster.battleStat) }
+        }
         var name = candidate.name
         if name.hasPrefix("#"), digimon == nil { name = await MoveDataClient.shared.speciesName(candidate.speciesID) ?? details.name }
         let moves: [BattleMove]
