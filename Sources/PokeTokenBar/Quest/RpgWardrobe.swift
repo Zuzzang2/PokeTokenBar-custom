@@ -22,18 +22,30 @@ extension RpgView {
         }
     }
 
-    /// A small icon for a cosmetic: a tile in its set's colours with the slot's name.
+    /// A small icon for a cosmetic: the piece on your own hero, cropped to it, on a dark tile edged in its set's colours.
     func drawCosmeticIcon(_ ctx: CGContext, _ c: RpgCosmetic, in r: CGRect, owned: Bool = true, worn: Bool = false) {
         let theme = RpgCosmetics.theme(c.theme)
         let main = theme.map { NSColor(red: CGFloat($0.main.r) / 255, green: CGFloat($0.main.g) / 255, blue: CGFloat($0.main.b) / 255, alpha: 1) } ?? NSColor(white: 0.45, alpha: 1)
         let trim = theme.map { NSColor(red: CGFloat($0.trim.r) / 255, green: CGFloat($0.trim.g) / 255, blue: CGFloat($0.trim.b) / 255, alpha: 1) } ?? .white
-        ctx.setFillColor(main.cgColor)
-        ctx.addPath(CGPath(roundedRect: r.insetBy(dx: 4, dy: 4), cornerWidth: 6, cornerHeight: 6, transform: nil))
+        let tile = r.insetBy(dx: 4, dy: 4)
+        ctx.setFillColor((main.blended(withFraction: 0.72, of: NSColor(white: 0.08, alpha: 1)) ?? main).cgColor)
+        ctx.addPath(CGPath(roundedRect: tile, cornerWidth: 6, cornerHeight: 6, transform: nil))
         ctx.fillPath()
-        ctx.setFillColor(trim.withAlphaComponent(0.9).cgColor)
-        ctx.fill(CGRect(x: r.minX + 8, y: r.minY + 8, width: r.width - 16, height: 4))
-        text(c.slot.title, at: CGPoint(x: r.midX, y: r.midY - 6), size: 11, color: .white, weight: .heavy, align: .center)
-        if !owned { ctx.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor); ctx.fill(r.insetBy(dx: 4, dy: 4)) }
+        ctx.setFillColor(main.cgColor)
+        ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 4, width: tile.width - 8, height: 2))
+        ctx.setFillColor(trim.cgColor)
+        ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 2, width: tile.width - 8, height: 1))
+        if let me = world.player(localID), let img = RpgArt.cosmeticIcon(c, on: me) {
+            // Whole or half-point steps keep the pixels square on a Retina screen.
+            let box = tile.insetBy(dx: 2, dy: 3)
+            let s = max(0.5, (min(box.width / CGFloat(img.width), box.height / CGFloat(img.height)) * 2).rounded(.down) / 2)
+            let w = CGFloat(img.width) * s, h = CGFloat(img.height) * s
+            ctx.interpolationQuality = .none
+            KartArt.draw(img, in: ctx, rect: CGRect(x: (box.midX - w / 2).rounded(), y: (box.midY - h / 2).rounded(), width: w, height: h))
+        } else {
+            text(c.slot.title, at: CGPoint(x: r.midX, y: r.midY - 6), size: 11, color: .white, weight: .heavy, align: .center)
+        }
+        if !owned { ctx.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor); ctx.fill(tile) }
         if worn { text("착용", at: CGPoint(x: r.maxX - 6, y: r.minY + 6), size: 9, color: Self.gold, weight: .heavy, align: .right) }
     }
 

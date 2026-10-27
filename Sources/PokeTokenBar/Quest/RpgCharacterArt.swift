@@ -153,16 +153,16 @@ extension RpgArt {
 // MARK: - parts
 
 extension RpgArt {
-    fileprivate enum HeroBack { case none, cape, quiver, pack, scarf, tails }
-    fileprivate enum HeroGrip { case sword, dagger, mace, claw, bow, staff, rod, gun }
+    enum HeroBack { case none, cape, quiver, pack, scarf, tails }
+    enum HeroGrip { case sword, dagger, mace, claw, bow, staff, rod, gun }
 
     /// A letter grid placed at (x, y) in the 32×32 frame.
-    fileprivate struct HeroPart {
+    struct HeroPart {
         let x: Int, y: Int
         let g: RpgGrid
     }
 
-    fileprivate struct HeroClassArt {
+    struct HeroClassArt {
         /// Class colours under the letters of the old sprite, so `RpgJobs.tint` can recolour them.
         let colors: [Character: CGColor]
         /// Shades recomputed after the job tint: (letter, from letter, brightness factor).
@@ -184,7 +184,7 @@ extension RpgArt {
         let torso: [HeroPart]
     }
 
-    fileprivate static func part(_ y: Int, _ rows: [String], x: Int = 8) -> HeroPart { HeroPart(x: x, y: y, g: rows) }
+    static func part(_ y: Int, _ rows: [String], x: Int = 8) -> HeroPart { HeroPart(x: x, y: y, g: rows) }
 
     // MARK: base head (face) — x 8, y 7; the head is 12 px wide (x 10-21)
 
@@ -262,7 +262,7 @@ extension RpgArt {
     fileprivate static let leather = (rgb(150, 96, 52), rgb(104, 64, 36))
     fileprivate static let steelBoots = (rgb(120, 112, 120), rgb(78, 72, 84))
 
-    fileprivate static let heroClasses: [RpgClass: HeroClassArt] = [
+    static let heroClasses: [RpgClass: HeroClassArt] = [
         .warrior: HeroClassArt(
             colors: ["M": rgb(186, 196, 210), "m": rgb(120, 132, 152), "R": rgb(206, 54, 54), "r": rgb(140, 30, 34), "Y": rgb(240, 190, 50),
                      "L": rgb(130, 84, 48), "l": rgb(92, 58, 34), "V": rgb(72, 76, 98), "v": rgb(50, 52, 70)],
@@ -461,7 +461,7 @@ extension RpgArt {
 
 extension RpgArt {
     /// Back gear per view (side, front, back) and cloth frame (0 still, then 1 and 2 alternating while moving): x 4 (24 wide).
-    fileprivate static let backParts: [HeroBack: [[HeroPart]]] = [
+    static let backParts: [HeroBack: [[HeroPart]]] = [
         .cape: [
             [part(18, ["........KK..............", ".......KQqK.............", "......KQQqK.............", "......KQQqK.............", ".....KQQQqK.............",
                        ".....KQQQqK.............", "....KQQQqqK.............", "....KQqQqqK.............", "...KQqQQqqK.............", "...KKKKKKKK............."], x: 4),
@@ -545,6 +545,8 @@ extension RpgArt {
         let hair: Int, skin: Int, accent: Int
         let armor: String?, helmet: String?, boots: String?
         let job: Int, tier: Int
+        /// Wardrobe pieces worn (`RpgCosmeticArt`): changing them repaints.
+        let wear: HeroWear
     }
 
     fileprivate struct HeroFrameKey: Hashable {
@@ -566,10 +568,10 @@ extension RpgArt {
     fileprivate static var heroPalettes: [HeroLookKey: [Character: CGColor]] = [:]
     fileprivate static var heroFrames: [HeroFrameKey: CGImage] = [:]
 
-    fileprivate static func col(_ t: RpgLook.RGB, _ a: CGFloat = 1) -> CGColor { rgb(t.r, t.g, t.b, a) }
+    static func col(_ t: RpgLook.RGB, _ a: CGFloat = 1) -> CGColor { rgb(t.r, t.g, t.b, a) }
 
     /// Darker below 1, toward white above 1.
-    fileprivate static func scaled(_ c: CGColor, _ f: CGFloat) -> CGColor {
+    static func scaled(_ c: CGColor, _ f: CGFloat) -> CGColor {
         guard let k = c.components, k.count >= 3 else { return c }
         let m: (CGFloat) -> CGFloat = { f <= 1 ? $0 * f : $0 + (1 - $0) * (f - 1) }
         return CGColor(srgbRed: m(k[0]), green: m(k[1]), blue: m(k[2]), alpha: k.count > 3 ? k[3] : 1)
@@ -628,6 +630,7 @@ extension RpgArt {
             let wing = heroWingColors(k.cls, palette: c)
             c["9"] = wing.0; c["0"] = wing.1; c["8"] = wing.2
         }
+        cosPalette(&c, k.wear)
         heroPalettes[k] = c
         return c
     }
@@ -696,8 +699,33 @@ extension RpgArt {
         let d = RpgLook.defaults(p.cls)
         func at(_ i: Int, _ n: Int) -> Int { i < k.count ? min(max(k[i], 0), n - 1) : d[i] }
         return HeroLookKey(cls: p.cls, hair: at(0, RpgLook.hair.count), skin: at(1, RpgLook.skin.count), accent: at(2, RpgLook.accent.count),
-                           armor: p.armor, helmet: p.helmet, boots: p.boots, job: p.job, tier: p.job == 0 ? 0 : p.tier)
+                           armor: p.armor, helmet: p.helmet, boots: p.boots, job: p.job, tier: p.job == 0 ? 0 : p.tier, wear: heroWear(p.worn))
     }
+
+    /// What stays of a class's headgear over a worn hairstyle (hoods give way to the hair) and the row above which the hair
+    /// under it is hidden: the mage's hat, the cleric's halo, the monk's headband, the mechanic's goggles.
+    static let heroHeadgear: [RpgClass: (parts: [HeroPart], cover: Int)] = [
+        .mage: (headRows(.mage, 0..<11), 9),
+        .cleric: (headRows(.cleric, 0..<3), 0),
+        .monk: (headRows(.monk, 7..<9), 0),
+        .mechanic: ([part(9, [".KZZZZZZZZZZZZK.", ".........ZKOOKK.", ".........ZKOXK.."]),
+                     part(9, [".KZZZZZZZZZZZZK.", ".KZKOOKZZKOOKZK.", "...KOXK..KOXK..."]),
+                     part(9, [".KZZZZZZZZZZZZK."])], 0),
+    ]
+
+    /// Face gear that stays under any worn hat or hairstyle: the rogue's mask (side, front, back).
+    static let heroFaceGear: [RpgClass: [HeroPart]] = [
+        .rogue: [part(15, [".....KjjjjjjjK..", ".....KjjjjjjK...", "......KKKKKK...."]),
+                 part(15, ["..KjjjjjjjjjjK..", "...KjjjjjjjjK...", "....KKKKKKKK...."]), part(0, [])],
+    ]
+
+    /// Rows `r` of a class's head art, per view.
+    private static func headRows(_ cls: RpgClass, _ r: Range<Int>) -> [HeroPart] {
+        (heroClasses[cls]?.head ?? []).map { HeroPart(x: $0.x, y: $0.y + r.lowerBound, g: Array($0.g[r])) }
+    }
+
+    /// Hair under a worn hat when no hairstyle is worn: the nearest style to the class's own (warrior-style spikes otherwise).
+    static let heroHatHair: [RpgClass: UInt8] = [.archer: 1, .mage: 4, .rogue: 1, .cleric: 4, .monk: 2, .summoner: 1]
 
     /// Shoulder (top-left of the 2×2 arm block) of the weapon arm and the off arm, per view.
     fileprivate static let weaponShoulder = [(15, 19), (20, 19), (10, 19)]
@@ -720,10 +748,13 @@ extension RpgArt {
         var px = [Character](repeating: ".", count: n * n)
         let v = k.view, up = k.bob
         let helmeted = k.look.helmet != nil
-        let band = heroArmorBand(k.look.armor.flatMap(RpgItems.item))
-        let back = backParts[art.back]
-        let backPart = back.flatMap { views in views[v].isEmpty ? nil : views[v][min(k.flap & 3, views[v].count - 1)] }
-        let layer = backLayer(art.back, v)
+        let wear = k.look.wear
+        // An outfit hides the armour pieces; a cape replaces the class's back gear; a hat takes the monk's headband tails along.
+        let band = wear.outfit != 0 ? 0 : heroArmorBand(k.look.armor.flatMap(RpgItems.item))
+        let gear: HeroBack = wear.cape != 0 ? .cape : art.back == .tails && wear.hat != 0 ? .none : art.back
+        let backPart: HeroPart? = wear.cape != 0 ? cosCape(wear.cape, view: v, flap: k.flap & 3)
+            : backParts[gear].flatMap { views in views[v].isEmpty ? nil : views[v][min(k.flap & 3, views[v].count - 1)] }
+        let layer = backLayer(gear, v)
         func put(_ part: HeroPart, _ dy: Int = 0) { paint(part.g, part.x, part.y + dy, &px) }
         func offArm() {
             let s = offShoulder[v], o = offHands[v][k.arm]
@@ -731,7 +762,9 @@ extension RpgArt {
                 for yy in y..<(y + h) where yy >= 0 && yy < n { for xx in x..<(x + w) where xx >= 0 && xx < n { px[yy * n + xx] = ch } }
             }
         }
-        let wings = k.look.tier >= 3 && k.tone != 2 ? wingParts[v][(k.flap >> 2) & 1] : nil
+        // Worn wings win over the 4차 ones; ghosts have neither.
+        let flap = (k.flap >> 2) & 1
+        let wings = k.tone == 2 ? nil : wear.wings != 0 ? cosWings(wear.wings, view: v, flap: flap) : k.look.tier >= 3 ? wingParts[v][flap] : nil
         if v != 2, let w = wings { put(w, up) }
         if layer == 0, let b = backPart { put(b, up) }
         if v == 0 { offArm() }
@@ -740,12 +773,18 @@ extension RpgArt {
         } else {
             paint(legs[v][k.legs], 8, 22, &px)
         }
-        put(art.torso[v], up)
+        if wear.outfit != 0 {
+            for p in cosOutfit(k.look.cls, code: wear.outfit, view: v) { put(p, up) }
+        } else {
+            put(art.torso[v], up)
+        }
         if band > 0 { put(armorParts[v][band - 1], up) }
         if layer == 1, let b = backPart { put(b, up) }
+        if v == 1, wear.cape != 0, let clasp = cosCapeClasp(wear.cape) { put(clasp, up) }
         if v == 2, let w = wings { put(w, up) }
         if v != 0 { offArm() }
         put(headBase[v], up)
+        if k.face == 0, wear.face != 0, let f = cosFace(wear.face, view: v) { put(f, up) }
         if k.face != 0 {
             for (i, e) in eyeSpots[v].enumerated() {
                 for dy in 0..<3 { for dx in 0..<2 { px[(e.1 + dy + up) * n + e.0 + dx] = "S" } }
@@ -762,14 +801,29 @@ extension RpgArt {
             }
         }
         // Walking: hair, hood and hat tops lag a pixel behind the bounce (painted first, so the rest overlaps them).
-        let top = helmeted ? (art.helm?[v] ?? art.head[v]) : art.head[v]
         let squash = (1...4).contains(k.legs) && k.bob == -1 ? 1 : 0
-        if squash > 0 {
-            let above = max(0, min(top.g.count, 8 - top.y))
-            paint(Array(top.g[..<above]), top.x, top.y + up + squash, &px)
-            paint(Array(top.g[above...]), top.x, top.y + above + up, &px)
+        if wear.hat == 0 && wear.hair == 0 {
+            let top = helmeted ? (art.helm?[v] ?? art.head[v]) : art.head[v]
+            if squash > 0 {
+                let above = max(0, min(top.g.count, 8 - top.y))
+                paint(Array(top.g[..<above]), top.x, top.y + up + squash, &px)
+                paint(Array(top.g[above...]), top.x, top.y + above + up, &px)
+            } else {
+                put(top, up)
+            }
         } else {
-            put(top, up)
+            // Wardrobe hair (or the class's nearest style under a hat), then the hat or what stays of the class headgear.
+            var top = [Character](repeating: ".", count: n * n)
+            let style = wear.hair != 0 ? wear.hair : heroHatHair[k.look.cls] ?? 0
+            if let hair = style != 0 ? cosHair(style, view: v) : heroClasses[.warrior]?.head[v] { paint(hair.g, hair.x, hair.y + up, &top) }
+            let headwear: (part: HeroPart, cover: Int)? = wear.hat != 0 ? cosHat(wear.hat, view: v)
+                : heroHeadgear[k.look.cls].map { ($0.parts[v], $0.cover) }
+            if let headwear { for i in 0..<(max(0, min(n, headwear.cover + up)) * n) { top[i] = "." } }
+            if let mask = heroFaceGear[k.look.cls]?[v] { paint(mask.g, mask.x, mask.y + up, &top) }
+            if let headwear { paint(headwear.part.g, headwear.part.x, headwear.part.y + up, &top) }
+            let split = max(0, 8 + up) * n
+            for i in 0..<split where top[i] != "." { px[i + squash * n] = top[i] }
+            for i in split..<(n * n) where top[i] != "." { px[i] = top[i] }
         }
         if layer == 2, let b = backPart { put(b, up) }
         let img = heroImage(px, pal, tone: k.tone)
@@ -886,6 +940,22 @@ extension RpgArt {
         return Set(parts.flatMap { $0.joined() }.filter { $0 != "." && pal[$0] == nil })
     }
 
+    /// Letters of the wardrobe pieces a hero wears (every view and frame, and the class hair and headgear they go with) that
+    /// its palette leaves unpainted.
+    static func heroCosmeticHoles(_ p: RpgPlayer) -> Set<Character> {
+        let key = heroLookKey(p), w = key.wear
+        let pal = heroPalette(key)
+        var parts: [HeroPart?] = []
+        for v in 0..<3 {
+            parts += [cosHat(w.hat, view: v)?.part, cosHair(w.hair, view: v), cosFace(w.face, view: v), heroHeadgear[p.cls]?.parts[v], heroFaceGear[p.cls]?[v]]
+            parts += cosOutfit(p.cls, code: w.outfit, view: v).map { Optional($0) }
+            parts += (0..<3).map { cosCape(w.cape, view: v, flap: $0) } + (0..<2).map { cosWings(w.wings, view: v, flap: $0) }
+            if let style = heroHatHair[p.cls] { parts.append(cosHair(style, view: v)) }
+        }
+        parts.append(cosCapeClasp(w.cape))
+        return Set(parts.compactMap { $0 }.flatMap { $0.g.joined() }.filter { $0 != "." && pal[$0] == nil })
+    }
+
     /// Late weapons (tier 9+, or region gear of that power) are drawn bigger with an aura.
     static func heroBigWeapon(_ item: RpgItem) -> Bool { item.tier >= 9 || item.attack >= 170 }
 
@@ -893,28 +963,31 @@ extension RpgArt {
         let id: String
         let draw: Int
         let step: Int
+        /// Weapon skin worn (`HeroWear.weapon`), 0 for the weapon's own look.
+        let skin: UInt8
     }
 
     static let heroWeaponSteps = 32
     fileprivate static var weaponCache: [WeaponKey: (CGImage, Int)] = [:]
 
     /// The weapon turned to `angle` (radians, y down), its grip at pixel (r, r) of the returned image.
-    fileprivate static func heroWeapon(_ item: RpgItem, grip: HeroGrip, angle: Double, draw: Int = 0) -> (image: CGImage, r: Int)? {
+    fileprivate static func heroWeapon(_ item: RpgItem, grip: HeroGrip, angle: Double, draw: Int = 0, skin: UInt8 = 0) -> (image: CGImage, r: Int)? {
         let steps = heroWeaponSteps
         let step = ((Int((angle / (2 * .pi) * Double(steps)).rounded()) % steps) + steps) % steps
-        let key = WeaponKey(id: item.id, draw: draw, step: step)
+        let key = WeaponKey(id: item.id, draw: draw, step: step, skin: skin)
         if let hit = weaponCache[key] { return (hit.0, hit.1) }
         if weaponCache.count > 3000 { weaponCache.removeAll(keepingCapacity: true) }
         let big = heroBigWeapon(item)
         guard let held = heldTemplate(grip, big: big, draw: draw) else { return nil }
-        let colors = heldColors(item)
+        let colors = skin != 0 ? cosWeaponColors(heldColors(item), skin: skin) : heldColors(item)
         // Index the template (padded by a transparent pixel so Scale2x sees the edges).
         var table: [CGColor] = [rgb(0, 0, 0, 0)]
         var index: [Character: Int] = [:]
         let w = (held.grid.map(\.count).max() ?? 0) + 2, h = held.grid.count + 2
         var src = [Int](repeating: 0, count: w * h)
         for (y, line) in held.grid.enumerated() {
-            for (x, ch) in line.enumerated() where ch != "." {
+            for (x, letter) in line.enumerated() where letter != "." {
+                let ch = skin != 0 ? cosSkinLetter(skin, letter, x: x, y: y) : letter
                 guard let c = colors[ch] else { continue }
                 var i = index[ch] ?? 0
                 if i == 0 { table.append(c); i = table.count - 1; index[ch] = i }
@@ -937,8 +1010,8 @@ extension RpgArt {
             }
         }
         guard let ctx = KartArt.context(width: n, height: n) else { return nil }
-        // Element glow (and a wider rarity aura on late weapons) hugging the silhouette.
-        let glowColor: CGColor? = item.element != .base ? elem(item.element).mid : (big ? rgb(255, 230, 150) : nil)
+        // Element glow (and a wider rarity aura on late weapons) hugging the silhouette; a skin glows in its set's colour.
+        let glowColor: CGColor? = skin != 0 ? cosGlow(skin) : item.element != .base ? elem(item.element).mid : (big ? rgb(255, 230, 150) : nil)
         if let g = glowColor {
             let rings = big ? 2 : 1
             var mask = out.map { $0 != 0 }
@@ -1132,8 +1205,8 @@ extension RpgArt {
     static func heroFrame(_ p: RpgPlayer, pose: RpgHeroPose, time: Double) -> CGImage? { heroBody(heroFrameKey(p, pose: pose, time: time)) }
 
     /// The hero's weapon turned to `angle` as it is drawn in the hand.
-    static func heroWeaponImage(_ item: RpgItem, cls: RpgClass, angle: Double, draw: Int = 0) -> CGImage? {
-        heroWeapon(item, grip: heroGrip(cls), angle: angle, draw: draw)?.image
+    static func heroWeaponImage(_ item: RpgItem, cls: RpgClass, angle: Double, draw: Int = 0, skin: UInt8 = 0) -> CGImage? {
+        heroWeapon(item, grip: heroGrip(cls), angle: angle, draw: draw, skin: skin)?.image
     }
 
     /// Draws a hero standing at `p.pos`: body frame, weapon and weapon arm, and the small extras (familiar, aura motes,
@@ -1164,6 +1237,10 @@ extension RpgArt {
         defer { if group { c.endTransparencyLayer() } }
         let base = group ? 1 : alpha * (ghost ? 0.9 : 1)
         c.setAlpha(base)
+        let wear = look.wear
+        let dressed = extras && !ghost
+        if dressed, wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: false) }
+        if dressed, wear.steps != 0 { cosDrawKick(c, wear.steps, ax: ax, ay: ay, pose: pose, time: time) }
         let glow = heroGlow(p.cls, palette: pal)
         if pose.action == .cast, art.robe {
             // Casters stand in a turning rune circle.
@@ -1178,7 +1255,7 @@ extension RpgArt {
         let hold = heroHold(art.grip, pose, attackTime: heroAttackTime(p, time: time))
         let hx = Int(hold.hand.0.rounded()), hy = Int(hold.hand.1.rounded()) + bits.bob
         func drawWeapon() {
-            guard let w = weapon, let held = heroWeapon(w, grip: art.grip, angle: hold.angle, draw: hold.draw) else { return }
+            guard let w = weapon, let held = heroWeapon(w, grip: art.grip, angle: hold.angle, draw: hold.draw, skin: wear.weapon) else { return }
             let n = Double(2 * held.r + 1), x0 = Double(hx + 1 - held.r), y0 = Double(hy + 1 - held.r)
             KartArt.draw(held.image, in: c, rect: CGRect(x: wx(x0, n), y: wy(y0), width: CGFloat(n), height: CGFloat(n)), flipX: pose.flip)
         }
@@ -1202,11 +1279,21 @@ extension RpgArt {
         }
         if familiar, sin(orbit) >= 0 { heroFamiliar(c, ax: ax, ay: ay, orbit: orbit, time: time, color: glow) }
         guard !ghost, extras else { return }
+        if wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: true) }
         // Sparks at the business end: element colour, and a flash on shots, thrusts and casts.
         if let w = weapon {
             let len = gripLength(art.grip, big: heroBigWeapon(w))
             let tx = Double(hx) + 1 + cos(hold.angle) * len, ty = Double(hy) + 1 + sin(hold.angle) * len
             let px = Double(wx(tx)), py = Double(wy(ty))
+            if wear.weapon != 0 {
+                // A skin sheds its set's sparks along the weapon, drifting up.
+                for k in 0..<2 {
+                    let t = time * 1.3 + Double(k) * 0.5 + seed
+                    let life = t.truncatingRemainder(dividingBy: 1), along = (0.45 + 0.55 * Double((Int(t) * 7 + k * 3) % 5) / 4) * len
+                    cosDrawMote(c, wear.weapon, Double(wx(Double(hx) + 1 + cos(hold.angle) * along)),
+                                Double(wy(Double(hy) + 1 + sin(hold.angle) * along)) - life * 4, alpha: CGFloat(1 - life))
+                }
+            }
             if hold.flash > 0.05 {
                 let e = elem(w.element == .base ? (art.grip == .gun ? .fire : .holy) : w.element)
                 star(c, px, py, Int((hold.flash * 3).rounded()), e.mid, e.core)
@@ -1269,6 +1356,11 @@ extension RpgArt {
         return CGFloat(heroAnchor.y - top)
     }
 
+    /// Height of a hero above the feet counting a worn hat or hairstyle, which can top the class's own headgear.
+    static func heroHeight(_ p: RpgPlayer) -> CGFloat {
+        max(heroHeight(p.cls), cosHeadTop(heroWear(p.worn)).map { CGFloat(heroAnchor.y - $0) } ?? 0)
+    }
+
     /// A finished hero picture (body and weapon) for menus: `size`×`size` with the feet near the bottom.
     static func heroPreview(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, size: Int = 48) -> CGImage? {
         guard let ctx = KartArt.context(width: size, height: size) else { return nil }
@@ -1297,6 +1389,8 @@ final class RpgHeroTracker {
         var blinkFrom = CGPoint.zero, blinkTo = CGPoint.zero, blinkAt = -10.0
         /// Footstep puffs: where and when.
         var dust: [(pos: CGPoint, at: Double)] = []
+        /// Marks left by worn steps (`RpgCosmeticArt`): where, when and which foot.
+        var prints: [(pos: CGPoint, at: Double, side: Int)] = []
         var lastStep = -1
         var level: Int, job: Int, tier: Int
         var burstAt = -10.0
@@ -1337,12 +1431,20 @@ final class RpgHeroTracker {
             m.trailAt = now
         }
         let step = Int(m.walked / RpgArt.heroStride)
-        if !p.dead, p.moving || m.speed > 24, step != m.lastStep, step % 2 == 0 {
-            m.dust.append((p.pos, now))
-            if m.dust.count > 4 { m.dust.removeFirst() }
+        if !p.dead, p.moving || m.speed > 24, step != m.lastStep {
+            if step % 2 == 0 {
+                m.dust.append((p.pos, now))
+                if m.dust.count > 4 { m.dust.removeFirst() }
+            }
+            // Worn steps leave a mark at every step (none while hidden in stealth).
+            if p.worn[RpgCosmeticSlot.steps.rawValue] != nil, now >= p.stealthUntil {
+                m.prints.append((p.pos, now, step % 2 == 0 ? -1 : 1))
+                if m.prints.count > 10 { m.prints.removeFirst() }
+            }
         }
         m.lastStep = step
         m.dust.removeAll { now - $0.at > 0.35 }
+        if let first = m.prints.first, now - first.at > RpgArt.stepLife { m.prints.removeAll { now - $0.at > RpgArt.stepLife } }
         if p.level > m.level || p.job != m.job || p.tier > m.tier {
             m.burstAt = now
             m.burstBig = p.job != m.job || p.tier > m.tier
@@ -1373,6 +1475,10 @@ extension RpgArt {
             dot(c, px + back * (5 + a * 7), py - 1 - a * 2, col)
             dot(c, px - back * (1 + a * 3), py - a * 2, col)
             if a < 0.5 { dot(c, px + back * 3, py + 1, col) }
+        }
+        if !m.prints.isEmpty {
+            let steps = heroWear(p.worn).steps
+            if steps != 0 { cosDrawSteps(c, steps, m.prints, time: time, alpha: !p.dead && time < p.stealthUntil ? 0.3 : 1) }
         }
         heroPillar(c, p, motion: m, time: time)
         let n = m.trail.count
