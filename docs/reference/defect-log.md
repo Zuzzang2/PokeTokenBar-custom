@@ -1267,3 +1267,12 @@ read_when:
   fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
   and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
   Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
+
+- **A text cache keyed by colour thrashes when the colour animates.** The RPG view caches each
+  distinct string as a small image (`RpgView.text`). Callers that fade a number (damage floaters,
+  alpha stepping every frame) or cycle a hue (the gacha 초월 label) created a new cache entry per
+  frame, so the cache never hit and was flushed once it passed its size cap — slower than drawing
+  the text directly. Quantize any animated colour or alpha to a few steps before it reaches
+  `text(...)` (floaters use 8 fade steps, the 초월 colour 24 hues), or draw faded text through the
+  context alpha instead of the colour. A frame-time probe over a world full of floaters is the
+  regression check; averages hide it, so compare p95 frame time.

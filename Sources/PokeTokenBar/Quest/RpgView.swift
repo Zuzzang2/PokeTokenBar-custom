@@ -877,7 +877,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
         for fl in world.floaters where fl.map == me.map {
             let s = screen(fl.pos)
-            let a = CGFloat(min(1, fl.life / 0.3))
+            let a = (CGFloat(min(1, fl.life / 0.3)) * 8).rounded(.up) / 8   // 8 fade steps: a continuous alpha would make every frame a new cache entry
             let (color, size): (NSColor, CGFloat) = switch fl.style {
             case .damage: (.white, 13)
             case .crit: (NSColor(red: 1, green: 0.75, blue: 0.2, alpha: 1), 17)
