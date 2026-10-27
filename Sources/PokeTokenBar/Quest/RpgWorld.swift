@@ -280,6 +280,28 @@ struct RpgShot: Codable, Sendable {
     var life: Double
     var hit: Set<Int> = []
     var pierce: Bool { kind == .bigArrow }
+    var stamp: RpgFXStamp? = nil
+}
+
+/// Presentation-only tag on what a skill or basic attack makes (effects, shots, delayed hits, traps) so each one is
+/// drawn its own way (`RpgArt.drawEffects`). Optional on the wire: older peers skip it and draw the generic look.
+struct RpgFXStamp: Codable, Sendable, Equatable {
+    /// Skill id ("w_whirl", "t3_ma1a") or "basic:<class>" ("basic:archer").
+    let style: String
+    /// The caster's facing (radians, y down) and where it stood when the skill went off.
+    var dir: Double = 0
+    var from: CGPoint = .zero
+    /// Order among the effects, shots and delayed hits of one cast (0, 1, 2…).
+    var seq: Int = 0
+    /// The heal part of a skill (`healNearby`), drawn apart from its main effect.
+    var heal: Bool? = nil
+
+    init(_ style: String, dir: Double, from: CGPoint) {
+        // Rounded: a smaller snapshot, and nothing finer than a pixel shows.
+        self.style = style
+        self.dir = (dir * 100).rounded() / 100
+        self.from = CGPoint(x: from.x.rounded(), y: from.y.rounded())
+    }
 }
 
 struct RpgFX: Codable, Sendable {
@@ -301,6 +323,7 @@ struct RpgFX: Codable, Sendable {
     let element: RpgElement
     let start: Double
     let duration: Double
+    var stamp: RpgFXStamp? = nil
 }
 
 /// A hit that lands later: skill waves, meteor marks, boss telegraphs.
@@ -315,6 +338,9 @@ struct RpgPending {
     let element: RpgElement
     let stun: Double
     let fx: RpgFX.Kind?
+    var stamp: RpgFXStamp? = nil
+    /// How long its effect shows (presentation only).
+    var fxDuration = 0.35
 }
 
 struct RpgTrap: Codable, Sendable {
@@ -327,6 +353,7 @@ struct RpgTrap: Codable, Sendable {
     /// A turret (mechanic) instead of a mine: shoots the nearest monster every half second until it expires.
     var turret: Bool? = nil
     var nextShot: Double? = nil
+    var stamp: RpgFXStamp? = nil
 }
 
 struct RpgFloater: Codable, Sendable {
@@ -406,6 +433,10 @@ final class RpgWorld {
     private var offersAt = -1000.0
     private var nextID = 1
     private var rng = KartRNG(seed: UInt64.random(in: 1...UInt64.max))
+    /// While a skill or basic attack resolves (or later one of its delayed hits, shots or traps): the stamp its effects get.
+    private var castStamp: RpgFXStamp?
+    /// Which skill started each player's 회오리검 (회오리검, 광기, 피의 갈증 draw theirs differently).
+    private var cycloneStyles: [Int: String] = [:]
 
     init(player: RpgPlayer) {
         var p = player
@@ -437,8 +468,17 @@ final class RpgWorld {
         floaters.append(RpgFloater(text: text, map: map, pos: CGPoint(x: p.x, y: p.y - 18), life: style == .info ? 1.4 : 0.9, style: style))
     }
 
-    private func effect(_ kind: RpgFX.Kind, _ map: RpgMapID, _ p: CGPoint, _ e: RpgElement, duration: Double = 0.3, delay: Double = 0) {
-        fx.append(RpgFX(kind: kind, map: map, pos: p, element: e, start: time + delay, duration: duration))
+    private func effect(_ kind: RpgFX.Kind, _ map: RpgMapID, _ p: CGPoint, _ e: RpgElement, duration: Double = 0.3, delay: Double = 0, heal: Bool = false) {
+        var stamp = nextStamp()
+        if heal { stamp?.heal = true }
+        fx.append(RpgFX(kind: kind, map: map, pos: p, element: e, start: time + delay, duration: duration, stamp: stamp))
+    }
+
+    /// The current cast's stamp for its next effect, shot, delayed hit or trap (numbered in order); nil outside a cast.
+    private func nextStamp() -> RpgFXStamp? {
+        guard let s = castStamp else { return nil }
+        castStamp?.seq += 1
+        return s
     }
 
     // MARK: monsters
@@ -999,10 +1039,12 @@ final class RpgWorld {
             players[i].nextCyclone = time + 0.25
             let lv = p.skills["w_cyclone"] ?? 1
             let def = RpgSkills.def("w_cyclone")!
+            castStamp = RpgFXStamp(cycloneStyles[p.id] ?? "w_cyclone", dir: facingAngle(p), from: p.pos)
             effect(.slash(angle: time * 9, radius: 18), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 5), p.element, duration: 0.25)
             for v in mobIDs(near: p.pos, radius: 30, map: p.map) {
                 damageMob(v, map: p.map, base: p.attack(at: time) * RpgSkills.damage(def, level: lv) * RpgStats.skillFactor(p.stats), by: p.id, element: p.element, skill: true)
             }
+            castStamp = nil
         }
         if input.attack, players[i].attackTimer <= 0 { basicAttack(i) }
         for slot in input.slots.sorted() {
@@ -1030,6 +1072,8 @@ final class RpgWorld {
         players[i].attackAt = time
         let angle = facingAngle(p)
         let atk = p.attack(at: time)
+        castStamp = RpgFXStamp("basic:" + p.cls.rawValue, dir: angle, from: p.pos)
+        defer { castStamp = nil }
         switch p.cls {
         case .warrior:
             effect(.slash(angle: angle, radius: 11), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 6), p.element, duration: 0.3)
@@ -1052,7 +1096,8 @@ final class RpgWorld {
         case .summoner:
             fire(from: p, angle: angle, kind: .orb, damage: atk * 1.1, speed: 120, range: 160, element: p.element == .base ? .cosmic : p.element)
         case .mechanic:
-            // Two bullets a shot, the second a beat behind.
+            // Two bullets a shot, the second a beat behind; the muzzle flashes and spits shell casings.
+            effect(.burst(radius: 5), p.map, CGPoint(x: p.pos.x + CGFloat(cos(angle) * 9), y: p.pos.y - 7 + CGFloat(sin(angle) * 9)), p.element, duration: 0.4)
             fire(from: p, angle: angle, kind: .arrow, damage: atk * 0.62, speed: 300, range: 150)
             fire(from: p, angle: angle + 0.04, kind: .arrow, damage: atk * 0.62, speed: 280, range: 150)
         }
@@ -1061,13 +1106,15 @@ final class RpgWorld {
     private func fire(from p: RpgPlayer, angle: Double, kind: RpgShot.Kind, damage: Double, speed: Double, range: Double, element: RpgElement? = nil) {
         let v = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
         shots.append(RpgShot(pos: CGPoint(x: p.pos.x + CGFloat(cos(angle) * 6), y: p.pos.y - 7 + CGFloat(sin(angle) * 6)), vel: v, map: p.map,
-                             fromPlayer: true, ownerID: p.id, damage: damage, element: element ?? p.element, kind: kind, life: range / speed))
+                             fromPlayer: true, ownerID: p.id, damage: damage, element: element ?? p.element, kind: kind, life: range / speed,
+                             stamp: nextStamp()))
     }
 
+    /// `fxDuration`: how long the hit's effect shows (presentation only).
     private func schedule(_ delay: Double, _ map: RpgMapID, _ pos: CGPoint, radius: Double, damage: Double, owner: Int, fromPlayer: Bool = true,
-                          element: RpgElement, stun: Double = 0, fx: RpgFX.Kind?) {
+                          element: RpgElement, stun: Double = 0, fx: RpgFX.Kind?, fxDuration: Double = 0.35) {
         pending.append(RpgPending(at: time + delay, map: map, pos: pos, radius: radius, damage: damage, ownerID: owner, fromPlayer: fromPlayer,
-                                  element: element, stun: stun, fx: fx))
+                                  element: element, stun: stun, fx: fx, stamp: nextStamp(), fxDuration: fxDuration))
     }
 
     private func castSkill(_ i: Int, _ skill: String) {
@@ -1081,13 +1128,16 @@ final class RpgWorld {
         let atk = p.attack(at: time)
         let power = atk * RpgSkills.damage(def, level: lv) * RpgStats.skillFactor(p.stats)
         var refund = false
+        castStamp = RpgFXStamp(skill, dir: angle, from: p.pos)
+        defer { castStamp = nil }
         switch skill {
         case "w_whirl":
             let c = CGPoint(x: p.pos.x, y: p.pos.y - 4)
-            effect(.burst(radius: 30), p.map, c, e)
+            effect(.burst(radius: 30), p.map, c, e, duration: 0.4)
             effect(.slash(angle: angle, radius: 16), p.map, c, e)
             effect(.slash(angle: angle + .pi, radius: 16), p.map, c, e)
             hitArea(p.pos, 32, p, power, e)
+            shake = max(shake, 0.3)
         case "w_dash":
             var to = p.pos
             for s in stride(from: 6.0, through: 76, by: 6) {
@@ -1097,11 +1147,11 @@ final class RpgWorld {
             players[i].dash = (to, [], power)
             players[i].posLockUntil = time + 0.5
             players[i].invulnerable = 0.3
-            effect(.slash(angle: angle, radius: 13), p.map, CGPoint(x: to.x, y: to.y - 6), e)
+            effect(.slash(angle: angle, radius: 13), p.map, CGPoint(x: to.x, y: to.y - 6), e, duration: 0.5)
         case "w_quake":
             for k in 1...7 {
                 let c = ahead(p, Double(k) * 16)
-                schedule(Double(k) * 0.045, p.map, c, radius: 14, damage: power, owner: p.id, element: e, fx: .burst(radius: 12))
+                schedule(Double(k) * 0.045, p.map, c, radius: 14, damage: power, owner: p.id, element: e, fx: .burst(radius: 12), fxDuration: 0.6)
             }
             shake = max(shake, 0.8)
         case "w_rage":
@@ -1115,15 +1165,16 @@ final class RpgWorld {
         case "w_cyclone":
             players[i].cycloneUntil = time + 3.5
             players[i].nextCyclone = time
+            cycloneStyles[p.id] = skill
         case "w_slam":
-            effect(.burst(radius: 44), p.map, ahead(p, 14), e, duration: 0.4)
+            effect(.burst(radius: 44), p.map, ahead(p, 14), e, duration: 0.55)
             shake = max(shake, 1.5)
             for v in mobIDs(near: ahead(p, 14), radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
         case "w_ult":
             let targets = (mobs[p.map] ?? []).filter { !$0.dead && !$0.airborne && dist($0.pos, p.pos) < 170 }.sorted { dist($0.pos, p.pos) < dist($1.pos, p.pos) }
             for k in 0..<6 {
                 let c = targets.isEmpty ? ahead(p, 30 + Double(k) * 14) : targets[k % targets.count].pos
-                schedule(Double(k) * 0.12, p.map, c, radius: 26, damage: power, owner: p.id, element: .thunder, stun: 1, fx: .strike)
+                schedule(Double(k) * 0.12, p.map, c, radius: 26, damage: power, owner: p.id, element: .thunder, stun: 1, fx: .strike, fxDuration: 0.5)
             }
             shake = max(shake, 2)
         case "a_triple":
@@ -1145,9 +1196,10 @@ final class RpgWorld {
             players[i].dash = (to, [], 0)
             players[i].posLockUntil = time + 0.5
             players[i].invulnerable = 0.35
+            effect(.burst(radius: 14), p.map, p.pos, e, duration: 0.4)
             for d in [-0.4, -0.2, 0.0, 0.2, 0.4] { fire(from: p, angle: angle + d, kind: .arrow, damage: power, speed: 250, range: 180) }
         case "a_trap":
-            traps.append(RpgTrap(map: p.map, pos: p.pos, ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.5))
+            traps.append(RpgTrap(map: p.map, pos: p.pos, ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.5, stamp: nextStamp()))
             toast("덫 설치!")
         case "a_focus":
             players[i].focusUntil = time + 12
@@ -1171,7 +1223,7 @@ final class RpgWorld {
                 from = next.pos
                 damageMob(next.id, map: p.map, base: power, by: p.id, element: el, skill: true)
             }
-            if points.count > 1 { effect(.chain(points), p.map, p.pos, el, duration: 0.35) } else { toast("주변에 적이 없어요"); refund = true }
+            if points.count > 1 { effect(.chain(points), p.map, p.pos, el, duration: 0.7) } else { toast("주변에 적이 없어요"); refund = true }
         case "m_blink":
             var to = p.pos
             for s in stride(from: 6.0, through: 84, by: 6) {
@@ -1186,6 +1238,7 @@ final class RpgWorld {
             effect(.levelUp, p.map, to, .cosmic, duration: 0.4)
         case "m_shield":
             players[i].shieldUntil = time + 15
+            effect(.levelUp, p.map, p.pos, .cosmic, duration: 1)
             toast("마나 실드!")
         case "m_blizzard":
             let c = ahead(p, 60)
@@ -1206,7 +1259,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 110)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.18)
-                schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32))
+                schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32), fxDuration: 0.6)
             }
         // 도적
         case "r_flurry":
@@ -1229,7 +1282,7 @@ final class RpgWorld {
             effect(.burst(radius: 28), p.map, p.pos, .poison)
             for v in mobIDs(near: p.pos, radius: 34, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .poison, skill: true) }
         case "r_smoke":
-            effect(.burst(radius: 34), p.map, p.pos, .base)
+            effect(.burst(radius: 34), p.map, p.pos, .base, duration: 1.6)
             players[i].invulnerable = max(players[i].invulnerable, 2)
             for v in mobIDs(near: p.pos, radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .ice, skill: true) }
         case "r_stab":
@@ -1257,7 +1310,7 @@ final class RpgWorld {
             }
         case "j_poi1":
             let c = ahead(p, 40)
-            effect(.burst(radius: 44), p.map, c, .poison)
+            effect(.burst(radius: 44), p.map, c, .poison, duration: 1)
             hitArea(c, 46, p, power, .poison)
         case "j_poi2":
             for k in 0..<3 { schedule(Double(k) * 0.4, p.map, ahead(p, 40), radius: 44, damage: power, owner: p.id, element: .poison, fx: .burst(radius: 40)) }
@@ -1270,7 +1323,7 @@ final class RpgWorld {
             for k in alliesNear(p, 90) { players[k].rageUntil = time + 12; effect(.levelUp, p.map, players[k].pos, .holy, duration: 1) }
             toast("축복! 주변 동료의 공격력이 올랐어요")
         case "c_nova":
-            effect(.burst(radius: 40), p.map, p.pos, .holy)
+            effect(.burst(radius: 40), p.map, p.pos, .holy, duration: 0.5)
             hitArea(p.pos, 42, p, power, .holy)
             healNearby(p, fraction: 0.15, radius: 60)
         case "c_ward":
@@ -1279,7 +1332,7 @@ final class RpgWorld {
         case "c_judge":
             let targets = nearestMobs(p, 140, 5)
             if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
-                for (k, t) in targets.enumerated() { schedule(0.2 + Double(k) * 0.12, p.map, t.pos, radius: 20, damage: power, owner: p.id, element: .holy, fx: .strike) }
+                for (k, t) in targets.enumerated() { schedule(0.2 + Double(k) * 0.12, p.map, t.pos, radius: 20, damage: power, owner: p.id, element: .holy, fx: .strike, fxDuration: 0.5) }
             }
         case "c_purify":
             healNearby(p, fraction: 0.4, radius: 80)
@@ -1289,7 +1342,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(15, 110)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 30), p.map, c, .holy, duration: 0.25 + Double(k) * 0.14)
-                schedule(0.25 + Double(k) * 0.14, p.map, c, radius: 30, damage: power, owner: p.id, element: .holy, fx: .burst(radius: 30))
+                schedule(0.25 + Double(k) * 0.14, p.map, c, radius: 30, damage: power, owner: p.id, element: .holy, fx: .burst(radius: 30), fxDuration: 0.5)
             }
             healNearby(p, fraction: 0.2, radius: 100)
             shake = max(shake, 1.5)
@@ -1299,7 +1352,7 @@ final class RpgWorld {
             toast("성스러운 방패! 받는 피해 감소")
         case "j_pal2":
             let c = ahead(p, 16)
-            effect(.burst(radius: 46), p.map, c, .holy, duration: 0.4)
+            effect(.burst(radius: 46), p.map, c, .holy, duration: 0.55)
             shake = max(shake, 1.5)
             for v in mobIDs(near: c, radius: 46, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: .holy, skill: true, stun: 1.5) }
         case "j_arc1":
@@ -1319,7 +1372,7 @@ final class RpgWorld {
             players[i].invulnerable = 0.3
             for k in 1...2 { schedule(Double(k) * 0.1, p.map, ahead(p, 22), radius: 20, damage: power, owner: p.id, element: e, fx: .slash(angle: angle, radius: 11)) }
         case "k_spin":
-            effect(.burst(radius: 26), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 4), e)
+            effect(.burst(radius: 26), p.map, CGPoint(x: p.pos.x, y: p.pos.y - 4), e, duration: 0.4)
             effect(.slash(angle: angle, radius: 14), p.map, p.pos, e)
             effect(.slash(angle: angle + .pi, radius: 14), p.map, p.pos, e)
             hitArea(p.pos, 30, p, power, e)
@@ -1334,7 +1387,7 @@ final class RpgWorld {
             toast("기공! 공속 상승")
         case "k_dragon":
             let c = ahead(p, 16)
-            effect(.burst(radius: 26), p.map, c, e)
+            effect(.burst(radius: 26), p.map, c, e, duration: 0.55)
             players[i].invulnerable = max(players[i].invulnerable, 0.3)
             for v in mobIDs(near: c, radius: 28, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
         case "k_barrage":
@@ -1351,7 +1404,7 @@ final class RpgWorld {
             shake = max(shake, 1.2)
         case "j_fk1":
             let c = ahead(p, 20)
-            effect(.burst(radius: 36), p.map, c, e, duration: 0.4)
+            effect(.burst(radius: 36), p.map, c, e, duration: 0.5)
             shake = max(shake, 1)
             hitArea(c, 38, p, power, e)
         case "j_fk2":
@@ -1363,7 +1416,7 @@ final class RpgWorld {
             float("+\(Int(heal))", p.map, p.pos, .heal)
             effect(.levelUp, p.map, p.pos, .holy, duration: 1)
         case "j_asc2":
-            effect(.burst(radius: 40), p.map, p.pos, e)
+            effect(.burst(radius: 40), p.map, p.pos, e, duration: 0.45)
             players[i].ironUntil = time + 8
             for v in mobIDs(near: p.pos, radius: 44, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
         // 소환사
@@ -1373,11 +1426,11 @@ final class RpgWorld {
             for k in 1...6 { schedule(Double(k) * 0.05, p.map, ahead(p, Double(k) * 18), radius: 16, damage: power, owner: p.id, element: e, fx: .slash(angle: angle, radius: 14)) }
         case "s_golem":
             let c = ahead(p, 36)
-            for k in 0..<4 { schedule(0.3 + Double(k) * 0.7, p.map, c, radius: 28, damage: power, owner: p.id, element: e, stun: 0.5, fx: .burst(radius: 26)) }
+            for k in 0..<4 { schedule(0.3 + Double(k) * 0.7, p.map, c, radius: 28, damage: power, owner: p.id, element: e, stun: 0.5, fx: .burst(radius: 26), fxDuration: 0.5) }
             shake = max(shake, 0.8)
         case "s_curse":
             let c = ahead(p, 40)
-            effect(.burst(radius: 40), p.map, c, .poison)
+            effect(.burst(radius: 40), p.map, c, .poison, duration: 0.7)
             for v in mobIDs(near: c, radius: 44, map: p.map) {
                 damageMob(v, map: p.map, base: power, by: p.id, element: .poison, skill: true)
                 damageMob(v, map: p.map, base: power * 0.2, by: p.id, element: .ice, skill: true)
@@ -1391,7 +1444,10 @@ final class RpgWorld {
         case "s_drain":
             let targets = nearestMobs(p, 80, 5)
             if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
-                for t in targets { damageMob(t.id, map: p.map, base: power, by: p.id, element: .poison, skill: true) }
+                for t in targets {
+                    effect(.burst(radius: 6), p.map, t.pos, .poison, duration: 0.7)
+                    damageMob(t.id, map: p.map, base: power, by: p.id, element: .poison, skill: true)
+                }
                 let heal = players[i].maxHP * 0.08 * Double(targets.count)
                 players[i].hp = min(players[i].maxHP, players[i].hp + heal)
                 float("+\(Int(heal))", p.map, p.pos, .heal)
@@ -1404,13 +1460,13 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 120)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.15)
-                schedule(0.25 + Double(k) * 0.15, p.map, c, radius: 30, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 30))
+                schedule(0.25 + Double(k) * 0.15, p.map, c, radius: 30, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 30), fxDuration: 0.6)
             }
             shake = max(shake, 1.5)
         case "j_nec1":
             for k in 0..<5 { schedule(Double(k) * 0.15, p.map, ahead(p, 20 + Double(k) * 14), radius: 20, damage: power, owner: p.id, element: .poison, fx: .slash(angle: angle, radius: 12)) }
         case "j_nec2":
-            for (k, r) in [30.0, 50.0, 70.0].enumerated() { schedule(Double(k) * 0.35, p.map, p.pos, radius: r, damage: power, owner: p.id, element: .cosmic, fx: .burst(radius: r)) }
+            for (k, r) in [30.0, 50.0, 70.0].enumerated() { schedule(Double(k) * 0.35, p.map, p.pos, radius: r, damage: power, owner: p.id, element: .cosmic, fx: .burst(radius: r), fxDuration: 0.5) }
         case "j_beast1":
             for k in 0..<5 {
                 let a = angle + (Double(k) - 2) * 0.3
@@ -1422,7 +1478,7 @@ final class RpgWorld {
         // 2차 전직 skills (RpgJobs)
         case "j_bash":
             let c = ahead(p, 18)
-            effect(.burst(radius: 24), p.map, c, e)
+            effect(.burst(radius: 24), p.map, c, e, duration: 0.45)
             effect(.slash(angle: angle, radius: 14), p.map, c, e)
             for v in mobIDs(near: c, radius: 26, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.5) }
             players[i].invulnerable = max(players[i].invulnerable, 0.3)
@@ -1436,13 +1492,14 @@ final class RpgWorld {
             toast("수호의 성역! 받는 피해 감소")
         case "j_bloodslash":
             let c = ahead(p, 16)
-            for a in [-0.5, 0.0, 0.5] { effect(.slash(angle: angle + a, radius: 17), p.map, c, .fire, duration: 0.3) }
+            for a in [-0.5, 0.0, 0.5] { effect(.slash(angle: angle + a, radius: 17), p.map, c, .fire, duration: 0.42) }
             hitArea(c, 40, p, power, e)
             shake = max(shake, 0.8)
         case "j_frenzy":
             players[i].frenzyUntil = time + 10
             players[i].cycloneUntil = time + 3
             players[i].nextCyclone = time
+            cycloneStyles[p.id] = skill
             effect(.levelUp, p.map, p.pos, .fire, duration: 1)
             toast("광기! 공격력 상승")
         case "j_snipe":
@@ -1454,7 +1511,7 @@ final class RpgWorld {
             for k in 0..<8 { fire(from: p, angle: angle + (Double(k) - 3.5) * 0.1, kind: .arrow, damage: power, speed: 240, range: 175) }
         case "j_net":
             for k in 1...3 {
-                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * 22), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4))
+                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * 22), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4, stamp: nextStamp()))
             }
             toast("그물 덫 설치!")
         case "j_inferno":
@@ -1468,7 +1525,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 100)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 28), p.map, c, .fire, duration: 0.25 + Double(k) * 0.16)
-                schedule(0.25 + Double(k) * 0.16, p.map, c, radius: 30, damage: power, owner: p.id, element: .fire, fx: .meteor(radius: 30))
+                schedule(0.25 + Double(k) * 0.16, p.map, c, radius: 30, damage: power, owner: p.id, element: .fire, fx: .meteor(radius: 30), fxDuration: 0.6)
             }
         case "j_frost":
             effect(.ice(radius: 60), p.map, p.pos, .ice, duration: 0.5)
@@ -1513,7 +1570,7 @@ final class RpgWorld {
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 let delay = 0.25 + Double(k) * 0.14
                 effect(.telegraph(radius: fx.radius), p.map, c, e, duration: delay)
-                schedule(delay, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .meteor(radius: fx.radius))
+                schedule(delay, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .meteor(radius: fx.radius), fxDuration: 0.6)
             }
         case .chain:
             let targets = nearestMobs(p, fx.radius, fx.count)
@@ -1530,14 +1587,15 @@ final class RpgWorld {
             shake = max(shake, 0.6)
         case .trap:
             for k in 1...max(1, fx.count) {
-                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * fx.dist), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4))
+                traps.append(RpgTrap(map: p.map, pos: ahead(p, Double(k) * fx.dist), ownerID: p.id, damage: power, expires: time + 20, armedAt: time + 0.4, stamp: nextStamp()))
             }
             toast("지뢰 설치!")
         case .turret:
             for k in 0..<fx.count {
                 let off = (Double(k) - Double(fx.count - 1) / 2) * 16
                 let c = CGPoint(x: ahead(p, 18).x + CGFloat(-sin(angle) * off), y: ahead(p, 18).y + CGFloat(cos(angle) * off))
-                traps.append(RpgTrap(map: p.map, pos: map(p.map).canStand(c) ? c : p.pos, ownerID: p.id, damage: power, expires: time + fx.seconds, armedAt: 0, turret: true, nextShot: time + 0.3))
+                traps.append(RpgTrap(map: p.map, pos: map(p.map).canStand(c) ? c : p.pos, ownerID: p.id, damage: power, expires: time + fx.seconds, armedAt: 0, turret: true, nextShot: time + 0.3,
+                                     stamp: nextStamp()))
             }
             toast("터렛 설치!")
         case .buff:
@@ -1549,7 +1607,10 @@ final class RpgWorld {
                 if fx.flags.contains("focus") { players[k].focusUntil = until }
                 effect(.levelUp, p.map, players[k].pos, e, duration: 1)
             }
-            if fx.flags.contains("frenzy") { players[i].frenzyUntil = until; players[i].cycloneUntil = time + 3; players[i].nextCyclone = time }
+            if fx.flags.contains("frenzy") {
+                players[i].frenzyUntil = until; players[i].cycloneUntil = time + 3; players[i].nextCyclone = time
+                cycloneStyles[p.id] = castStamp?.style
+            }
             if fx.flags.contains("stealth") { players[i].stealthUntil = time + fx.seconds; players[i].invulnerable = max(players[i].invulnerable, 0.5) }
             if fx.heal > 0 { healNearby(p, fraction: fx.heal, radius: fx.radius) }
         }
@@ -1573,7 +1634,7 @@ final class RpgWorld {
             let amount = players[k].maxHP * fraction
             players[k].hp = min(players[k].maxHP, players[k].hp + amount)
             float("+\(Int(amount))", p.map, players[k].pos, .heal)
-            effect(.levelUp, p.map, players[k].pos, .wind, duration: 0.9)
+            effect(.levelUp, p.map, players[k].pos, .wind, duration: 0.9, heal: true)
         }
     }
 
@@ -1621,7 +1682,8 @@ final class RpgWorld {
         let due = pending.filter { time >= $0.at }
         pending.removeAll { time >= $0.at }
         for h in due {
-            if let k = h.fx { effect(k, h.map, h.pos, h.element, duration: 0.35) }
+            castStamp = h.stamp
+            if let k = h.fx { effect(k, h.map, h.pos, h.element, duration: h.fxDuration) }
             if h.fromPlayer {
                 for v in mobIDs(near: h.pos, radius: h.radius, map: h.map) {
                     damageMob(v, map: h.map, base: h.damage, by: h.ownerID, element: h.element, skill: true, stun: h.stun)
@@ -1633,19 +1695,22 @@ final class RpgWorld {
                 shake = max(shake, 1)
             }
         }
+        castStamp = nil
     }
 
     private func stepTraps() {
         guard !traps.isEmpty else { return }
         var keep: [RpgTrap] = []
+        defer { castStamp = nil }
         for var t in traps {
+            castStamp = t.stamp
             if t.turret == true {
                 guard time < t.expires else { continue }
                 if time >= (t.nextShot ?? 0),
                    let target = (mobs[t.map] ?? []).filter({ !$0.dead && !$0.airborne && dist($0.pos, t.pos) < 160 }).min(by: { dist($0.pos, t.pos) < dist($1.pos, t.pos) }) {
                     let a = atan2(Double(target.pos.y - t.pos.y), Double(target.pos.x - t.pos.x))
                     shots.append(RpgShot(pos: CGPoint(x: t.pos.x, y: t.pos.y - 6), vel: CGVector(dx: cos(a) * 300, dy: sin(a) * 300), map: t.map,
-                                         fromPlayer: true, ownerID: t.ownerID, damage: t.damage, element: .base, kind: .arrow, life: 0.6))
+                                         fromPlayer: true, ownerID: t.ownerID, damage: t.damage, element: .base, kind: .arrow, life: 0.6, stamp: t.stamp))
                     t.nextShot = time + 0.5
                 }
                 keep.append(t)
@@ -1711,6 +1776,10 @@ final class RpgWorld {
     }
 
     private func killMob(_ id: Int, map: RpgMapID, by playerID: Int) {
+        // What a kill sets off (a boss falling, level-ups, achievements) is not part of the skill that landed it.
+        let cast = castStamp
+        castStamp = nil
+        defer { castStamp = cast }
         guard var list = mobs[map], let k = list.firstIndex(where: { $0.id == id }) else { return }
         var m = list[k]
         m.dead = true
@@ -2268,7 +2337,9 @@ final class RpgWorld {
 
     private func stepShots(_ dt: Double) {
         var keep: [RpgShot] = []
+        defer { castStamp = nil }
         for var s in shots {
+            castStamp = s.stamp
             s.life -= dt
             s.pos.x += s.vel.dx * CGFloat(dt)
             s.pos.y += s.vel.dy * CGFloat(dt)
