@@ -25,7 +25,7 @@ enum RpgEquipSlot: Int, CaseIterable {
 }
 
 extension RpgView {
-    static let bagTabs = ["장비", "소비", "기타"]
+    static let bagTabs = ["장비", "소비", "기타", "착용 중"]
     static let bagColumns = 6
     static let skillTabs = ["기본", "2차", "3차", "4차", "능력치"]
 
@@ -39,8 +39,14 @@ extension RpgView {
         }
     }
 
+    /// Tab 3 shows what is worn right now, slot by slot (weapon first); the others filter the bag.
     func bagList(_ p: RpgPlayer) -> [String] {
-        sortedInventory(p).filter { RpgItems.item($0).map(bagTab) == tab }
+        if tab == 3 { return wornList(p).map(\.1) }
+        return sortedInventory(p).filter { RpgItems.item($0).map(bagTab) == tab }
+    }
+
+    func wornList(_ p: RpgPlayer) -> [(RpgEquipSlot, String)] {
+        RpgEquipSlot.allCases.compactMap { s in s.id(p).map { (s, $0) } }
     }
 
     func equippedItem(like item: RpgItem, _ p: RpgPlayer) -> RpgItem? {
@@ -153,7 +159,7 @@ extension RpgView {
     }
 
     func drawBag(_ ctx: CGContext, _ p: RpgPlayer) {
-        let area = frame(ctx, title: "가방", hint: "방향키 이동   Tab 탭 전환   Enter 장착 · 사용   \(bindings.label(.inventory))/Esc 닫기", tabs: Self.bagTabs)
+        let area = frame(ctx, title: "가방", hint: tab == 3 ? "방향키 이동   Tab 탭 전환   Enter 해제   \(bindings.label(.inventory))/Esc 닫기" : "방향키 이동   Tab 탭 전환   Enter 장착 · 사용   \(bindings.label(.inventory))/Esc 닫기", tabs: Self.bagTabs)
         text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)
         let ids = bagList(p)
         selection = min(selection, max(0, ids.count - 1))
@@ -167,7 +173,10 @@ extension RpgView {
             let r = CGRect(x: area.minX + CGFloat(k % cols) * (cell + gap), y: area.minY + CGFloat(k / cols) * (cell + gap), width: cell, height: cell)
             if idx < ids.count, let item = RpgItems.item(ids[idx]) {
                 let eq = ids[idx] == p.weapon || ids[idx] == p.armor || ids[idx] == p.ring || ids[idx] == p.amulet || ids[idx] == p.helmet || ids[idx] == p.boots
-                drawSlot(ctx, r, item: item, count: p.inventory[ids[idx]], plus: p.plus[ids[idx]] ?? 0, selected: idx == selection, dimmed: eq)
+                drawSlot(ctx, r, item: item, count: tab == 3 ? nil : p.inventory[ids[idx]], plus: p.plus[ids[idx]] ?? 0, selected: idx == selection, dimmed: tab == 3 ? false : eq)
+                if tab == 3, let s = wornList(p).indices.contains(idx) ? wornList(p)[idx].0 : nil {
+                    text(s.title, at: CGPoint(x: r.midX, y: r.maxY - 13), size: 9, color: Self.dim, weight: .heavy, align: .center)
+                }
             } else {
                 drawSlot(ctx, r, item: nil, selected: idx == selection)
             }
@@ -175,7 +184,11 @@ extension RpgView {
         if ids.isEmpty { text("이 탭에는 아이템이 없어요", at: CGPoint(x: area.minX + gridW / 2, y: area.minY + 24), size: 12, color: Self.dim, align: .center) }
         let card = CGRect(x: area.minX + gridW + 14, y: area.minY, width: area.width - gridW - 14, height: area.height)
         let item = ids.indices.contains(selection) ? RpgItems.item(ids[selection]) : nil
-        drawItemCard(ctx, item, p, in: card)
+        drawItemCard(ctx, item, p, in: card, compare: tab != 3, extra: tab == 3 ? "Enter 로 해제 (무기는 다른 무기로 바꿔야 해요)" : nil)
+        if tab == 3 {
+            let sets = RpgEquipSlot.allCases.compactMap { s in s.id(p).flatMap(RpgItems.item).map { "\(s.title)  \($0.name)" } }
+            if sets.isEmpty { text("착용 중인 장비가 없어요", at: CGPoint(x: area.minX + gridW / 2, y: area.minY + 24), size: 12, color: Self.dim, align: .center) }
+        }
     }
 
     // MARK: equipment
@@ -519,7 +532,8 @@ extension RpgView {
             case 33: if !repeatKey { tab = (tab + Self.bagTabs.count - 1) % Self.bagTabs.count; selection = 0 }
             case 36:
                 if !repeatKey, ids.indices.contains(selection) {
-                    if ids[selection] == "ticket_rename" { close(); openChat(rename: true) } else { act(.equip(ids[selection])) }
+                    if tab == 3 { if let s = wornList(p).indices.contains(selection) ? wornList(p)[selection].0 : nil { act(.unequip(s.rawValue)) } }
+                    else if ids[selection] == "ticket_rename" { close(); openChat(rename: true) } else { act(.equip(ids[selection])) }
                 }
             default: return false
             }
