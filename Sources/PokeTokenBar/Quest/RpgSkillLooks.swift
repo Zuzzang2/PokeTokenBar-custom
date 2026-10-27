@@ -31,15 +31,40 @@ extension RpgArt {
     // MARK: basic attacks
 
     static let basicLooks: [String: FXLook] = [
-        "basic:warrior": FXLook(pal: elemPal(.base), draw: warriorSwing, hit: warriorCut),
-        "basic:archer": FXLook(pal: elemPal(.base), hit: archerPin, shot: archerArrow),
-        "basic:mage": FXLook(pal: elemPal(.cosmic), draw: mageOrbBlast, hit: mageSpark, shot: mageOrb),
-        "basic:rogue": FXLook(pal: rogueSteel, draw: rogueTwin, hit: rogueNick),
-        "basic:cleric": FXLook(pal: holyGold, hit: clericCross, shot: clericBall),
-        "basic:monk": FXLook(pal: monkKi, draw: monkPunch, hit: monkImpact),
-        "basic:summoner": FXLook(pal: ghostFire, hit: summonerFlare, shot: summonerWisp),
-        "basic:mechanic": FXLook(pal: brassPal, draw: mechanicMuzzle, hit: mechanicPing, shot: mechanicBullet),
+        "basic:warrior": FXLook(pal: elemPal(.base), draw: withProc(warriorSwing), hit: warriorCut),
+        "basic:archer": FXLook(pal: elemPal(.base), draw: withProc(nil), hit: archerPin, shot: archerArrow),
+        "basic:mage": FXLook(pal: elemPal(.cosmic), draw: withProc(mageOrbBlast), hit: mageSpark, shot: mageOrb),
+        "basic:rogue": FXLook(pal: rogueSteel, draw: withProc(rogueTwin), hit: rogueNick),
+        "basic:cleric": FXLook(pal: holyGold, draw: withProc(nil), hit: clericCross, shot: clericBall),
+        "basic:monk": FXLook(pal: monkKi, draw: withProc(monkPunch), hit: monkImpact),
+        "basic:summoner": FXLook(pal: ghostFire, draw: withProc(nil), hit: summonerFlare, shot: summonerWisp),
+        "basic:mechanic": FXLook(pal: brassPal, draw: withProc(mechanicMuzzle), hit: mechanicPing, shot: mechanicBullet),
     ]
+
+    /// A basic attack's painter that also draws the cosmic weapon's meteor proc (`RpgWorld.damageMob`).
+    private static func withProc(_ draw: FXPaint?) -> FXPaint {
+        { c, f in
+            if case .meteor(let r) = f.kind { return starProc(c, f, r) }
+            return draw?(c, f) ?? false
+        }
+    }
+
+    /// A little star drops out of the sky onto the struck monster and bursts.
+    private static func starProc(_ c: CGContext, _ f: FXF, _ r: Double) -> Bool {
+        let p = elemPal(.cosmic)
+        if f.t < 0.3 {
+            let u = easeIn(f.t / 0.3), hx = f.x + 16 * (1 - u), hy = f.y - 50 * (1 - u)
+            for k in 0..<6 { fade(c, 1 - Double(k) / 6) { px(c, hx + Double(k) * 1.2, hy - Double(k) * 3.5, k < 2 ? p.hi : p.lt) } }
+            star(c, hx, hy, 2, p.ac, p.hi)
+            return true
+        }
+        let u = easeOut(win(f.t, 0.3, 1))
+        fade(c, 1 - u) {
+            pentagram(c, f.x, f.y - 4, 4 + r * 0.5 * u, u * 2, p.lt)
+            circle(c, f.x, f.y, r * u, p.md, squash: 0.5)
+        }
+        return true
+    }
 
     /// Broad crescent, always swung top to bottom, sparks thrown off the tip.
     private static func warriorSwing(_ c: CGContext, _ f: FXF) -> Bool {
@@ -57,7 +82,7 @@ extension RpgArt {
         }
         let tx = f.x + cos(to) * (r + 3), ty = f.y + sin(to) * (r + 3) * 0.8
         if f.t > 0.1, f.t < 0.85 {
-            fling(c, tx, ty, 7, 55, win(f.t, 0.1, 0.85), seed: f.seed, [p.hi, p.lt, p.ac], dir: to + .pi / 2 * s, spread: 0.6, gravity: 90, size: 2)
+            fling(c, tx, ty, 7, 55, win(f.t, 0.1, 0.85), seed: f.seed, Tones(p.hi, p.lt, p.ac), dir: to + .pi / 2 * s, spread: 0.6, gravity: 90, size: 2)
         }
         if f.t > 0.36, f.t < 0.62 { star(c, tx, ty, 4, p.lt, p.hi) }
         spice(c, f.x + cos(ang) * r, f.y + sin(ang) * r * 0.8, 8, f.el, f.t, seed: f.seed)
@@ -75,7 +100,7 @@ extension RpgArt {
             seg(c, f.x - dx, f.y - dy, f.x + dx, f.y + dy, p.lt, f.crit ? 3 : 2)
             seg(c, f.x - dx, f.y - dy, f.x + dx, f.y + dy, p.hi)
         }
-        fling(c, f.x, f.y, f.crit ? 10 : 5, f.crit ? 70 : 45, f.t, seed: f.seed, [p.hi, p.lt, p.ac], dir: f.dir, spread: 1.2, gravity: 80)
+        fling(c, f.x, f.y, f.crit ? 10 : 5, f.crit ? 70 : 45, f.t, seed: f.seed, Tones(p.hi, p.lt, p.ac), dir: f.dir, spread: 1.2, gravity: 80)
         if f.crit {
             fade(c, 1 - f.t) { shock(c, f.x, f.y, 3 + f.t * 14, 2, p, squash: 0.8) }
             if f.t < 0.5 { star(c, f.x, f.y, 5, p.md, p.hi) }
@@ -116,7 +141,7 @@ extension RpgArt {
             fade(c, 1 - u) { circle(c, f.x, f.y, 2 + u * (f.crit ? 12 : 7), p.lt, squash: 0.7) }
             star(c, f.x, f.y, f.crit ? 4 : 2, p.md, p.hi)
         }
-        if f.crit { fling(c, f.x, f.y, 8, 60, f.t, seed: f.seed, [p.hi, p.lt], dir: f.dir, spread: 0.8) }
+        if f.crit { fling(c, f.x, f.y, 8, 60, f.t, seed: f.seed, Tones(p.hi, p.lt), dir: f.dir, spread: 0.8) }
         return true
     }
 
@@ -184,7 +209,7 @@ extension RpgArt {
             glow(c, f.x, f.y, f.r * u, p.lt)
             shock(c, f.x, f.y, f.r * u, 2, p, squash: 0.6)
         }
-        rise(c, f.x, f.y, 8, f.r * 0.5, 14, f.t, seed: f.seed, [p.hi, p.lt, p.md, p.dk], size: 2)
+        rise(c, f.x, f.y, 8, f.r * 0.5, 14, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md, p.dk), size: 2)
         return true
     }
 
@@ -224,7 +249,7 @@ extension RpgArt {
         }
         if f.crit {
             fade(c, 1 - f.t) { circle(c, f.x, f.y, 4 + f.t * 10, p.ac, squash: 0.8) }
-            fling(c, f.x, f.y, 6, 40, f.t, seed: f.seed, [p.ac, rogueSteel.ac], dir: f.dir, spread: 1, gravity: 120)
+            fling(c, f.x, f.y, 6, 40, f.t, seed: f.seed, Tones(p.ac, rogueSteel.ac), dir: f.dir, spread: 1, gravity: 120)
         }
         return true
     }
@@ -314,7 +339,7 @@ extension RpgArt {
             circle(c, f.x, f.y, 2 + 7 * u * s, p.lt, squash: 0.6)
             for i in 0..<4 { flame(c, f.x - 4 + Double(i) * 2.7, f.y + 2, (5 + Double(i % 2) * 3) * (1 - f.t * 0.6) * s, 3, p, phase: f.age * 30 + Double(i)) }
         }
-        rise(c, f.x, f.y, 4, 4, 12, f.t, seed: f.seed, [p.lt, p.md, p.dk])
+        rise(c, f.x, f.y, 4, 4, 12, f.t, seed: f.seed, Tones(p.lt, p.md, p.dk))
         return true
     }
 
@@ -355,7 +380,7 @@ extension RpgArt {
     private static func mechanicPing(_ c: CGContext, _ f: FXF) -> Bool {
         let p = weaponPal(f.el, base: brassPal)
         if f.t < 0.35 { star(c, f.x, f.y, f.crit ? 4 : 2, p.md, p.hi) }
-        fling(c, f.x, f.y, f.crit ? 8 : 4, f.crit ? 60 : 40, f.t, seed: f.seed, [p.hi, p.lt], dir: f.dir + .pi, spread: 0.9, gravity: 90)
+        fling(c, f.x, f.y, f.crit ? 8 : 4, f.crit ? 60 : 40, f.t, seed: f.seed, Tones(p.hi, p.lt), dir: f.dir + .pi, spread: 0.9, gravity: 90)
         if f.crit { fade(c, 1 - f.t) { circle(c, f.x, f.y, 3 + f.t * 10, p.lt) } }
         return true
     }
@@ -366,6 +391,7 @@ extension RpgArt {
 extension RpgArt {
     static let dustPal = FXPal(0xFFF8E8, 0xE8D8B8, 0xC0A880, 0x7A6448, 0xFFFFFF)
     static let steelPal = FXPal(0xFFFFFF, 0xCFE6FF, 0x7FA8D8, 0x34507A, 0xFFD27A)
+    static let rushPal = FXPal(0xFFFFFF, 0xFFE2B0, 0xE89A50, 0x6A3A1A, 0xFFF0C0)
     static let earthPal = FXPal(0xFFF2C0, 0xFFB050, 0xC8682A, 0x4A2E1E, 0x8A7A6A)
     static let ragePal = FXPal(0xFFF0E0, 0xFF8A6A, 0xE02828, 0x701010, 0xFFC040)
     static let ironPal = FXPal(0xFFFFFF, 0xE4ECF4, 0xA8B4C4, 0x5A6678, 0x9ED4FF)
@@ -401,7 +427,7 @@ extension RpgArt {
 
     static let warriorLooks: [String: FXLook] = [
         "w_whirl": FXLook(pal: steelPal, draw: whirl),
-        "w_dash": FXLook(pal: steelPal, draw: rushDash),
+        "w_dash": FXLook(pal: rushPal, draw: rushDash),
         "w_quake": FXLook(pal: earthPal, draw: quake, floor: quakeCrack),
         "w_rage": FXLook(pal: ragePal, draw: rage),
         "w_iron": FXLook(pal: ironPal, draw: ironWall),
@@ -441,7 +467,7 @@ extension RpgArt {
                 circle(c, f.x, f.y, r + 6 + Double(i % 2) * 3, p.hi, squash: 0.5, from: a, to: a + 0.45)
             }
         }
-        fling(c, f.x, f.y, 10, 70, f.t, seed: f.seed, [p.hi, p.ac, p.lt], spread: .pi, gravity: 40)
+        fling(c, f.x, f.y, 10, 70, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt), spread: .pi, gravity: 40)
         spice(c, f.x, f.y, r, f.el, f.t, seed: f.seed, n: 6)
         return true
     }
@@ -449,7 +475,7 @@ extension RpgArt {
     /// 돌진베기: dust kicked up along the charge, skid marks, and a ram shockwave where it ends.
     private static func rushDash(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .slash = f.kind else { return false }
-        let p = steelPal, d = dustPal
+        let p = rushPal, d = dustPal
         let ex = f.x, ey = f.y + 6
         let len = max(1, hypot(ex - f.ox, ey - f.oy))
         let run = min(1, f.age * 420 / len)
@@ -477,7 +503,7 @@ extension RpgArt {
                 }
                 star(c, rx, ry, Int(5 * (1 - u)) + 1, p.ac, p.hi)
             }
-            fling(c, rx, ry, 6, 60, u, seed: f.seed, [p.hi, p.ac], dir: f.dir, spread: 0.8, gravity: 80)
+            fling(c, rx, ry, 6, 60, u, seed: f.seed, Tones(p.hi, p.ac), dir: f.dir, spread: 0.8, gravity: 80)
         }
         return true
     }
@@ -496,7 +522,7 @@ extension RpgArt {
     private static func quake(_ c: CGContext, _ f: FXF) -> Bool {
         let p = earthPal
         fade(c, 0.6 * (1 - f.t)) { glow(c, f.x, f.y - 2, 10, p.lt, 1, squash: 0.5) }
-        fling(c, f.x, f.y, 6, 80, f.t, seed: f.seed, [p.ac, p.dk, p.md], spread: 0.45, gravity: 240, size: 2)
+        fling(c, f.x, f.y, 6, 80, f.t, seed: f.seed, Tones(p.ac, p.dk, p.md), spread: 0.45, gravity: 240, size: 2)
         fade(c, 0.7 * (1 - f.t)) { puff(c, f.x, f.y - 3 - f.t * 7, 3 + f.t * 5, dustPal.lt, dustPal.md) }
         return true
     }
@@ -514,7 +540,7 @@ extension RpgArt {
             }
         }
         if f.t > 0.1, f.t < 0.75 { glyph(c, "anger", angerGrid, p, f.x + 7, f.y - 28 - win(f.t, 0.1, 0.25) * 3 + sin(f.age * 30) * 0.6) }
-        rise(c, f.x, f.y - 4, 10, 8, 28, f.t, seed: f.seed, [p.hi, p.ac, p.lt, p.md], size: 2)
+        rise(c, f.x, f.y - 4, 10, 8, 28, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt, p.md), size: 2)
         return true
     }
 
@@ -556,7 +582,7 @@ extension RpgArt {
             let a = spin * 1.3 + Double(b) * 2.09
             blade(c, f.x + cos(a) * (17 - Double(b) * 4), f.y + 3 - Double(b) * 7 + sin(a) * 5, a + .pi / 2, 6, p)
         }
-        if blood { fling(c, f.x, f.y, 6, 70, f.t, seed: f.seed, [p.md, p.dk, p.lt], spread: .pi, gravity: 120, size: 2) }
+        if blood { fling(c, f.x, f.y, 6, 70, f.t, seed: f.seed, Tones(p.md, p.dk, p.lt), spread: .pi, gravity: 120, size: 2) }
         spice(c, f.x, f.y, 16, f.el, f.t, seed: f.seed, n: 3)
         return true
     }
@@ -586,7 +612,7 @@ extension RpgArt {
             shock(c, f.x, f.y, f.r * u * 0.6, 2, p, squash: 0.45)
         }
         if u < 0.4 { glow(c, f.x, f.y - 4, 18, p.hi, 1 - u / 0.4, squash: 0.6); star(c, f.x, f.y - 3, 6, p.lt, p.hi) }
-        fling(c, f.x, f.y, 12, 100, win(f.t, 0.15, 1), seed: f.seed, [earthPal.ac, earthPal.dk, earthPal.md], spread: 0.9, gravity: 280, size: 2)
+        fling(c, f.x, f.y, 12, 100, win(f.t, 0.15, 1), seed: f.seed, Tones(earthPal.ac, earthPal.dk, earthPal.md), spread: 0.9, gravity: 280, size: 2)
         spice(c, f.x, f.y, f.r * 0.6, f.el, f.t, seed: f.seed, n: 6)
         return true
     }
@@ -595,7 +621,7 @@ extension RpgArt {
     private static func thunderFall(_ c: CGContext, _ f: FXF) -> Bool {
         let p = stormPal
         if f.t < 0.45, Int(f.age * 30) % 3 != 2 {
-            zap(c, f.x + 10, f.y - 130, f.x, f.y - 2, p, seed: f.seed &+ UInt64(Int(f.age * 30)), jag: 7, w: 3, branches: 2)
+            zap(c, f.x + 10, f.y - 130, f.x, f.y - 2, p, seed: f.seed &+ UInt64(truncatingIfNeeded: Int(f.age * 30)), jag: 7, w: 3, branches: 2)
         }
         if f.t < 0.2 { glow(c, f.x, f.y - 6, 22, p.hi, 1 - f.t / 0.2, squash: 0.7) }
         let u = easeOut(f.t)
@@ -603,7 +629,7 @@ extension RpgArt {
             shock(c, f.x, f.y, 6 + 24 * u, 2, p, squash: 0.45)
             for i in 0..<5 {
                 let a = Double(i) * 1.26 + f.age * 6, r1 = 6 + 20 * u
-                zap(c, f.x + cos(a) * 4, f.y + sin(a) * 2, f.x + cos(a) * r1, f.y + sin(a) * r1 * 0.45, p, seed: f.seed &+ UInt64(i * 7 + Int(f.age * 20)), jag: 2, w: 1, branches: 0)
+                zap(c, f.x + cos(a) * 4, f.y + sin(a) * 2, f.x + cos(a) * r1, f.y + sin(a) * r1 * 0.45, p, seed: f.seed &+ UInt64(truncatingIfNeeded: i * 7 + Int(f.age * 20)), jag: 2, w: 1, branches: 0)
             }
         }
         return true
@@ -670,7 +696,7 @@ extension RpgArt {
         }
         if f.seq == 1 {
             fade(c, 0.4 * (1 - f.t)) { glow(c, f.x, f.y, 20, p.dk, 1, squash: 0.6) }
-            fling(c, f.x + cos(f.dir) * 10, f.y, 14, 80, f.t, seed: f.seed, [p.lt, p.md, p.dk], dir: f.dir, spread: 1.2, gravity: 160, size: 2)
+            fling(c, f.x + cos(f.dir) * 10, f.y, 14, 80, f.t, seed: f.seed, Tones(p.lt, p.md, p.dk), dir: f.dir, spread: 1.2, gravity: 160, size: 2)
         }
         return true
     }
@@ -688,7 +714,7 @@ extension RpgArt {
             fade(c, 1 - win(f.t, 0.6, 1)) {
                 for i in 0..<5 { flame(c, f.x - 8 + Double(i) * 4, f.y + 1, 10 + Double(i % 2) * 6, 4, p, phase: f.age * 20 + Double(i)) }
             }
-            rise(c, f.x, f.y, 8, 10, 24, f.t, seed: f.seed, [p.ac, p.lt, p.md, p.dk], size: 2)
+            rise(c, f.x, f.y, 8, 10, 24, f.t, seed: f.seed, Tones(p.ac, p.lt, p.md, p.dk), size: 2)
             return true
         case .slash: return cyclone(c, f, p, blood: true)
         default: return false
@@ -712,7 +738,7 @@ extension RpgArt {
             let o = Double(r.int(17)) - 8
             pillar(c, f.x + cos(f.dir) * o, f.y + sin(f.dir) * o * 0.6, 2, (16 + Double(r.int(18))) * punch(f.t, at: 0.15, hold: 0.2), p, 0.9)
         }
-        rise(c, f.x, f.y, 6, 9, 20, f.t, seed: f.seed, [p.hi, p.lt, p.md])
+        rise(c, f.x, f.y, 6, 9, 20, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md))
         return true
     }
 
@@ -804,8 +830,8 @@ extension RpgArt {
 
     private static func crushStomp(_ c: CGContext, _ f: FXF) -> Bool {
         let p = crushPal
-        fling(c, f.x, f.y, 5, 90, f.t, seed: f.seed, [p.ac, p.dk], spread: 0.5, gravity: 300, size: 3)
-        fling(c, f.x, f.y, 5, 70, f.t, seed: f.seed &+ 3, [p.hi, p.lt], spread: 0.7, gravity: 160, size: 1)
+        fling(c, f.x, f.y, 5, 90, f.t, seed: f.seed, Tones(p.ac, p.dk), spread: 0.5, gravity: 300, size: 3)
+        fling(c, f.x, f.y, 5, 70, f.t, seed: f.seed &+ 3, Tones(p.hi, p.lt), spread: 0.7, gravity: 160, size: 1)
         fade(c, 1 - win(f.t, 0.4, 1)) {
             flame(c, f.x - 3, f.y, 9 * punch(f.t, at: 0.1, hold: 0.1), 4, p, phase: f.age * 30)
             flame(c, f.x + 4, f.y + 1, 6 * punch(f.t, at: 0.15, hold: 0.1), 3, p, phase: f.age * 30 + 2)
@@ -850,7 +876,7 @@ extension RpgArt {
                 }
             }
         }
-        fling(c, f.x, f.y, 6, 90, f.t, seed: f.seed, [p.md, p.lt, p.dk], spread: .pi, gravity: 120)
+        fling(c, f.x, f.y, 6, 90, f.t, seed: f.seed, Tones(p.md, p.lt, p.dk), spread: .pi, gravity: 120)
         return true
     }
 
@@ -889,6 +915,7 @@ extension RpgArt {
     static let needlePal = FXPal(0xFFFFFF, 0xD8FAFF, 0x6AD0F8, 0x1A4A7A, 0xE0FFFF)
     static let markPal = FXPal(0xFFFFFF, 0xFFD8B0, 0xFF7A3A, 0x8A2A10, 0xFFE040)
     static let fatalPal = FXPal(0xFFFFFF, 0xFF8A8A, 0xC8102A, 0x1A0408, 0xFFD24A)
+    static let fatalRingPal = FXPal(0xFF8A8A, 0xC8102A, 0x5A0410, 0x1A0408, 0x000000)
     static let starPal = FXPal(0xFFFFFF, 0xFFF4B0, 0x9AB0FF, 0x2A2A7A, 0xFFE070)
     static let windRainPal = FXPal(0xF4FFF4, 0xB8F4C8, 0x5AC88A, 0x1E6A4A, 0xE0FFF0)
     static let hazePal = FXPal(0xF8E8FF, 0xD8A0FF, 0x9A50D8, 0x3A1A5A, 0x9AE050)
@@ -964,7 +991,7 @@ extension RpgArt {
     private static func leafHit(_ c: CGContext, _ f: FXF) -> Bool {
         let p = f.pal, u = easeOut(f.t)
         fade(c, 1 - win(f.t, 0.4, 1)) { circle(c, f.x, f.y, 2 + u * (f.crit ? 12 : 7), p.lt, squash: 0.7) }
-        fling(c, f.x, f.y, f.crit ? 9 : 5, 50, f.t, seed: f.seed, [p.md, p.lt, p.ac], dir: f.dir, spread: 1.3, gravity: 40, size: 2)
+        fling(c, f.x, f.y, f.crit ? 9 : 5, 50, f.t, seed: f.seed, Tones(p.md, p.lt, p.ac), dir: f.dir, spread: 1.3, gravity: 40, size: 2)
         if f.t < 0.3 { star(c, f.x, f.y, f.crit ? 4 : 2, p.md, p.hi) }
         return true
     }
@@ -998,7 +1025,7 @@ extension RpgArt {
             seg(c, f.x - ux * l, f.y - uy * l, f.x + ux * l * 1.4, f.y + uy * l * 1.4, p.hi)
             if f.crit { oval(c, f.x, f.y, 3, 9, f.dir, p.md) }
         }
-        fling(c, f.x, f.y, 4, 50, f.t, seed: f.seed, [p.hi, p.lt], dir: f.dir, spread: 0.5, gravity: 30)
+        fling(c, f.x, f.y, 4, 50, f.t, seed: f.seed, Tones(p.hi, p.lt), dir: f.dir, spread: 0.5, gravity: 30)
         return true
     }
 
@@ -1050,7 +1077,7 @@ extension RpgArt {
 
     private static func venomSplash(_ c: CGContext, _ f: FXF) -> Bool {
         let p = venomPal, u = easeOut(f.t)
-        fling(c, f.x, f.y, f.crit ? 12 : 7, 55, f.t, seed: f.seed, [p.lt, p.md, p.hi], spread: 1.4, gravity: 140, size: 2)
+        fling(c, f.x, f.y, f.crit ? 12 : 7, 55, f.t, seed: f.seed, Tones(p.lt, p.md, p.hi), spread: 1.4, gravity: 140, size: 2)
         fade(c, 1 - win(f.t, 0.4, 1)) {
             circle(c, f.x, f.y, 2 + 8 * u, p.md, squash: 0.6)
             if f.crit { glyph(c, "skull", skullGrid, p, f.x, f.y - 10 - u * 4) }
@@ -1096,7 +1123,7 @@ extension RpgArt {
             glow(c, f.x, f.y - 4, f.r * 0.7 * u, p.lt)
             shock(c, f.x, f.y, f.r * u, 3, p, squash: 0.5)
         }
-        fling(c, f.x, f.y, 10, 100, f.t, seed: f.seed, [p.ac, p.dk, p.lt], spread: 1, gravity: 220, size: 2)
+        fling(c, f.x, f.y, 10, 100, f.t, seed: f.seed, Tones(p.ac, p.dk, p.lt), spread: 1, gravity: 220, size: 2)
         fade(c, 0.6 * (1 - f.t)) { for k in 0..<3 { puff(c, f.x - 8 + Double(k) * 8, f.y - 6 - f.t * 16, 4 + f.t * 7, smokePal.md, smokePal.dk) } }
         return true
     }
@@ -1112,7 +1139,7 @@ extension RpgArt {
             for i in 0..<4 { let a = Double(i) * .pi / 2 + f.age * 1.5; spike(c, f.x + cos(a) * (r + 6), cy + sin(a) * (r + 6) * 0.8, a + .pi, 5, p.hi, 1) }
             if u > 0.9 { glyph(c, "eye", eyeGrid, p, f.x, f.y - 31) }
         }
-        rise(c, f.x, f.y, 8, 10, 26, f.t, seed: f.seed, [p.hi, p.lt, p.md])
+        rise(c, f.x, f.y, 8, 10, 26, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md))
         return true
     }
 
@@ -1128,7 +1155,7 @@ extension RpgArt {
         }
         glow(c, s.x, s.y, 9, p.lt, 0.9)
         arrowBody(c, s, p, shaft: p.md, fletch: p.lt, len: 15, big: true)
-        zap(c, s.x - s.ux * 20, s.y - s.uy * 20, s.x + s.ux * 3, s.y + s.uy * 3, p, seed: UInt64(Int(s.now * 30)) &+ s.seed, jag: 3, w: 1, branches: 1)
+        zap(c, s.x - s.ux * 20, s.y - s.uy * 20, s.x + s.ux * 3, s.y + s.uy * 3, p, seed: UInt64(truncatingIfNeeded: Int(s.now * 30)) &+ s.seed, jag: 3, w: 1, branches: 1)
     }
 
     private static func stormHit(_ c: CGContext, _ f: FXF) -> Bool {
@@ -1162,7 +1189,7 @@ extension RpgArt {
             for i in 0..<4 { let a = Double(i) * .pi / 2; seg(c, f.x + cos(a) * (r - 2), f.y + sin(a) * (r - 2), f.x + cos(a) * (r + 4), f.y + sin(a) * (r + 4), p.hi) }
             px(c, f.x, f.y, p.ac, f.crit ? 3 : 2)
         }
-        if f.crit { fling(c, f.x, f.y, 8, 60, f.t, seed: f.seed, [p.hi, p.ac], dir: f.dir, spread: 0.7, gravity: 60) }
+        if f.crit { fling(c, f.x, f.y, 8, 60, f.t, seed: f.seed, Tones(p.hi, p.ac), dir: f.dir, spread: 0.7, gravity: 60) }
         return true
     }
 
@@ -1188,7 +1215,7 @@ extension RpgArt {
     /// 속사: warm arrows shedding embers.
     private static func emberArrow(_ c: CGContext, _ s: ShotF) {
         let p = volleyPal
-        var r = KartRNG(seed: s.seed &+ UInt64(Int(s.now * 20)))
+        var r = KartRNG(seed: s.seed &+ UInt64(truncatingIfNeeded: Int(s.now * 20)))
         for k in 0..<5 {
             let back = 9 + Double(k) * 3
             px(c, s.x - s.ux * back + Double(r.int(3)) - 1, s.y - s.uy * back - Double(k) * 0.8 + Double(r.int(3)) - 1, k < 2 ? p.hi : (k < 4 ? p.lt : p.md))
@@ -1199,7 +1226,7 @@ extension RpgArt {
     private static func emberHit(_ c: CGContext, _ f: FXF) -> Bool {
         let p = volleyPal
         if f.t < 0.3 { star(c, f.x, f.y, f.crit ? 4 : 2, p.md, p.hi) }
-        rise(c, f.x, f.y, f.crit ? 8 : 5, 4, 14, f.t, seed: f.seed, [p.hi, p.lt, p.md, p.dk])
+        rise(c, f.x, f.y, f.crit ? 8 : 5, 4, 14, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md, p.dk))
         return true
     }
 
@@ -1282,13 +1309,13 @@ extension RpgArt {
     private static func fatalHit(_ c: CGContext, _ f: FXF) -> Bool {
         let p = fatalPal, u = easeOut(win(f.t, 0, 0.2)), h = (f.crit ? 24.0 : 17.0) * u
         fade(c, 1 - win(f.t, 0.45, 1)) {
-            shock(c, f.x, f.y, 4 + 18 * easeOut(f.t), 2, FXPal(0xFF8A8A, 0xC8102A, 0x5A0410, 0x1A0408, 0x000000), squash: 0.6)
+            shock(c, f.x, f.y, 4 + 18 * easeOut(f.t), 2, fatalRingPal, squash: 0.6)
             for a in [-Double.pi / 2, Double.pi / 2, 0, Double.pi] {
                 let l = a == -.pi / 2 ? h : (a == .pi / 2 ? h * 0.55 : h * 0.3)
                 spike(c, f.x, f.y, a, l, p.md, 4); spike(c, f.x, f.y, a, l * 0.85, p.hi, 1)
             }
         }
-        fling(c, f.x, f.y, f.crit ? 12 : 8, 70, f.t, seed: f.seed, [p.md, p.dk, p.lt], spread: 1.5, gravity: 160, size: 2)
+        fling(c, f.x, f.y, f.crit ? 12 : 8, 70, f.t, seed: f.seed, Tones(p.md, p.dk, p.lt), spread: 1.5, gravity: 160, size: 2)
         return true
     }
 
@@ -1319,7 +1346,7 @@ extension RpgArt {
                 circle(c, f.x, f.y, r * u, p.lt, squash: 0.5)
                 star(c, f.x, f.y - 4, Int(6 * (1 - u)) + 1, p.ac, p.hi)
             }
-            fall(c, f.x, f.y, 8, r * 0.7, 24, win(f.t, 0.2, 1), seed: f.seed, [p.hi, p.ac, p.lt], sway: 1)
+            fall(c, f.x, f.y, 8, r * 0.7, 24, win(f.t, 0.2, 1), seed: f.seed, Tones(p.hi, p.ac, p.lt), sway: 1)
             return true
         default: return false
         }
@@ -1354,7 +1381,7 @@ extension RpgArt {
                 for k in 0..<4 { let a = f.age * 14 + Double(k); circle(c, f.x, f.y - Double(k) * 5 * u * 2, 4 + Double(k) * 3 + u * 4, p.lt, squash: 0.4, from: a, to: a + 3.5) }
                 circle(c, f.x, f.y, r * easeOut(u), p.md, squash: 0.5)
             }
-            fling(c, f.x, f.y, 6, 60, u, seed: f.seed, [p.md, p.lt, forestPal.md], spread: .pi, gravity: 30, size: 2)
+            fling(c, f.x, f.y, 6, 60, u, seed: f.seed, Tones(p.md, p.lt, forestPal.md), spread: .pi, gravity: 30, size: 2)
             return true
         default: return false
         }
@@ -1373,7 +1400,7 @@ extension RpgArt {
             puff(c, f.x - 3, f.y - 3 - u * 4, 3 + u * 4, p.lt, p.md)
             puff(c, f.x + 3, f.y - 1 - u * 3, 2 + u * 3, p.md, p.dk)
         }
-        rise(c, f.x, f.y, 4, 5, 10, f.t, seed: f.seed, [p.ac, p.lt])
+        rise(c, f.x, f.y, 4, 5, 10, f.t, seed: f.seed, Tones(p.ac, p.lt))
         return true
     }
 
@@ -1413,12 +1440,13 @@ extension RpgArt {
         let p = forestPal
         var r = KartRNG(seed: f.seed)
         let h = punch(f.t, at: 0.25, hold: 0.25)
-        for _ in 0..<4 {
+        for _ in 0..<6 {
             let a = Double(r.int(628)) / 100, d = f.r * 0.85 * sqrt(Double(r.int(100)) / 100)
             let vx = f.x + cos(a) * d, vy = f.y + sin(a) * d * 0.5
-            vine(c, vx, vy, (14 + Double(r.int(10))) * h, (Double(r.int(3)) - 1) * 2, p)
+            fade(c, 0.5 * h) { crack(c, vx - 4, vy, 0, 8, earthPal, seed: f.seed &+ UInt64(truncatingIfNeeded: Int(vx)), glow: 0.2) }
+            vine(c, vx, vy, (16 + Double(r.int(12))) * h, (Double(r.int(3)) - 1) * 2, p)
         }
-        fling(c, f.x, f.y, 6, 50, f.t, seed: f.seed &+ 1, [p.lt, p.md], spread: .pi, gravity: 20, size: 2)
+        fling(c, f.x, f.y, 6, 50, f.t, seed: f.seed &+ 1, Tones(p.lt, p.md), spread: .pi, gravity: 20, size: 2)
         return true
     }
 
@@ -1538,7 +1566,7 @@ extension RpgArt {
                 for i in 0..<8 { let a = Double(i) * .pi / 4 + 0.2; spike(c, f.x, f.y - 5, a, f.r * 0.75 * u, p.md, 4, squash: 0.7); spike(c, f.x, f.y - 5, a, f.r * 0.5 * u, p.lt, 2, squash: 0.7) }
                 shock(c, f.x, f.y, f.r * u, 2, p, squash: 0.5)
             }
-            rise(c, f.x, f.y, 10, f.r * 0.6, 20, f.t, seed: f.seed, [p.hi, p.lt, p.md, p.dk], size: 2)
+            rise(c, f.x, f.y, 10, f.r * 0.6, 20, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md, p.dk), size: 2)
         case .ice:
             fade(c, k) {
                 for i in 0..<6 {
@@ -1549,9 +1577,9 @@ extension RpgArt {
                 circle(c, f.x, f.y, f.r * u, p.lt, squash: 0.5)
                 flake(c, f.x, f.y - 6, 6 * (1 - u) + 2, p.hi, p.lt)
             }
-            fall(c, f.x, f.y, 8, f.r * 0.7, 18, f.t, seed: f.seed, [p.hi, p.lt])
+            fall(c, f.x, f.y, 8, f.r * 0.7, 18, f.t, seed: f.seed, Tones(p.hi, p.lt))
         case .thunder:
-            if f.t < 0.4, Int(f.age * 30) % 3 != 1 { zap(c, f.x, f.y - 80, f.x, f.y - 4, p, seed: f.seed &+ UInt64(Int(f.age * 30)), jag: 4, w: 3, branches: 1) }
+            if f.t < 0.4, Int(f.age * 30) % 3 != 1 { zap(c, f.x, f.y - 80, f.x, f.y - 4, p, seed: f.seed &+ UInt64(truncatingIfNeeded: Int(f.age * 30)), jag: 4, w: 3, branches: 1) }
             fade(c, k) {
                 shock(c, f.x, f.y, f.r * u, 2, p, squash: 0.5)
                 for i in 0..<6 { let a = Double(i) * 1.05 + f.age * 8; zap(c, f.x, f.y - 3, f.x + cos(a) * f.r * 0.7 * u, f.y + sin(a) * f.r * 0.35 * u, p, seed: f.seed &+ UInt64(i), jag: 2, w: 1, branches: 0) }
@@ -1582,7 +1610,7 @@ extension RpgArt {
             let ex = Double(a.x + (b.x - a.x) * reach), ey = Double(a.y + (b.y - a.y) * reach)
             let k2 = 1 - win(live, 0.3, 0.5)
             fade(c, 0.35 * k2) { seg(c, Double(a.x), Double(a.y), ex, ey, p.md, 4) }
-            if Int(f.age * 30) % 4 != 3 { fade(c, k2) { zap(c, Double(a.x), Double(a.y), ex, ey, p, seed: f.seed &+ UInt64(k * 7 + Int(f.age * 24)), jag: 4, w: 3, branches: 1) } }
+            if Int(f.age * 30) % 4 != 3 { fade(c, k2) { zap(c, Double(a.x), Double(a.y), ex, ey, p, seed: f.seed &+ UInt64(truncatingIfNeeded: k * 7 + Int(f.age * 24)), jag: 4, w: 3, branches: 1) } }
             if reach >= 1 {
                 let s = 7 * punch(win(live, 0.06, 0.5), at: 0.2, hold: 0.3)
                 glow(c, Double(b.x), Double(b.y), s + 4, p.lt, 0.8)
@@ -1618,7 +1646,7 @@ extension RpgArt {
                 ellipse(c, f.x, f.y - 11, 2 + 4 * o, p.md, squash: 3)
                 box(c, f.x, f.y - 28, 1, 30, p.hi)
             }
-            fall(c, f.x, f.y, 10, 9, 22, f.t, seed: f.seed, [p.hi, p.ac, p.lt], sway: 1)
+            fall(c, f.x, f.y, 10, 9, 22, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt), sway: 1)
             return true
         default: return false
         }
@@ -1640,7 +1668,7 @@ extension RpgArt {
             }
             circle(c, f.x, f.y, 15, p.hi, squash: 0.35)
         }
-        rise(c, f.x, f.y, 8, 12, 26, f.t, seed: f.seed, [p.hi, p.ac, p.lt])
+        rise(c, f.x, f.y, 8, 12, 26, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt))
         return true
     }
 
@@ -1656,7 +1684,7 @@ extension RpgArt {
             }
             for j in 0..<4 { puff(c, f.x - 18 + Double(j) * 12, f.y - 36 + sin(f.now * 2 + Double(j)) * 2, 6, p.lt, p.md) }
         }
-        fall(c, f.x, f.y, 10, f.r, 30, f.t, seed: f.seed &+ 5, [p.hi, p.lt], sway: 3)
+        fall(c, f.x, f.y, 10, f.r, 30, f.t, seed: f.seed &+ 5, Tones(p.hi, p.lt), sway: 3)
         return true
     }
 
@@ -1674,7 +1702,7 @@ extension RpgArt {
             flame(c, f.x + 3, f.y + 1, h * 0.7, 5, p, phase: f.age * 28 + 2)
             flame(c, f.x, f.y, h, 9, p, phase: f.age * 24 + Double(f.seq))
         }
-        rise(c, f.x, f.y - h * 0.6, 6, 5, 18, f.t, seed: f.seed, [p.hi, p.lt, p.md])
+        rise(c, f.x, f.y - h * 0.6, 6, 5, 18, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md))
         return true
     }
 
@@ -1738,7 +1766,7 @@ extension RpgArt {
             let u = easeOut(win(f.t, 0.25, 1))
             if u < 0.3 { glow(c, f.x, f.y - 6, r, p.hi, 1 - u / 0.3, squash: 0.7) }
             fade(c, 1 - win(f.t, 0.55, 1)) { shock(c, f.x, f.y, r * u, 3, p, squash: 0.5) }
-            fling(c, f.x, f.y, 10, 110, win(f.t, 0.25, 1), seed: f.seed, [p.lt, p.md, p.ac], spread: 0.8, gravity: 260, size: 2)
+            fling(c, f.x, f.y, 10, 110, win(f.t, 0.25, 1), seed: f.seed, Tones(p.lt, p.md, p.ac), spread: 0.8, gravity: 260, size: 2)
             fade(c, 0.6 * (1 - u)) { for k in 0..<3 { puff(c, f.x - 6 + Double(k) * 6, f.y - 8 - u * 16 - Double(k % 2) * 4, 4 + u * 6, smokePal.md, smokePal.dk) } }
             return true
         default: return false
@@ -1795,7 +1823,7 @@ extension RpgArt {
                     flame(c, f.x + cos(a) * r * 0.35, ry + 2, 6 + Double(j), 3, p, phase: f.age * 30 + Double(j))
                 }
             }
-            rise(c, f.x, f.y, 10, r * 0.4, 30, win(f.t, 0.22, 1), seed: f.seed, [p.hi, p.lt, p.md, p.dk], size: 2)
+            rise(c, f.x, f.y, 10, r * 0.4, 30, win(f.t, 0.22, 1), seed: f.seed, Tones(p.hi, p.lt, p.md, p.dk), size: 2)
             return true
         default: return false
         }
@@ -1844,7 +1872,7 @@ extension RpgArt {
     private static func lavaGeyser(_ c: CGContext, _ f: FXF) -> Bool {
         let p = lavaPal
         fade(c, 1 - win(f.t, 0.5, 1)) { flame(c, f.x, f.y, 16 * punch(f.t, at: 0.12, hold: 0.15), 7, p, phase: f.age * 20) }
-        fling(c, f.x, f.y - 4, 7, 110, f.t, seed: f.seed, [p.lt, p.md, p.ac], spread: 0.45, gravity: 360, size: 3)
+        fling(c, f.x, f.y - 4, 7, 110, f.t, seed: f.seed, Tones(p.lt, p.md, p.ac), spread: 0.45, gravity: 360, size: 3)
         return true
     }
 
@@ -1913,7 +1941,7 @@ extension RpgArt {
             }
             let u = easeOut(win(f.t, 0.15, 1))
             fade(c, 1 - u) { shock(c, f.x, f.y, r * 0.6 * u, 2, p, squash: 0.5); star(c, f.x, f.y - 3, Int(5 * (1 - u)) + 1, p.lt, p.hi) }
-            fling(c, f.x, f.y, 8, 80, win(f.t, 0.15, 1), seed: f.seed, [p.hi, p.lt, p.md], spread: 0.9, gravity: 200)
+            fling(c, f.x, f.y, 8, 80, win(f.t, 0.15, 1), seed: f.seed, Tones(p.hi, p.lt, p.md), spread: 0.9, gravity: 200)
             return true
         default: return false
         }
@@ -1974,7 +2002,7 @@ extension RpgArt {
                 return true
             }
             let u = easeOut(win(f.t, 0.22, 1))
-            fling(c, f.x, f.y - 6, 14, 100, win(f.t, 0.22, 1), seed: f.seed, [p.hi, p.lt, p.md], spread: 1.1, gravity: 240, size: 2)
+            fling(c, f.x, f.y - 6, 14, 100, win(f.t, 0.22, 1), seed: f.seed, Tones(p.hi, p.lt, p.md), spread: 1.1, gravity: 240, size: 2)
             fade(c, 1 - win(f.t, 0.5, 1)) { shock(c, f.x, f.y, r * u, 2, p, squash: 0.5); flake(c, f.x, f.y - 6, 7 * (1 - u) + 2, p.hi, p.lt) }
             fade(c, 0.5 * (1 - u)) { puff(c, f.x, f.y - 2, 6 + u * 6, p.hi, p.lt) }
             return true
@@ -2015,7 +2043,7 @@ extension RpgArt {
                 spike(c, tx, ty, -.pi / 2, 7, p.lt, 3); spike(c, tx, ty, -.pi / 2, 5, p.hi, 1)
             }
         }
-        fall(c, f.x, f.y, 12, f.r * 0.8, 20, f.t, seed: f.seed, [p.hi, p.ac], sway: 2)
+        fall(c, f.x, f.y, 12, f.r * 0.8, 20, f.t, seed: f.seed, Tones(p.hi, p.ac), sway: 2)
         return true
     }
 
@@ -2033,7 +2061,7 @@ extension RpgArt {
     /// Ice breaking off the target.
     private static func shatterHit(_ c: CGContext, _ f: FXF) -> Bool {
         let p = f.pal
-        fling(c, f.x, f.y, f.crit ? 12 : 7, 60, f.t, seed: f.seed, [p.hi, p.lt, p.md], spread: 1.4, gravity: 120, size: 2)
+        fling(c, f.x, f.y, f.crit ? 12 : 7, 60, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md), spread: 1.4, gravity: 120, size: 2)
         fade(c, 1 - win(f.t, 0.4, 1)) { flake(c, f.x, f.y, 3 + 5 * easeOut(f.t), p.lt, p.hi) }
         return true
     }
@@ -2104,7 +2132,7 @@ extension RpgArt {
             seg(c, x0, y0, x1, y1, p.hi, 2)
         }
         if f.seq == 3, f.t > 0.2 { star(c, cx, cy, Int(6 * (1 - f.t)) + 1, p.ac, p.hi) }
-        fling(c, cx, cy, 4, 50, f.t, seed: f.seed, [p.ac, p.hi], dir: f.dir, spread: 1, gravity: 100)
+        fling(c, cx, cy, 4, 50, f.t, seed: f.seed, Tones(p.ac, p.hi), dir: f.dir, spread: 1, gravity: 100)
         return true
     }
 
@@ -2147,7 +2175,7 @@ extension RpgArt {
             }
             circle(c, f.x, f.y, f.r * u, p.lt, squash: 0.5)
         }
-        rise(c, f.x, f.y, 8, f.r * 0.6, 14, f.t, seed: f.seed, [p.ac, p.lt, p.md])
+        rise(c, f.x, f.y, 8, f.r * 0.6, 14, f.t, seed: f.seed, Tones(p.ac, p.lt, p.md))
         return true
     }
 
@@ -2157,11 +2185,13 @@ extension RpgArt {
         if f.age < 0.12 { glow(c, f.x, f.y - 6, 14, p.hi, 1 - f.age / 0.12) }
         let grow = easeOut(win(f.age, 0, 0.35)), k = 1 - win(f.t, 0.7, 1)
         var r = KartRNG(seed: f.seed)
-        fade(c, k * 0.85) {
+        fade(c, k * 0.7) {
             for i in 0..<11 {
                 let a = Double(r.int(628)) / 100 + f.age * (i % 2 == 0 ? 0.6 : -0.6), d = f.r * 0.75 * grow * Double(30 + r.int(70)) / 100
                 let px0 = f.x + cos(a) * d, py0 = f.y - 6 + sin(a) * d * 0.55 - f.age * 4
-                puff(c, px0, py0, (5 + Double(r.int(4))) * (0.5 + grow * 0.6), i % 3 == 0 ? p.lt : p.md, p.dk)
+                let s = (5 + Double(r.int(4))) * (0.5 + grow * 0.6)
+                puff(c, px0, py0, s, i % 3 == 0 ? p.hi : p.lt, p.md)
+                px(c, px0 - s * 0.4, py0 - s * 0.45, p.hi)
             }
         }
         return true
@@ -2189,7 +2219,7 @@ extension RpgArt {
                 spike(c, f.x, f.y, -.pi / 2, 10 * (1 - u) + 4, p.hi, 2); spike(c, f.x, f.y, .pi / 2, 7 * (1 - u) + 3, p.hi, 2)
                 spike(c, f.x, f.y, 0, 6, p.lt, 1); spike(c, f.x, f.y, .pi, 6, p.lt, 1)
             }
-            fling(c, f.x, f.y, 8, 50, u, seed: f.seed, [p.md, p.dk], dir: a, spread: 0.8, gravity: 150, size: 2)
+            fling(c, f.x, f.y, 8, 50, u, seed: f.seed, Tones(p.md, p.dk), dir: a, spread: 0.8, gravity: 150, size: 2)
         }
         return true
     }
@@ -2248,7 +2278,7 @@ extension RpgArt {
             crescent(c, hx + cos(a) * 18, hy + sin(a) * 9, 9, a - .pi / 2 - 0.2, a - .pi / 2 + 2.2, 4, p, squash: 0.8, rim: p.dk)
             if sw > 0.3 { crescent(c, f.x, f.y - 6, 13, ang - 1.6, a, 2, p, squash: 0.7) }
         }
-        rise(c, f.x, f.y - 4, 5, 5, 26, f.t, seed: f.seed, [p.hi, p.lt, p.md])
+        rise(c, f.x, f.y - 4, 5, 5, 26, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md))
         return true
     }
 
@@ -2262,7 +2292,7 @@ extension RpgArt {
                 puff(c, f.x + cos(a) * d, f.y - 6 + sin(a) * d * 0.5 - f.t * 6, 6 * (0.6 + grow * 0.5), i % 2 == 0 ? p.lt : p.md, p.dk)
             }
         }
-        rise(c, f.x, f.y, 10, f.r * 0.6, 22, f.t, seed: f.seed, [p.hi, p.lt])
+        rise(c, f.x, f.y, 10, f.r * 0.6, 22, f.t, seed: f.seed, Tones(p.hi, p.lt))
         if f.t > 0.2 { fade(c, k) { glyph(c, "skull", skullGrid, p, f.x, f.y - 22 - f.t * 10) } }
         return true
     }
@@ -2272,7 +2302,7 @@ extension RpgArt {
         let p = miasmaPal, u = easeOut(f.t), r = f.r * (0.4 + 0.7 * u)
         fade(c, 0.5 * (1 - f.t)) { for w in 0..<5 { circle(c, f.x, f.y - 4, r - Double(w), w < 2 ? p.lt : p.md, squash: 0.5) } }
         fade(c, 1 - f.t) { circle(c, f.x, f.y - 4, r + 1, p.hi, squash: 0.5, dash: 3) }
-        fling(c, f.x, f.y - 4, 10, 60, f.t, seed: f.seed, [p.ac, p.lt, p.md], spread: .pi, gravity: 60, size: 2)
+        fling(c, f.x, f.y - 4, 10, 60, f.t, seed: f.seed, Tones(p.ac, p.lt, p.md), spread: .pi, gravity: 60, size: 2)
         return true
     }
 
@@ -2296,32 +2326,37 @@ extension RpgArt {
             for b in 0..<3 { let a = spin + Double(b) * 2.09; crescent(c, f.x, f.y - 5, r, a - 1.6, a, 4, p, squash: 0.45, rim: p.dk) }
             for i in 0..<5 { let a = spin * 0.7 + Double(i) * 1.26; circle(c, f.x, f.y - 5, r + 5, p.lt, squash: 0.45, from: a, to: a + 0.4) }
         }
-        fling(c, f.x, f.y - 5, 5, 70, f.t, seed: f.seed, [p.md, p.lt], spread: .pi, gravity: 90)
+        fling(c, f.x, f.y - 5, 5, 70, f.t, seed: f.seed, Tones(p.md, p.lt), spread: .pi, gravity: 90)
         return true
     }
 
     /// 죽음의 무도: a four-bladed pinwheel spins through each foe, scattering dark red petals.
     private static func deathDance(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .slash = f.kind else { return false }
-        let p = dancePal, rot = f.age * 22, s = 9 * punch(f.t, at: 0.15, hold: 0.35)
+        let p = dancePal, rot = f.age * 22, s = 13 * punch(f.t, at: 0.15, hold: 0.35)
         fade(c, 1 - win(f.t, 0.6, 1)) {
+            circle(c, f.x, f.y - 7, s + 2, p.ac, squash: 0.85, from: rot, to: rot + 4)
             for b in 0..<4 {
                 let a = rot + Double(b) * .pi / 2
-                crescent(c, f.x, f.y - 7, s, a, a + 1.1, 3, p, squash: 0.85)
+                crescent(c, f.x, f.y - 7, s, a, a + 1.2, 4, p, squash: 0.85, rim: p.dk)
             }
-            px(c, f.x, f.y - 7, p.ac, 2)
+            px(c, f.x, f.y - 7, p.ac, 3)
         }
-        fall(c, f.x, f.y, 6, 10, 18, f.t, seed: f.seed, [p.ac, p.dk], sway: 3)
+        fall(c, f.x, f.y, 9, 14, 22, f.t, seed: f.seed, Tones(p.ac, p.dk), sway: 3)
         return true
     }
+
+    /// The shadow figure with a glowing violet edge, so it shows on dark floors.
+    static let cloneGrid: RpgGrid = figureGrid.map { $0.replacingOccurrences(of: "k", with: "l") }
 
     /// 그림자 분신: three shadow copies split off the rogue and fade, violet smoke curling.
     private static func shadowClones(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .levelUp = f.kind else { return false }
         let p = clonePal, u = easeOut(win(f.t, 0, 0.5)), k = 1 - win(f.t, 0.6, 1)
-        for (i, dx) in [-18.0, 18.0, 0].enumerated() {
+        for i in 0..<3 {
+            let dx = i == 0 ? -18.0 : (i == 1 ? 18 : 0)
             let gx = f.x + dx * u, gy = f.y - 9 - (i == 2 ? 6 * u : 0)
-            fade(c, k * 0.7) { glyph(c, "clone", figureGrid, p, gx, gy) }
+            fade(c, k * 0.8) { glyph(c, "clone", cloneGrid, p, gx, gy) }
         }
         fade(c, 0.6 * k) { for i in 0..<4 { puff(c, f.x - 9 + Double(i) * 6, f.y - 3 - f.t * 10, 3 + f.t * 3, p.md, p.dk) } }
         return true
@@ -2340,7 +2375,7 @@ extension RpgArt {
         fade(c, 0.7 * k) {
             for i in 0..<3 { let a = f.now * 2 + Double(i) * 2.1 + Double(f.seq); circle(c, f.x, f.y - 2, f.r * (0.4 + 0.2 * Double(i)), p.lt, squash: 0.35, from: a, to: a + 1.6) }
         }
-        rise(c, f.x, f.y, 5, f.r * 0.7, 10, f.t, seed: f.seed &+ 3, [p.ac, p.lt])
+        rise(c, f.x, f.y, 5, f.r * 0.7, 10, f.t, seed: f.seed &+ 3, Tones(p.ac, p.lt))
         return true
     }
 
@@ -2361,12 +2396,12 @@ extension RpgArt {
             return true
         case .meteor(let r):
             let u = easeOut(f.t)
-            fling(c, f.x, f.y - 3, 12, 80, f.t, seed: f.seed, [p.lt, p.md, p.ac], spread: 1.2, gravity: 200, size: 2)
+            fling(c, f.x, f.y - 3, 12, 80, f.t, seed: f.seed, Tones(p.lt, p.md, p.ac), spread: 1.2, gravity: 200, size: 2)
             fade(c, 1 - win(f.t, 0.5, 1)) {
                 ellipse(c, f.x, f.y, r * 0.7 * u, p.md, squash: 0.45)
                 ellipse(c, f.x, f.y, r * 0.5 * u, p.lt, squash: 0.45)
             }
-            rise(c, f.x, f.y, 10, r * 0.6, 12, f.t, seed: f.seed &+ 1, [p.hi, p.lt], size: 1)
+            rise(c, f.x, f.y, 10, r * 0.6, 12, f.t, seed: f.seed &+ 1, Tones(p.hi, p.lt), size: 1)
             return true
         default: return false
         }
@@ -2391,17 +2426,21 @@ extension RpgArt {
     private static func venomFangs(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .slash = f.kind else { return false }
         let p = fangPal, shut = easeIn(win(f.t, 0, 0.25)), k = 1 - win(f.t, 0.55, 1)
-        let gap = 10 * (1 - shut)
+        let gap = 12 * (1 - shut)
         fade(c, k) {
-            for s in [-1.0, 1.0] {
-                let fx = f.x, fy = f.y - 8 + s * (gap + 2)
-                for i in 0..<7 {
-                    let u = Double(i) / 6
-                    px(c, fx - 4 + u * 8, fy - s * sin(u * .pi) * 3 - s * u * 3, i < 5 ? p.hi : p.lt, 2)
+            for j in 0..<2 {
+                let s = j == 0 ? -1.0 : 1.0, jy = f.y - 8 + s * (gap + 6)
+                oval(c, f.x, jy, 10, 5, 0, p.dk, from: s < 0 ? .pi : 0, to: s < 0 ? 2 * .pi : .pi)
+                oval(c, f.x, jy, 9, 4, 0, p.md, from: s < 0 ? .pi : 0, to: s < 0 ? 2 * .pi : .pi)
+                for side in 0..<2 {
+                    let fx = f.x + (side == 0 ? -5 : 5)
+                    spike(c, fx, jy - s * 2, s < 0 ? .pi / 2 : -.pi / 2, 8, p.lt, 3)
+                    spike(c, fx, jy - s * 2, s < 0 ? .pi / 2 : -.pi / 2, 7, p.hi, 1)
+                    px(c, fx, jy - s * 10, p.ac, 2)
                 }
             }
         }
-        if shut >= 1 { fling(c, f.x, f.y - 8, 10, 60, win(f.t, 0.25, 1), seed: f.seed, [p.md, p.ac, p.lt], spread: 1.4, gravity: 140, size: 2) }
+        if shut >= 1 { fling(c, f.x, f.y - 8, 10, 60, win(f.t, 0.25, 1), seed: f.seed, Tones(p.md, p.ac, p.lt), spread: 1.4, gravity: 140, size: 2) }
         return true
     }
 }
@@ -2514,7 +2553,7 @@ extension RpgArt {
             let fx = f.x - 14 + Double(i) * 4.5 + tilt * 3, fy = f.y - 36 + u * 30
             fade(c, 1 - u * u) { seg(c, fx - 2, fy - tilt, fx + 2, fy + tilt, p.lt); px(c, fx - 2, fy - tilt, p.hi) }
         }
-        if f.t < 0.4 { rise(c, f.x, f.y - 6, 8, 6, 24, f.t / 0.4, seed: f.seed, [p.hi, p.ac, p.lt]) }
+        if f.t < 0.4 { rise(c, f.x, f.y - 6, 8, 6, 24, f.t / 0.4, seed: f.seed, Tones(p.hi, p.ac, p.lt)) }
         return true
     }
 
@@ -2652,7 +2691,7 @@ extension RpgArt {
             circle(c, f.x, f.y - 1, 15 * u, p.md, squash: 0.45)
             circle(c, f.x, f.y - 1, 5 * u, p.ac, squash: 0.45)
         }
-        rise(c, f.x, f.y - 2, 8, 8, 24, f.t, seed: f.seed, [p.hi, p.lt, p.md], size: 2)
+        rise(c, f.x, f.y - 2, 8, 8, 24, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md), size: 2)
         return true
     }
 
@@ -2665,7 +2704,7 @@ extension RpgArt {
             glyph(c, "wing", wingGrid, p, f.x + 7 + 6 * open, f.y - 15, flip: true)
             circle(c, f.x, f.y - 28, 5, p.ac, squash: 0.35)
         }
-        rise(c, f.x, f.y - 4, 8, 10, 22, f.t, seed: f.seed, [p.hi, p.ac, p.lt])
+        rise(c, f.x, f.y - 4, 8, 10, 22, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt))
         return true
     }
 
@@ -2674,7 +2713,7 @@ extension RpgArt {
         let p = flashCutPal, ux = cos(f.dir), uy = sin(f.dir) * 0.6, o = punch(f.t, at: 0.12, hold: 0.2)
         fade(c, o) { beam(c, f.x - ux * 12, f.y - 8 - uy * 12, f.x + ux * 12, f.y - 8 + uy * 12, 3, p) }
         if f.t < 0.5 { star(c, f.x + ux * 12, f.y - 8 + uy * 12, Int(4 * o) + 1, p.ac, p.hi) }
-        fall(c, f.x, f.y - 8, 4, 10, 10, f.t, seed: f.seed, [p.hi, p.lt])
+        fall(c, f.x, f.y - 8, 4, 10, 10, f.t, seed: f.seed, Tones(p.hi, p.lt))
         return true
     }
 
@@ -2692,6 +2731,12 @@ extension RpgArt {
         return true
     }
 
+    /// A small grey storm cloud lit gold from inside.
+    private static func stormCloud(_ c: CGContext, _ x: Double, _ y: Double, _ age: Double) {
+        for k in 0..<3 { puff(c, x - 8 + Double(k) * 8, y + Double(k % 2) * 2, 5, smokePal.lt, smokePal.md) }
+        if Int(age * 12) % 3 == 0 { glow(c, x, y + 2, 7, punishPal.lt, 0.8) }
+    }
+
     /// 천벌: a little golden storm cloud gathers over the mark and strikes.
     private static func punishMark(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .telegraph(let r) = f.kind else { return true }
@@ -2703,11 +2748,11 @@ extension RpgArt {
         let p = punishPal
         switch f.kind {
         case .telegraph:
-            fade(c, f.t) { for k in 0..<3 { puff(c, f.x - 8 + Double(k) * 8, f.y - 62 + Double(k % 2) * 2, 5, p.lt, p.dk) } }
+            fade(c, f.t) { stormCloud(c, f.x, f.y - 62, f.age) }
             return true
         case .meteor(let r):
-            fade(c, 1 - win(f.t, 0.6, 1)) { for k in 0..<3 { puff(c, f.x - 8 + Double(k) * 8, f.y - 62 + Double(k % 2) * 2, 5, p.lt, p.dk) } }
-            if f.t < 0.4, Int(f.age * 30) % 3 != 2 { zap(c, f.x, f.y - 58, f.x, f.y - 2, p, seed: f.seed &+ UInt64(Int(f.age * 30)), jag: 4, w: 3, branches: 1) }
+            fade(c, 1 - win(f.t, 0.6, 1)) { stormCloud(c, f.x, f.y - 62, f.age) }
+            if f.t < 0.4, Int(f.age * 30) % 3 != 2 { zap(c, f.x, f.y - 58, f.x, f.y - 2, p, seed: f.seed &+ UInt64(truncatingIfNeeded: Int(f.age * 30)), jag: 4, w: 3, branches: 1) }
             if f.t < 0.15 { glow(c, f.x, f.y - 4, 16, p.hi, 1 - f.t / 0.15) }
             fade(c, 1 - win(f.t, 0.4, 1)) { shock(c, f.x, f.y, r * easeOut(f.t), 2, p, squash: 0.5); rays(c, f.x, f.y - 3, 8, 10 * easeOut(f.t), 0, p, squash: 0.5) }
             return true
@@ -2758,7 +2803,7 @@ extension RpgArt {
             circle(c, f.x, f.y, f.r * (0.5 + 0.5 * easeOut(f.t)), p.md, squash: 0.5)
             glow(c, f.x, f.y - 6, f.r * 0.5, p.hi, 0.4, squash: 0.6)
         }
-        fall(c, f.x, f.y, 10, f.r * 0.7, 26, f.t, seed: f.seed &+ 4, [p.hi, p.lt])
+        fall(c, f.x, f.y, 10, f.r * 0.7, 26, f.t, seed: f.seed &+ 4, Tones(p.hi, p.lt))
         return true
     }
 
@@ -2801,7 +2846,7 @@ extension RpgArt {
                 rays(c, f.x, f.y - 3, 4, r * 0.7 * u, 0, p, squash: 0.6)
                 circle(c, f.x, f.y, r * u, p.md, squash: 0.5)
             }
-            fall(c, f.x, f.y, 8, r * 0.6, 26, win(f.t, 0.1, 1), seed: f.seed, [p.hi, p.lt, p.md], sway: 3)
+            fall(c, f.x, f.y, 8, r * 0.6, 26, win(f.t, 0.1, 1), seed: f.seed, Tones(p.hi, p.lt, p.md), sway: 3)
             return true
         default: return false
         }
@@ -2845,11 +2890,11 @@ extension RpgArt {
         "k_palm": FXLook(pal: palmPal, hit: { c, f in kiHit(c, f) }, shot: kiWave),
         "k_qi": FXLook(pal: qiPal, draw: qiAura),
         "k_dragon": FXLook(pal: dragonFistPal, draw: risingDragon),
-        "k_barrage": FXLook(pal: barragePal, draw: { c, f in fistFlurry(c, f, barragePal, last: 7) }),
+        "k_barrage": FXLook(pal: barragePal, draw: { c, f in fistFlurry(c, f, barragePal, last: 7, fiery: false) }),
         "k_iron": FXLook(pal: vajraPal, draw: vajraBody),
         "k_ult": FXLook(pal: heavenFistPal, draw: heavenBarrage),
         "j_fk1": FXLook(pal: blastFistPal, draw: blastFist),
-        "j_fk2": FXLook(pal: furyPal, draw: { c, f in fistFlurry(c, f, furyPal, last: 11) }),
+        "j_fk2": FXLook(pal: furyPal, draw: { c, f in fistFlurry(c, f, furyPal, last: 11, fiery: true) }),
         "j_asc1": FXLook(pal: lotusPal, draw: meditate),
         "j_asc2": FXLook(pal: counterPal, draw: counterKi),
         "t2_mo1a": FXLook(pal: chainFistPal, draw: chainFists),
@@ -2937,7 +2982,7 @@ extension RpgArt {
             guard u > 0, u < 1 else { continue }
             fade(c, 1 - u) { circle(c, f.x, f.y - u * 28, 8 - u * 3, p.lt, squash: 0.35) }
         }
-        rise(c, f.x, f.y - 4, 8, 8, 30, f.t, seed: f.seed, [p.hi, p.lt, p.ac], size: 2)
+        rise(c, f.x, f.y - 4, 8, 8, 30, f.t, seed: f.seed, Tones(p.hi, p.lt, p.ac), size: 2)
         return true
     }
 
@@ -2959,13 +3004,13 @@ extension RpgArt {
             ellipse(c, hx, hy, 4, p.md); ellipse(c, hx - 1, hy - 1, 2.5, p.lt)
             px(c, hx + 1, hy - 1, p.hi); seg(c, hx - 2, hy - 3, hx - 4, hy - 7, p.ac); seg(c, hx + 2, hy - 3, hx + 4, hy - 7, p.ac)
         }
-        rise(c, f.x, f.y - 6, 12, 8, 40, f.t, seed: f.seed, [p.hi, p.lt, p.md], size: 2)
+        rise(c, f.x, f.y - 6, 12, 8, 40, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md), size: 2)
         if f.t < 0.25 { fade(c, 1 - f.t / 0.25) { shock(c, f.x, f.y, 6 + f.t * 60, 2, p, squash: 0.45) } }
         return true
     }
 
     /// 연환권 / 분노의 연타: fists land all over the target spot, the last one heaviest.
-    private static func fistFlurry(_ c: CGContext, _ f: FXF, _ p: FXPal, last: Int) -> Bool {
+    private static func fistFlurry(_ c: CGContext, _ f: FXF, _ p: FXPal, last: Int, fiery: Bool) -> Bool {
         guard case .slash = f.kind else { return false }
         var r = KartRNG(seed: f.seed)
         let jx = Double(r.int(13)) - 6, jy = Double(r.int(11)) - 5
@@ -2979,7 +3024,7 @@ extension RpgArt {
                 if big { shock(c, hx, hy + 6, 6 + 14 * easeOut(u), 2, p, squash: 0.5) }
             }
         }
-        if p.key == furyPal.key { rise(c, hx, hy, 3, 2, 8, f.t, seed: f.seed, [p.ac, p.lt, p.md]) }
+        if fiery { rise(c, hx, hy, 3, 2, 8, f.t, seed: f.seed, Tones(p.ac, p.lt, p.md)) }
         return true
     }
 
@@ -3036,7 +3081,7 @@ extension RpgArt {
             shock(c, f.x, f.y - 4, r * u * 0.6, 2, p, squash: 0.6)
         }
         fade(c, 0.6 * (1 - u)) { for k in 0..<3 { puff(c, f.x - 6 + Double(k) * 6, f.y - 12 - u * 12, 3 + u * 5, smokePal.md, smokePal.dk) } }
-        fling(c, f.x, f.y - 8, 10, 90, win(f.t, 0.2, 1), seed: f.seed, [p.hi, p.lt, p.md], dir: f.dir, spread: 1, gravity: 120, size: 2)
+        fling(c, f.x, f.y - 8, 10, 90, win(f.t, 0.2, 1), seed: f.seed, Tones(p.hi, p.lt, p.md), dir: f.dir, spread: 1, gravity: 120, size: 2)
         return true
     }
 
@@ -3050,7 +3095,7 @@ extension RpgArt {
             guard u > 0, u < 1 else { continue }
             fade(c, 1 - u) { circle(c, f.x, f.y - 6 - u * 24, 10 - u * 4, p.ac, squash: 0.35) }
         }
-        rise(c, f.x, f.y - 2, 6, 10, 24, f.t, seed: f.seed, [p.hi, p.lt, p.ac])
+        rise(c, f.x, f.y - 2, 6, 10, 24, f.t, seed: f.seed, Tones(p.hi, p.lt, p.ac))
         return true
     }
 
@@ -3119,7 +3164,7 @@ extension RpgArt {
                 let u = win(f.t, land, land + 0.4)
                 if u < 1 {
                     fade(c, 1 - u) { shock(c, gx, gy, 3 + 12 * easeOut(u), 2, p, squash: 0.45); puff(c, gx, gy - 3 - u * 6, 3 + u * 5, dustPal.lt, dustPal.md) }
-                    fling(c, gx, gy, 4, 60, u, seed: f.seed &+ UInt64(i), [p.dk, p.md], spread: 0.8, gravity: 220, size: 2)
+                    fling(c, gx, gy, 4, 60, u, seed: f.seed &+ UInt64(i), Tones(p.dk, p.md), spread: 0.8, gravity: 220, size: 2)
                 }
             }
         }
@@ -3209,7 +3254,9 @@ extension RpgArt {
     static let batPal = FXPal(0xE0C8E8, 0x8A5A9A, 0x4A2A5A, 0x140818, 0xFF3A3A)
     static let drainPal = FXPal(0xFFE0E8, 0xFF6A8A, 0xC0183A, 0x4A0414, 0x9AE050)
     static let breathPal = FXPal(0xFFFFE0, 0xFFD060, 0xFF7020, 0xA02A10, 0x5AB040)
+    static let greenDragonPal = FXPal(0xFFFFFF, 0xC8F0A0, 0x5AB040, 0x1A4A14, 0x5AB040)
     static let demonPal = FXPal(0xFFD0E0, 0xFF4A6A, 0x9A0A3A, 0x1A0410, 0xA04AFF)
+    static let hellfireVioletPal = FXPal(0xFFE0FF, 0xD080FF, 0x8A2AD0, 0x2A0A3A, 0xFF4A6A)
     static let bonePal = FXPal(0xFFFFF0, 0xE8E4D0, 0xB0AC98, 0x4A4838, 0x7AF07A)
     static let deathPal = FXPal(0xE8D0FF, 0x9A6AD0, 0x4A1A7A, 0x0E0418, 0x7AF07A)
     static let beastPal = FXPal(0xFFF8E8, 0xF0D0A0, 0xC08A50, 0x5A3A1A, 0xFFFFFF)
@@ -3222,6 +3269,7 @@ extension RpgArt {
     static let stampedePal = FXPal(0xFFF0D8, 0xD8B080, 0x9A6A3A, 0x3A2410, 0xFFFFFF)
     static let divineBeastPal = FXPal(0xFFFFFF, 0xD0FFF4, 0x6AE0C8, 0x1A6A6A, 0xFFE070)
     static let spiritStormPal = FXPal(0xFFFFFF, 0xE0FFF0, 0x8AE8C0, 0x2A6A5A, 0xFFE070)
+    static let spiritOrbs: [FXPal] = [elemPal(.fire), elemPal(.ice), elemPal(.wind), elemPal(.holy)]
 
     static let wolfHead = FXSprite("wolf", ["..k......", ".klk.....", ".kllkkk..", "kllhlllkk", "kllllllak", ".kllmmkk.", "..kkkk..."])
     static let golemFistGrid: RpgGrid = ["..kkkkkkkk..", ".kllllllllk.", "kllaalllllmk", "kllllllllmmk", "klllllllmmmk", "kkkkkkkkkkkk", "klmklmklmklk", "kmmkmmkmmkmk", ".kkkkkkkkkk."]
@@ -3313,7 +3361,7 @@ extension RpgArt {
         let u = easeOut(win(f.t, 0.25, 1))
         fade(c, 1 - win(f.t, 0.25, 0.55)) { glyph(c, "golemfist", golemFistGrid, p, f.x, f.y - 8) }
         fade(c, 1 - win(f.t, 0.5, 1)) { shock(c, f.x, f.y, r * u, 2, earthPal, squash: 0.45) }
-        fling(c, f.x, f.y, 10, 90, win(f.t, 0.25, 1), seed: f.seed, [p.md, p.dk, p.ac], spread: 0.9, gravity: 260, size: 2)
+        fling(c, f.x, f.y, 10, 90, win(f.t, 0.25, 1), seed: f.seed, Tones(p.md, p.dk, p.ac), spread: 0.9, gravity: 260, size: 2)
         fade(c, 0.6 * (1 - u)) { for k in 0..<3 { puff(c, f.x - 8 + Double(k) * 8, f.y - 2 - u * 6, 3 + u * 4, dustPal.lt, dustPal.md) } }
         return true
     }
@@ -3339,7 +3387,7 @@ extension RpgArt {
             let wx = f.x + cos(a) * d + sin(u * 7) * 3, wy = f.y + sin(a) * d * 0.5 - u * 28
             fade(c, 1 - u) { glyph(c, "skull", skullGrid, p, wx, wy); px(c, wx, wy + 4, p.md); px(c, wx, wy + 6, p.dk) }
         }
-        rise(c, f.x, f.y, 10, f.r * 0.7, 18, f.t, seed: f.seed &+ 2, [p.ac, p.lt, p.md])
+        rise(c, f.x, f.y, 10, f.r * 0.7, 18, f.t, seed: f.seed &+ 2, Tones(p.ac, p.lt, p.md))
         return true
     }
 
@@ -3384,7 +3432,7 @@ extension RpgArt {
     /// 용 소환: a dragon's head rears at the summoner and its breath billows forward in a widening cone of fire.
     private static func dragonBreath(_ c: CGContext, _ f: FXF) -> Bool {
         let p = breathPal
-        if f.seq == 0 { fade(c, 1 - win(f.t, 0.6, 1)) { glyph(c, dragonHead, FXPal(0xFFFFFF, 0xC8F0A0, 0x5AB040, 0x1A4A14, 0x5AB040), f.ox + cos(f.dir) * 10, f.oy - 14, dir: f.dir) } }
+        if f.seq == 0 { fade(c, 1 - win(f.t, 0.6, 1)) { glyph(c, dragonHead, greenDragonPal, f.ox + cos(f.dir) * 10, f.oy - 14, dir: f.dir) } }
         let grow = easeOut(f.t), s = f.r * (0.5 + 0.12 * Double(f.seq))
         fade(c, 1 - win(f.t, 0.5, 1)) {
             glow(c, f.x, f.y - 6, s * grow + 4, p.lt)
@@ -3393,7 +3441,7 @@ extension RpgArt {
                 flame(c, f.x + cos(a) * s * 0.5 * grow, f.y + sin(a) * s * 0.25 * grow, (8 + Double(f.seq) * 2) * (1 - f.t * 0.5), 5, p, phase: f.age * 30 + Double(i))
             }
         }
-        rise(c, f.x, f.y - 4, 6, s * 0.5, 18, f.t, seed: f.seed, [p.hi, p.lt, p.md, p.dk], size: 2)
+        rise(c, f.x, f.y - 4, 6, s * 0.5, 18, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md, p.dk), size: 2)
         return true
     }
 
@@ -3426,7 +3474,7 @@ extension RpgArt {
                 glow(c, f.x, f.y - 6, r * 0.8 * u, p.ac, 0.7)
                 shock(c, f.x, f.y, r * u, 3, p, squash: 0.5)
                 spike(c, f.x - 6, f.y - 2, -.pi / 2 - 0.5, 12 * u, p.dk, 3); spike(c, f.x + 6, f.y - 2, -.pi / 2 + 0.5, 12 * u, p.dk, 3)
-                for i in 0..<5 { flame(c, f.x - 10 + Double(i) * 5, f.y + 1, 10 * (1 - u * 0.5), 4, FXPal(0xFFE0FF, 0xD080FF, 0x8A2AD0, 0x2A0A3A, 0xFF4A6A), phase: f.age * 28 + Double(i)) }
+                for i in 0..<5 { flame(c, f.x - 10 + Double(i) * 5, f.y + 1, 10 * (1 - u * 0.5), 4, hellfireVioletPal, phase: f.age * 28 + Double(i)) }
             }
             return true
         default: return false
@@ -3443,7 +3491,7 @@ extension RpgArt {
             let sw = easeOut(win(f.t, 0.3, 0.6))
             fade(c, k) { crescent(c, f.x, f.y - 6, 9, f.dir - 1.4, f.dir - 1.4 + 2.6 * sw, 2, p) }
         }
-        fling(c, f.x, f.y, 4, 40, f.t, seed: f.seed, [dustPal.md, dustPal.dk], spread: 0.8, gravity: 120)
+        fling(c, f.x, f.y, 4, 40, f.t, seed: f.seed, Tones(dustPal.md, dustPal.dk), spread: 0.8, gravity: 120)
         return true
     }
 
@@ -3490,7 +3538,7 @@ extension RpgArt {
 
     private static func spiritKing(_ c: CGContext, _ f: FXF) -> Bool {
         let p = spiritKingPal
-        let tints: [CGColor] = [p.lt, elemPal(.fire).lt, elemPal(.ice).lt, p.ac]
+        let tints = Tones(p.lt, elemPal(.fire).lt, elemPal(.ice).lt, p.ac)
         switch f.kind {
         case .telegraph: return true
         case .meteor(let r):
@@ -3505,7 +3553,7 @@ extension RpgArt {
                 for i in 0..<8 { let a = Double(i) * .pi / 4; px(c, f.x + cos(a) * r * 0.8 * u, f.y - 4 + sin(a) * r * 0.4 * u, tints[i % 4], 2) }
                 circle(c, f.x, f.y, r * u, p.lt, squash: 0.5)
             }
-            fling(c, f.x, f.y, 6, 50, win(f.t, 0.25, 1), seed: f.seed, [forestPal.lt, forestPal.md], spread: .pi, gravity: 30, size: 2)
+            fling(c, f.x, f.y, 6, 50, win(f.t, 0.25, 1), seed: f.seed, Tones(forestPal.lt, forestPal.md), spread: .pi, gravity: 30, size: 2)
             return true
         default: return false
         }
@@ -3515,12 +3563,16 @@ extension RpgArt {
     private static func wraithLegion(_ c: CGContext, _ f: FXF) -> Bool {
         let p = wraithPal
         var r = KartRNG(seed: f.seed)
-        for _ in 0..<2 {
+        for _ in 0..<3 {
             let a0 = Double(r.int(628)) / 100, sweep = f.t * 3
-            let gx = f.x + cos(a0 + sweep) * f.r * 0.6, gy = f.y - 10 + sin(a0 + sweep) * f.r * 0.3 - sin(f.t * .pi) * 6
-            fade(c, 0.75 * sin(f.t * .pi)) {
+            func at(_ s: Double) -> (Double, Double) {
+                (f.x + cos(a0 + s) * f.r * 0.6, f.y - 10 + sin(a0 + s) * f.r * 0.3 - sin(f.t * .pi) * 6)
+            }
+            let (gx, gy) = at(sweep)
+            fade(c, 0.85 * sin(f.t * .pi)) {
+                for j in 1...3 { let (tx, ty) = at(sweep - Double(j) * 0.18); fade(c, 0.35 - Double(j) * 0.08) { glyph(c, "ghost", ghostGrid, p, tx, ty) } }
+                glow(c, gx, gy, 8, p.ac, 0.6)
                 glyph(c, "ghost", ghostGrid, p, gx, gy)
-                for j in 1...3 { px(c, gx - cos(a0 + sweep + .pi / 2) * Double(j) * 3, gy + Double(j), p.md) }
             }
         }
         return true
@@ -3646,7 +3698,7 @@ extension RpgArt {
                 for k in 0..<3 { let a = f.age * 16 + Double(k) * 2.1; circle(c, f.x, f.y - Double(k) * 4, 5 + Double(k) * 3 + u * 6, p.lt, squash: 0.4, from: a, to: a + 3) }
                 circle(c, f.x, f.y, r * u, p.md, squash: 0.5)
             }
-            fall(c, f.x, f.y, 8, r * 0.7, 26, win(f.t, 0.2, 1), seed: f.seed, [p.hi, p.lt, p.ac], sway: 4)
+            fall(c, f.x, f.y, 8, r * 0.7, 26, win(f.t, 0.2, 1), seed: f.seed, Tones(p.hi, p.lt, p.ac), sway: 4)
             return true
         default: return false
         }
@@ -3655,7 +3707,7 @@ extension RpgArt {
     /// 정령 대폭풍: four elemental spirits race round the summoner in a great vortex, trailing their colours.
     private static func spiritStorm(_ c: CGContext, _ f: FXF) -> Bool {
         let p = spiritStormPal, k = punch(f.t, at: 0.2, hold: 0.4)
-        let orbs: [FXPal] = [elemPal(.fire), elemPal(.ice), elemPal(.wind), elemPal(.holy)]
+        let orbs = spiritOrbs
         fade(c, k) {
             circle(c, f.x, f.y, f.r * 0.9, p.md, squash: 0.45, dash: 4)
             for (i, o) in orbs.enumerated() {
@@ -3699,11 +3751,12 @@ extension RpgArt {
     static let fortressGrid: RpgGrid = ["....kkkkk....", "..kkmmmmmkk..", ".kmmllllhmmk.", "kmmlllllllmmk", "kmmmmmmmmmmmk", "kdddddddddddk", "kkkkkkkkkkkkk"]
     static let mineGrid: RpgGrid = [".kkkkk.", "kmmammk", "kdddddk", ".kkkkk."]
     static let droneGrid: RpgGrid = ["lll...lll", "..kkkkk..", ".kmmmmmk.", "..kmakk.."]
+    static let bigDroneGrid: RpgGrid = ["hhhh...hhhh", "..k.....k..", "..kkkkkkk..", ".kmlllllmk.", ".kmmmmmmmk.", "..kkmamkk..", "....kkk...."]
     static let mechFist = FXSprite("mechfist", ["..kkkk..", ".kllllk.", "kllhllkk", "kmllllaa", "kmmlllkk", ".kmmmk..", "..kkkk.."])
 
     static let mechanicLooks: [String: FXLook] = [
         "x_burst": FXLook(pal: plasmaPal, hit: { c, f in impact(c, f) }, shot: plasmaBolt),
-        "x_turret": FXLook(pal: turretPal, shot: { c, s in tracer(c, s, turretPal, len: 9) }, trap: { c, t in turretArt(c, t, turretGrid, barrels: 1, turretPal) }),
+        "x_turret": FXLook(pal: turretPal, shot: { c, s in tracer(c, s, turretPal, len: 9) }, trap: { c, t in turretArt(c, t, "turret", turretGrid, barrels: 1, turretPal) }),
         "x_rocket": FXLook(pal: rocketPal, hit: rocketBoom, shot: rocket),
         "x_mine": FXLook(pal: minePal, draw: mineBlast, trap: mine),
         "x_flame": FXLook(pal: flamerPal, draw: flamethrower),
@@ -3712,15 +3765,15 @@ extension RpgArt {
         "x_ult": FXLook(pal: laserPal, draw: overdriveLaser),
         "j_x1a": FXLook(pal: heavyMGPal, hit: { c, f in impact(c, f) }, shot: { c, s in tracer(c, s, heavyMGPal, len: 14, thick: true) }),
         "j_x1b": FXLook(pal: shellPal, hit: rocketBoom, shot: tankShell),
-        "j_x2a": FXLook(pal: twinTurretPal, shot: { c, s in tracer(c, s, twinTurretPal, len: 10) }, trap: { c, t in turretArt(c, t, turretGrid, barrels: 2, twinTurretPal) }),
+        "j_x2a": FXLook(pal: twinTurretPal, shot: { c, s in tracer(c, s, twinTurretPal, len: 10) }, trap: { c, t in turretArt(c, t, "turret", turretGrid, barrels: 2, twinTurretPal) }),
         "j_x2b": FXLook(pal: robotPal, draw: rocketFist),
         "t2_me1a": FXLook(pal: railPal, hit: pierceHit, shot: railSlug),
         "t2_me1b": FXLook(pal: clusterPal, draw: clusterBomb, floor: targetMark),
         "t3_me1a": FXLook(pal: orbitalPal, draw: orbitalStrike, floor: targetMark),
         "t3_me1b": FXLook(pal: tankPal, draw: steelTank),
-        "t2_me2a": FXLook(pal: legionPal, shot: { c, s in tracer(c, s, legionPal, len: 7) }, trap: { c, t in turretArt(c, t, quadTurretGrid, barrels: 1, legionPal) }),
+        "t2_me2a": FXLook(pal: legionPal, shot: { c, s in tracer(c, s, legionPal, len: 7) }, trap: { c, t in turretArt(c, t, "quadTurret", quadTurretGrid, barrels: 1, legionPal) }),
         "t2_me2b": FXLook(pal: squadPal, draw: { c, f in droneStrike(c, f, squadPal, squad: true) }),
-        "t3_me2a": FXLook(pal: fortressPal, shot: { c, s in tracer(c, s, fortressPal, len: 12, thick: true) }, trap: { c, t in turretArt(c, t, fortressGrid, barrels: 3, fortressPal) }),
+        "t3_me2a": FXLook(pal: fortressPal, shot: { c, s in tracer(c, s, fortressPal, len: 12, thick: true) }, trap: { c, t in turretArt(c, t, "fortress", fortressGrid, barrels: 3, fortressPal) }),
         "t3_me2b": FXLook(pal: teslaPal, draw: teslaJudgement),
     ]
 
@@ -3749,13 +3802,13 @@ extension RpgArt {
     }
 
     /// A turret on its tripod, barrel(s) sweeping round the way it was set facing, a light blinking.
-    static func turretArt(_ c: CGContext, _ t: TrapF, _ grid: RpgGrid, barrels: Int, _ p: FXPal) {
+    static func turretArt(_ c: CGContext, _ t: TrapF, _ name: String, _ grid: RpgGrid, barrels: Int, _ p: FXPal) {
         let fading = t.left < 2 && Int(t.now * 8) % 2 == 0
         let aim = t.dir + sin(t.now * 1.5 + Double(t.seq)) * 0.7
         let hx = t.x, hy = t.y - Double(grid.count) + 2
         fade(c, fading ? 0.5 : 1) {
             KartArt.fill(c, rgb(0, 0, 0, 0.25), CGFloat(t.x - 6), CGFloat(t.y), 12, 2)
-            glyph(c, "turret\(grid.count)", grid, p, t.x, t.y - Double(grid.count) / 2)
+            glyph(c, name, grid, p, t.x, t.y - Double(grid.count) / 2)
             let ux = cos(aim), uy = sin(aim) * 0.6, nx = -uy, ny = ux
             for b in 0..<barrels {
                 let o = (Double(b) - Double(barrels - 1) / 2) * 2
@@ -3787,7 +3840,7 @@ extension RpgArt {
         if f.t < 0.2 { glow(c, f.x, f.y, 12 * s, p.hi, 1 - f.t / 0.2) }
         fade(c, 1 - win(f.t, 0.4, 1)) { glow(c, f.x, f.y, 10 * s * u, p.lt); shock(c, f.x, f.y + 4, 14 * s * u, 2, p, squash: 0.5) }
         fade(c, 0.6 * (1 - u)) { puff(c, f.x, f.y - 4 - u * 8, 3 + u * 5, smokePal.md, smokePal.dk) }
-        fling(c, f.x, f.y, 8, 80, f.t, seed: f.seed, [p.hi, p.lt, smokePal.dk], spread: 1.4, gravity: 160, size: 2)
+        fling(c, f.x, f.y, 8, 80, f.t, seed: f.seed, Tones(p.hi, p.lt, smokePal.dk), spread: 1.4, gravity: 160, size: 2)
         return true
     }
 
@@ -3806,7 +3859,7 @@ extension RpgArt {
             glow(c, f.x, f.y - 6, f.r * 0.6 * u, p.lt)
             shock(c, f.x, f.y, f.r * u, 3, p, squash: 0.5)
         }
-        fling(c, f.x, f.y - 2, 14, 130, f.t, seed: f.seed, [p.ac, p.dk, p.lt], spread: 1.3, gravity: 220, size: 2)
+        fling(c, f.x, f.y - 2, 14, 130, f.t, seed: f.seed, Tones(p.ac, p.dk, p.lt), spread: 1.3, gravity: 220, size: 2)
         fade(c, 0.6 * (1 - u)) { for k in 0..<3 { puff(c, f.x - 7 + Double(k) * 7, f.y - 8 - u * 14, 4 + u * 6, smokePal.md, smokePal.dk) } }
         return true
     }
@@ -3823,7 +3876,7 @@ extension RpgArt {
                 flame(c, fx, fy, w + 3 * sin(f.age * 25 + Double(i)), w * 0.7, p, phase: f.age * 40 + Double(i))
             }
         }
-        rise(c, f.x, f.y - 8, 4, w * 0.5, 14, f.t, seed: f.seed, [p.hi, p.lt, p.md, smokePal.md])
+        rise(c, f.x, f.y - 8, 4, w * 0.5, 14, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md, smokePal.md))
         return true
     }
 
@@ -3864,10 +3917,14 @@ extension RpgArt {
         for i in 0..<n {
             let o = squad ? (Double(i) - 1) * 7 : 0, back = squad ? abs(Double(i) - 1) * 4 : 0
             let x = dx + o - cos(f.dir) * back, y = dy - back * 0.5 + sin(f.age * 20 + Double(i)) * 1
-            fade(c, k) { glyph(c, squad ? "droneS" : "drone", droneGrid, p, x, y) }
+            fade(c, k) {
+                if !squad { glow(c, x, y + 3, 7, p.ac, 0.5) }
+                glyph(c, squad ? "droneS" : "drone", squad ? droneGrid : bigDroneGrid, p, x, y)
+                if Int(f.age * 10 + Double(i)) % 2 == 0 { px(c, x, y + (squad ? 2 : 3), p.ac) }
+            }
             if fly >= 1, f.t < 0.6 {
                 if squad { fade(c, 0.8) { seg(c, x, y + 2, f.x, f.y - 6, p.lt); seg(c, x + 1, y + 2, f.x + 1, f.y - 6, p.hi) } }
-                else if Int(f.age * 30) % 3 != 2 { zap(c, x, y + 2, f.x, f.y - 6, elemPal(.thunder), seed: f.seed &+ UInt64(Int(f.age * 30)), jag: 2, w: 2, branches: 0) }
+                else if Int(f.age * 30) % 3 != 2 { zap(c, x, y + 3, f.x, f.y - 6, elemPal(.thunder), seed: f.seed &+ UInt64(truncatingIfNeeded: Int(f.age * 30)), jag: 2, w: 3, branches: 1) }
             }
         }
         if fly >= 1, f.t < 0.6 { star(c, f.x, f.y - 6, 3, p.lt, p.hi) }
@@ -3884,7 +3941,7 @@ extension RpgArt {
             if f.seq == 0 { glow(c, f.ox + ux * 8, f.oy - 8, 10, p.lt) }
             star(c, f.x, f.y - 8, Int(5 * (1 - f.t)) + 1, p.ac, p.hi)
         }
-        fling(c, f.x, f.y - 8, 3, 40, f.t, seed: f.seed, [p.hi, p.ac], spread: .pi, gravity: 0)
+        fling(c, f.x, f.y - 8, 3, 40, f.t, seed: f.seed, Tones(p.hi, p.ac), spread: .pi, gravity: 0)
         return true
     }
 
@@ -3914,7 +3971,7 @@ extension RpgArt {
                 star(c, f.x, f.y - 6, Int(5 * (1 - u)) + 1, p.lt, p.hi)
                 for i in 0..<3 { let b = Double(i) * 2.1 + f.age * 12; zap(c, f.x, f.y - 6, f.x + cos(b) * 9, f.y - 6 + sin(b) * 6, elemPal(.thunder), seed: f.seed &+ UInt64(i), jag: 2, w: 1, branches: 0) }
             }
-            fling(c, f.x, f.y - 6, 6, 60, u, seed: f.seed, [p.hi, p.lt], spread: 1.3, gravity: 140)
+            fling(c, f.x, f.y - 6, 6, 60, u, seed: f.seed, Tones(p.hi, p.lt), spread: 1.3, gravity: 140)
         }
         return true
     }
@@ -3924,7 +3981,7 @@ extension RpgArt {
         let p = railPal
         let sx = s.ox + s.ux * 8, sy = s.oy - 7 + s.uy * 8
         fade(c, 0.5) { seg(c, sx, sy, s.x, s.y, p.md, 2) }
-        if Int(s.now * 30) % 3 != 2 { zap(c, sx, sy, s.x, s.y, p, seed: UInt64(Int(s.now * 30)) &+ s.seed, jag: 2, w: 1, branches: 0) }
+        if Int(s.now * 30) % 3 != 2 { zap(c, sx, sy, s.x, s.y, p, seed: UInt64(truncatingIfNeeded: Int(s.now * 30)) &+ s.seed, jag: 2, w: 1, branches: 0) }
         glow(c, s.x, s.y, 8, p.lt, 0.9)
         seg(c, s.x - s.ux * 5, s.y - s.uy * 5, s.x + s.ux * 2, s.y + s.uy * 2, p.lt, 3)
         seg(c, s.x - s.ux * 4, s.y - s.uy * 4, s.x + s.ux * 2, s.y + s.uy * 2, p.hi)
@@ -3982,7 +4039,7 @@ extension RpgArt {
             fade(c, o) { pillar(c, f.x, f.y, 4 + 10 * o, 150, p, 1); glow(c, f.x, f.y - 4, r * 0.8, p.lt, 0.8, squash: 0.5) }
             let u = easeOut(f.t)
             fade(c, 1 - win(f.t, 0.5, 1)) { shock(c, f.x, f.y, r * u, 3, p, squash: 0.5) }
-            fling(c, f.x, f.y, 8, 90, f.t, seed: f.seed, [p.hi, p.lt, p.md], spread: 1.2, gravity: 160)
+            fling(c, f.x, f.y, 8, 90, f.t, seed: f.seed, Tones(p.hi, p.lt, p.md), spread: 1.2, gravity: 160)
             return true
         default: return false
         }
@@ -4013,7 +4070,7 @@ extension RpgArt {
             if Int(f.age * 30) % 3 != 2 {
                 for i in 0..<6 {
                     let a = Double(i) * 1.05 + Double(f.seq) * 0.5
-                    zap(c, f.x, f.y - 10, f.x + cos(a) * r, f.y - 4 + sin(a) * r * 0.45, p, seed: f.seed &+ UInt64(i * 3 + Int(f.age * 30)), jag: 4, w: 2, branches: 1)
+                    zap(c, f.x, f.y - 10, f.x + cos(a) * r, f.y - 4 + sin(a) * r * 0.45, p, seed: f.seed &+ UInt64(truncatingIfNeeded: i * 3 + Int(f.age * 30)), jag: 4, w: 2, branches: 1)
                 }
             }
         }

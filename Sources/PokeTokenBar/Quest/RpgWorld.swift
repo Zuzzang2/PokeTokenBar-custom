@@ -435,8 +435,10 @@ final class RpgWorld {
     private var rng = KartRNG(seed: UInt64.random(in: 1...UInt64.max))
     /// While a skill or basic attack resolves (or later one of its delayed hits, shots or traps): the stamp its effects get.
     private var castStamp: RpgFXStamp?
-    /// Which skill started each player's 회오리검 (회오리검, 광기, 피의 갈증 draw theirs differently).
+    /// Which skill started each player's 회오리검 (회오리검, 광기, 피의 갈증 draw theirs differently), and the stamp of the
+    /// dash a player is in, so the hits along the way are drawn as that skill.
     private var cycloneStyles: [Int: String] = [:]
+    private var dashStamps: [Int: RpgFXStamp] = [:]
 
     init(player: RpgPlayer) {
         var p = player
@@ -1005,10 +1007,12 @@ final class RpgWorld {
             players[i] = p
             var hit = dash.hit
             if dash.damage > 0 {
+                castStamp = dashStamps[p.id]
                 for v in mobIDs(near: p.pos, radius: 16, map: p.map) where !hit.contains(v) {
                     hit.insert(v)
                     damageMob(v, map: p.map, base: dash.damage, by: p.id, element: p.element, skill: true)
                 }
+                castStamp = nil
             }
             players[i].dash = (d <= step || blocked) ? nil : (dash.to, hit, dash.damage)
             return
@@ -1541,6 +1545,8 @@ final class RpgWorld {
             players[i].cooldowns[skill] = def.cooldown
             players[i].castAt = time
         }
+        // No skill is cast mid-dash (`stepPlayer` returns first), so a dash now is this skill's.
+        if players[i].dash != nil { dashStamps[p.id] = castStamp }
     }
 
     /// Plays an `RpgSkillFX` template; false when there was nothing to hit (the cast is refunded).

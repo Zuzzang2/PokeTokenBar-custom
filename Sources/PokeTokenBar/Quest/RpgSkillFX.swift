@@ -23,6 +23,24 @@ extension RpgArt {
         }
     }
 
+    /// Up to four colours for the particle helpers, passed without allocating an array.
+    struct Tones {
+        let c0: CGColor, c1: CGColor, c2: CGColor, c3: CGColor
+        let count: Int
+        init(_ a: CGColor, _ b: CGColor? = nil, _ c: CGColor? = nil, _ d: CGColor? = nil) {
+            (c0, c1, c2, c3) = (a, b ?? a, c ?? b ?? a, d ?? c ?? b ?? a)
+            count = d != nil ? 4 : (c != nil ? 3 : (b != nil ? 2 : 1))
+        }
+        subscript(_ i: Int) -> CGColor {
+            switch i % count {
+            case 0: c0
+            case 1: c1
+            case 2: c2
+            default: c3
+            }
+        }
+    }
+
     /// The element's palette (weapon colours on basic attacks, accents on skills).
     static func elemPal(_ e: RpgElement) -> FXPal { elemPals[e] ?? elemPals[.base]! }
     private static let elemPals: [RpgElement: FXPal] = [
@@ -107,18 +125,25 @@ extension RpgArt {
     /// Effects of `map`. `ground` draws only the ground marks (call it before the units), otherwise everything else.
     static func drawEffects(_ f: CGContext, _ list: [RpgFX], map: RpgMapID, time: Double, ground: Bool = false) {
         for e in list where e.map == map && time >= e.start {
-            let progress = max(0, min(0.999, (time - e.start) / e.duration))
-            if let s = e.stamp, let look = looks[s.style] {
-                if ground {
-                    // Ground marks belong to the main effect, never to its hit sparks or heals.
-                    if let floor = look.floor, s.heal != true, !e.kind.isSpark { _ = floor(f, fxFrame(e, s, look, time: time, progress: progress)) }
-                    continue
+            if ground {
+                // Ground marks belong to the main effect, never to its hit sparks or heals.
+                if let s = e.stamp, s.heal != true, !e.kind.isSpark, let look = looks[s.style], let floor = look.floor {
+                    _ = floor(f, fxFrame(e, s, look, time: time, progress: progress(e, time)))
                 }
-                if paint(f, look, s, fxFrame(e, s, look, time: time, progress: progress)) { continue }
-            } else if ground { continue }
-            drawGeneric(f, e, progress: progress)
+            } else if !drawStyled(f, e, time: time) {
+                drawGeneric(f, e, progress: progress(e, time))
+            }
         }
     }
+
+    /// Draws `e` in its skill's look; false when there is none (no stamp, a style this build does not know, or a
+    /// painter that leaves this kind of effect to the generic look).
+    static func drawStyled(_ f: CGContext, _ e: RpgFX, time: Double) -> Bool {
+        guard let s = e.stamp, let look = looks[s.style] else { return false }
+        return paint(f, look, s, fxFrame(e, s, look, time: time, progress: progress(e, time)))
+    }
+
+    private static func progress(_ e: RpgFX, _ time: Double) -> Double { max(0, min(0.999, (time - e.start) / e.duration)) }
 
     private static func paint(_ f: CGContext, _ look: FXLook, _ s: RpgFXStamp, _ frame: FXF) -> Bool {
         if case .spark = frame.kind { return (look.hit ?? impact)(f, frame) }
@@ -212,14 +237,14 @@ extension RpgArt {
         case .chain(let points):
             let el = elem(e.element)
             for k in 0..<(points.count - 1) where frame < 5 {
-                bolt(f, from: points[k], to: points[k + 1], seed: UInt64(frame * 13 + k), el)
+                bolt(f, from: points[k], to: points[k + 1], seed: UInt64(truncatingIfNeeded: frame * 13 + k), el)
                 star(f, Double(points[k + 1].x), Double(points[k + 1].y), 2, el.edge, el.core)
             }
         case .strike:
             let el = elem(.thunder)
-            if frame < 4 { bolt(f, from: CGPoint(x: e.pos.x + 4, y: e.pos.y - 70), to: e.pos, seed: UInt64(frame * 7 + Int(e.pos.x)), el) }
+            if frame < 4 { bolt(f, from: CGPoint(x: e.pos.x + 4, y: e.pos.y - 70), to: e.pos, seed: UInt64(truncatingIfNeeded: frame * 7 + Int(e.pos.x)), el) }
             burst(f, at: e.pos, frame: frame, element: .thunder, radius: 22)
-        case .rain(let radius): arrowRain(f, at: e.pos, frame: Int(progress * 30) % 6, radius: radius, seed: UInt64(Int(progress * 30)))
+        case .rain(let radius): arrowRain(f, at: e.pos, frame: Int(progress * 30) % 6, radius: radius, seed: UInt64(truncatingIfNeeded: Int(progress * 30)))
         case .spark(let crit): hitSpark(f, at: e.pos, frame: Int(progress * 4), crit: crit, element: e.element)
         case .levelUp: levelUp(f, at: e.pos, frame: Int(progress * 12) % 6, element: e.element)
         case .telegraph(let radius):
@@ -355,7 +380,7 @@ extension RpgArt {
 
     /// A shock ring `w` px thick: white leading edge, then light, mid and a dark trailing rim.
     static func shock(_ c: CGContext, _ x: Double, _ y: Double, _ r: Double, _ w: Int, _ p: FXPal, squash: Double = 1) {
-        let tones = [p.hi, p.lt, p.md, p.dk]
+        let tones = Tones(p.hi, p.lt, p.md, p.dk)
         for k in 0..<max(1, w) where r - Double(k) > 0.5 {
             circle(c, x, y, r - Double(k), tones[min(3, k * 4 / max(1, w))], squash: squash)
         }
@@ -392,7 +417,7 @@ extension RpgArt {
                          squash: Double = 1, lead: Double = 0.75, rim: CGColor? = nil) {
         let span = a1 - a0
         let n = max(4, Int(abs(span) * (r + w) * 1.2))
-        let tones = [p.hi, p.lt, p.md, p.md, p.dk]
+        let tones = Tones(p.hi, p.lt, p.md, p.dk)
         for i in 0...n {
             let u = Double(i) / Double(n)
             let a = a0 + span * u
@@ -406,7 +431,7 @@ extension RpgArt {
             }
             for j in 0..<k {
                 let rr = r + th / 2 - Double(j)
-                c.setFillColor(tones[min(4, j * 5 / max(1, k) + (u < 0.25 ? 1 : 0))])
+                c.setFillColor(tones[min(3, j * 4 / max(1, k) + (u < 0.25 ? 1 : 0))])
                 c.fill(CGRect(x: (x + ca * rr).rounded(), y: (y + sa * rr).rounded(), width: 1, height: 1))
             }
         }
@@ -415,19 +440,18 @@ extension RpgArt {
     /// A filled ring sector between radii `r0` and `r1` (a swept fan, a cone of breath).
     static func wedge(_ c: CGContext, _ x: Double, _ y: Double, _ r0: Double, _ r1: Double, _ a0: Double, _ a1: Double, _ col: CGColor, squash: Double = 1) {
         let n = max(3, Int(abs(a1 - a0) * r1 / 3))
-        let path = CGMutablePath()
+        c.beginPath()
         for i in 0...n {
             let a = a0 + (a1 - a0) * Double(i) / Double(n)
             let q = CGPoint(x: x + cos(a) * r1, y: y + sin(a) * r1 * squash)
-            if i == 0 { path.move(to: q) } else { path.addLine(to: q) }
+            if i == 0 { c.move(to: q) } else { c.addLine(to: q) }
         }
         for i in stride(from: n, through: 0, by: -1) {
             let a = a0 + (a1 - a0) * Double(i) / Double(n)
-            path.addLine(to: CGPoint(x: x + cos(a) * r0, y: y + sin(a) * r0 * squash))
+            c.addLine(to: CGPoint(x: x + cos(a) * r0, y: y + sin(a) * r0 * squash))
         }
-        path.closeSubpath()
+        c.closePath()
         c.setFillColor(col)
-        c.addPath(path)
         c.fillPath()
     }
 
@@ -527,7 +551,7 @@ extension RpgArt {
     }
 
     /// Particles flung out of (x, y) and falling back: sparks, debris, droplets. `t` 0…1 over their flight.
-    static func fling(_ c: CGContext, _ x: Double, _ y: Double, _ n: Int, _ speed: Double, _ t: Double, seed: UInt64, _ cols: [CGColor],
+    static func fling(_ c: CGContext, _ x: Double, _ y: Double, _ n: Int, _ speed: Double, _ t: Double, seed: UInt64, _ cols: Tones,
                       dir: Double? = nil, spread: Double = .pi, gravity: Double = 60, size: Double = 1) {
         var r = KartRNG(seed: seed)
         for i in 0..<n {
@@ -544,7 +568,7 @@ extension RpgArt {
 
     /// Particles rising and swaying from a disc around (x, y): embers, motes, bubbles. `t` 0…1.
     static func rise(_ c: CGContext, _ x: Double, _ y: Double, _ n: Int, _ spread: Double, _ height: Double, _ t: Double, seed: UInt64,
-                     _ cols: [CGColor], size: Double = 1) {
+                     _ cols: Tones, size: Double = 1) {
         var r = KartRNG(seed: seed)
         for i in 0..<n {
             let a = Double(r.int(628)) / 100, d = spread * Double(r.int(101)) / 100
@@ -558,7 +582,7 @@ extension RpgArt {
 
     /// Particles falling onto a disc around (x, y): flakes, petals, feathers. `t` 0…1.
     static func fall(_ c: CGContext, _ x: Double, _ y: Double, _ n: Int, _ spread: Double, _ height: Double, _ t: Double, seed: UInt64,
-                     _ cols: [CGColor], sway: Double = 2) {
+                     _ cols: Tones, sway: Double = 2) {
         var r = KartRNG(seed: seed)
         for i in 0..<n {
             let a = Double(r.int(628)) / 100, d = spread * Double(r.int(101)) / 100
@@ -574,10 +598,10 @@ extension RpgArt {
     static func spice(_ c: CGContext, _ x: Double, _ y: Double, _ spread: Double, _ e: RpgElement, _ t: Double, seed: UInt64, n: Int = 5) {
         let p = elemPal(e)
         switch e {
-        case .fire: rise(c, x, y, n, spread, 16, t, seed: seed, [p.hi, p.lt, p.md, p.dk], size: 2)
-        case .ice: fall(c, x, y, n, spread, 12, t, seed: seed, [p.hi, p.lt], sway: 1)
+        case .fire: rise(c, x, y, n, spread, 16, t, seed: seed, Tones(p.hi, p.lt, p.md, p.dk), size: 2)
+        case .ice: fall(c, x, y, n, spread, 12, t, seed: seed, Tones(p.hi, p.lt), sway: 1)
         case .thunder:
-            var r = KartRNG(seed: seed &+ UInt64(Int(t * 12)))
+            var r = KartRNG(seed: seed &+ UInt64(truncatingIfNeeded: Int(t * 12)))
             for _ in 0..<max(1, n / 2) {
                 let qx = x + Double(r.int(Int(spread * 2) + 1)) - spread, qy = y + Double(r.int(Int(spread) + 1)) - spread / 2
                 seg(c, qx, qy, qx + 2, qy + 2, p.lt); seg(c, qx + 2, qy + 2, qx + 1, qy + 4, p.hi)

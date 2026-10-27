@@ -859,7 +859,11 @@ enum RpgArt {
 
     struct Elem { let core: CGColor, mid: CGColor, edge: CGColor, spark: CGColor }
 
-    static func elem(_ e: RpgElement) -> Elem {
+    /// The element's colours (made once: effects ask for them every frame).
+    static func elem(_ e: RpgElement) -> Elem { elemCache[e] ?? makeElem(e) }
+    private static let elemCache: [RpgElement: Elem] = Dictionary(uniqueKeysWithValues: [RpgElement.base, .fire, .ice, .thunder, .wind, .holy, .cosmic, .poison].map { ($0, makeElem($0)) })
+
+    private static func makeElem(_ e: RpgElement) -> Elem {
         switch e {
         case .base: return Elem(core: rgb(255, 255, 255), mid: rgb(214, 222, 236), edge: rgb(140, 150, 176), spark: rgb(255, 255, 255))
         case .fire: return Elem(core: rgb(255, 250, 200), mid: rgb(255, 196, 60), edge: rgb(236, 86, 30), spark: rgb(196, 40, 30))
