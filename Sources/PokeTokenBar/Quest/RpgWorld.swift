@@ -339,8 +339,9 @@ struct RpgPending {
     let stun: Double
     let fx: RpgFX.Kind?
     var stamp: RpgFXStamp? = nil
-    /// How long its effect shows (presentation only).
+    /// How long its effect shows and how hard the screen shakes when it lands (presentation only).
     var fxDuration = 0.35
+    var fxShake = 0.0
 }
 
 struct RpgTrap: Codable, Sendable {
@@ -1114,11 +1115,11 @@ final class RpgWorld {
                              stamp: nextStamp()))
     }
 
-    /// `fxDuration`: how long the hit's effect shows (presentation only).
+    /// `fxDuration`, `fxShake`: how long the hit's effect shows and how hard the screen shakes as it lands (presentation only).
     private func schedule(_ delay: Double, _ map: RpgMapID, _ pos: CGPoint, radius: Double, damage: Double, owner: Int, fromPlayer: Bool = true,
-                          element: RpgElement, stun: Double = 0, fx: RpgFX.Kind?, fxDuration: Double = 0.35) {
+                          element: RpgElement, stun: Double = 0, fx: RpgFX.Kind?, fxDuration: Double = 0.35, fxShake: Double = 0) {
         pending.append(RpgPending(at: time + delay, map: map, pos: pos, radius: radius, damage: damage, ownerID: owner, fromPlayer: fromPlayer,
-                                  element: element, stun: stun, fx: fx, stamp: nextStamp(), fxDuration: fxDuration))
+                                  element: element, stun: stun, fx: fx, stamp: nextStamp(), fxDuration: fxDuration, fxShake: fxShake))
     }
 
     private func castSkill(_ i: Int, _ skill: String) {
@@ -1178,7 +1179,7 @@ final class RpgWorld {
             let targets = (mobs[p.map] ?? []).filter { !$0.dead && !$0.airborne && dist($0.pos, p.pos) < 170 }.sorted { dist($0.pos, p.pos) < dist($1.pos, p.pos) }
             for k in 0..<6 {
                 let c = targets.isEmpty ? ahead(p, 30 + Double(k) * 14) : targets[k % targets.count].pos
-                schedule(Double(k) * 0.12, p.map, c, radius: 26, damage: power, owner: p.id, element: .thunder, stun: 1, fx: .strike, fxDuration: 0.5)
+                schedule(Double(k) * 0.12, p.map, c, radius: 26, damage: power, owner: p.id, element: .thunder, stun: 1, fx: .strike, fxDuration: 0.5, fxShake: 0.8)
             }
             shake = max(shake, 2)
         case "a_triple":
@@ -1263,7 +1264,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 110)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.18)
-                schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32), fxDuration: 0.6)
+                schedule(0.25 + Double(k) * 0.18, p.map, c, radius: 32, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 32), fxDuration: 0.6, fxShake: 0.7)
             }
         // 도적
         case "r_flurry":
@@ -1336,7 +1337,7 @@ final class RpgWorld {
         case "c_judge":
             let targets = nearestMobs(p, 140, 5)
             if targets.isEmpty { toast("주변에 적이 없어요"); refund = true } else {
-                for (k, t) in targets.enumerated() { schedule(0.2 + Double(k) * 0.12, p.map, t.pos, radius: 20, damage: power, owner: p.id, element: .holy, fx: .strike, fxDuration: 0.5) }
+                for (k, t) in targets.enumerated() { schedule(0.2 + Double(k) * 0.12, p.map, t.pos, radius: 20, damage: power, owner: p.id, element: .holy, fx: .strike, fxDuration: 0.5, fxShake: 0.4) }
             }
         case "c_purify":
             healNearby(p, fraction: 0.4, radius: 80)
@@ -1392,10 +1393,11 @@ final class RpgWorld {
         case "k_dragon":
             let c = ahead(p, 16)
             effect(.burst(radius: 26), p.map, c, e, duration: 0.55)
+            shake = max(shake, 0.7)
             players[i].invulnerable = max(players[i].invulnerable, 0.3)
             for v in mobIDs(near: c, radius: 28, map: p.map) { damageMob(v, map: p.map, base: power, by: p.id, element: e, skill: true, stun: 1.2) }
         case "k_barrage":
-            for k in 0..<8 { schedule(Double(k) * 0.06, p.map, ahead(p, 18), radius: 20, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13)) }
+            for k in 0..<8 { schedule(Double(k) * 0.06, p.map, ahead(p, 18), radius: 20, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13), fxShake: k == 7 ? 0.6 : 0) }
         case "k_iron":
             players[i].ironUntil = time + 10
             let heal = players[i].maxHP * 0.15
@@ -1412,7 +1414,7 @@ final class RpgWorld {
             shake = max(shake, 1)
             hitArea(c, 38, p, power, e)
         case "j_fk2":
-            for k in 0..<12 { schedule(Double(k) * 0.06, p.map, ahead(p, 20), radius: 24, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13)) }
+            for k in 0..<12 { schedule(Double(k) * 0.06, p.map, ahead(p, 20), radius: 24, damage: power, owner: p.id, element: e, fx: .slash(angle: angle + Double(k % 3 - 1) * 0.4, radius: 13), fxShake: k == 11 ? 0.8 : 0) }
         case "j_asc1":
             let heal = players[i].maxHP * 0.35
             players[i].hp = min(players[i].maxHP, players[i].hp + heal)
@@ -1430,8 +1432,7 @@ final class RpgWorld {
             for k in 1...6 { schedule(Double(k) * 0.05, p.map, ahead(p, Double(k) * 18), radius: 16, damage: power, owner: p.id, element: e, fx: .slash(angle: angle, radius: 14)) }
         case "s_golem":
             let c = ahead(p, 36)
-            for k in 0..<4 { schedule(0.3 + Double(k) * 0.7, p.map, c, radius: 28, damage: power, owner: p.id, element: e, stun: 0.5, fx: .burst(radius: 26), fxDuration: 0.5) }
-            shake = max(shake, 0.8)
+            for k in 0..<4 { schedule(0.3 + Double(k) * 0.7, p.map, c, radius: 28, damage: power, owner: p.id, element: e, stun: 0.5, fx: .burst(radius: 26), fxDuration: 0.5, fxShake: 0.9) }
         case "s_curse":
             let c = ahead(p, 40)
             effect(.burst(radius: 40), p.map, c, .poison, duration: 0.7)
@@ -1464,7 +1465,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 120)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 30), p.map, c, .cosmic, duration: 0.25 + Double(k) * 0.15)
-                schedule(0.25 + Double(k) * 0.15, p.map, c, radius: 30, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 30), fxDuration: 0.6)
+                schedule(0.25 + Double(k) * 0.15, p.map, c, radius: 30, damage: power, owner: p.id, element: .cosmic, fx: .meteor(radius: 30), fxDuration: 0.6, fxShake: 0.6)
             }
             shake = max(shake, 1.5)
         case "j_nec1":
@@ -1529,7 +1530,7 @@ final class RpgWorld {
                 let a = rand(0, .pi * 2), d = rand(20, 100)
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 effect(.telegraph(radius: 28), p.map, c, .fire, duration: 0.25 + Double(k) * 0.16)
-                schedule(0.25 + Double(k) * 0.16, p.map, c, radius: 30, damage: power, owner: p.id, element: .fire, fx: .meteor(radius: 30), fxDuration: 0.6)
+                schedule(0.25 + Double(k) * 0.16, p.map, c, radius: 30, damage: power, owner: p.id, element: .fire, fx: .meteor(radius: 30), fxDuration: 0.6, fxShake: 0.5)
             }
         case "j_frost":
             effect(.ice(radius: 60), p.map, p.pos, .ice, duration: 0.5)
@@ -1576,7 +1577,7 @@ final class RpgWorld {
                 let c = CGPoint(x: p.pos.x + CGFloat(cos(a) * d), y: p.pos.y + CGFloat(sin(a) * d * 0.7))
                 let delay = 0.25 + Double(k) * 0.14
                 effect(.telegraph(radius: fx.radius), p.map, c, e, duration: delay)
-                schedule(delay, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .meteor(radius: fx.radius), fxDuration: 0.6)
+                schedule(delay, p.map, c, radius: fx.radius, damage: power, owner: p.id, element: e, stun: fx.stun, fx: .meteor(radius: fx.radius), fxDuration: 0.6, fxShake: 0.5)
             }
         case .chain:
             let targets = nearestMobs(p, fx.radius, fx.count)
@@ -1690,6 +1691,7 @@ final class RpgWorld {
         for h in due {
             castStamp = h.stamp
             if let k = h.fx { effect(k, h.map, h.pos, h.element, duration: h.fxDuration) }
+            if h.fxShake > 0 { shake = max(shake, h.fxShake) }
             if h.fromPlayer {
                 for v in mobIDs(near: h.pos, radius: h.radius, map: h.map) {
                     damageMob(v, map: h.map, base: h.damage, by: h.ownerID, element: h.element, skill: true, stun: h.stun)
@@ -1775,7 +1777,11 @@ final class RpgWorld {
             }
         }
         if element == .cosmic, !splash, !skill, rng.int(100) < 10 {
+            // The weapon's own meteor, whatever attack set it off: it has a look of its own.
+            let cast = castStamp
+            castStamp = RpgFXStamp("proc:cosmic", dir: cast?.dir ?? 0, from: cast?.from ?? m.pos)
             effect(.meteor(radius: 20), map, m.pos, .cosmic, duration: 0.45)
+            castStamp = cast
             for v in mobIDs(near: m.pos, radius: 22, map: map) { damageMob(v, map: map, base: base * 0.8, by: playerID, element: .base, skill: true, splash: true) }
         }
         if let mm = mobs[map]?.first(where: { $0.id == id }), mm.hp <= 0, !mm.dead { killMob(id, map: map, by: playerID) }

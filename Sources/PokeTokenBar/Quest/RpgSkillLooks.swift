@@ -31,26 +31,21 @@ extension RpgArt {
     // MARK: basic attacks
 
     static let basicLooks: [String: FXLook] = [
-        "basic:warrior": FXLook(pal: elemPal(.base), draw: withProc(warriorSwing), hit: warriorCut),
-        "basic:archer": FXLook(pal: elemPal(.base), draw: withProc(nil), hit: archerPin, shot: archerArrow),
-        "basic:mage": FXLook(pal: elemPal(.cosmic), draw: withProc(mageOrbBlast), hit: mageSpark, shot: mageOrb),
-        "basic:rogue": FXLook(pal: rogueSteel, draw: withProc(rogueTwin), hit: rogueNick),
-        "basic:cleric": FXLook(pal: holyGold, draw: withProc(nil), hit: clericCross, shot: clericBall),
-        "basic:monk": FXLook(pal: monkKi, draw: withProc(monkPunch), hit: monkImpact),
-        "basic:summoner": FXLook(pal: ghostFire, draw: withProc(nil), hit: summonerFlare, shot: summonerWisp),
-        "basic:mechanic": FXLook(pal: brassPal, draw: withProc(mechanicMuzzle), hit: mechanicPing, shot: mechanicBullet),
+        "basic:warrior": FXLook(pal: elemPal(.base), draw: warriorSwing, hit: warriorCut),
+        "basic:archer": FXLook(pal: elemPal(.base), hit: archerPin, shot: archerArrow),
+        "basic:mage": FXLook(pal: elemPal(.cosmic), draw: mageOrbBlast, hit: mageSpark, shot: mageOrb),
+        "basic:rogue": FXLook(pal: rogueSteel, draw: rogueTwin, hit: rogueNick),
+        "basic:cleric": FXLook(pal: holyGold, hit: clericCross, shot: clericBall),
+        "basic:monk": FXLook(pal: monkKi, draw: monkPunch, hit: monkImpact),
+        "basic:summoner": FXLook(pal: ghostFire, hit: summonerFlare, shot: summonerWisp),
+        "basic:mechanic": FXLook(pal: brassPal, draw: mechanicMuzzle, hit: mechanicPing, shot: mechanicBullet),
+        // A cosmic weapon's meteor, whichever attack set it off (`RpgWorld.damageMob`).
+        "proc:cosmic": FXLook(pal: elemPal(.cosmic), draw: starProc),
     ]
 
-    /// A basic attack's painter that also draws the cosmic weapon's meteor proc (`RpgWorld.damageMob`).
-    private static func withProc(_ draw: FXPaint?) -> FXPaint {
-        { c, f in
-            if case .meteor(let r) = f.kind { return starProc(c, f, r) }
-            return draw?(c, f) ?? false
-        }
-    }
-
     /// A little star drops out of the sky onto the struck monster and bursts.
-    private static func starProc(_ c: CGContext, _ f: FXF, _ r: Double) -> Bool {
+    private static func starProc(_ c: CGContext, _ f: FXF) -> Bool {
+        guard case .meteor(let r) = f.kind else { return false }
         let p = elemPal(.cosmic)
         if f.t < 0.3 {
             let u = easeIn(f.t / 0.3), hx = f.x + 16 * (1 - u), hy = f.y - 50 * (1 - u)
@@ -645,17 +640,19 @@ extension RpgArt {
     private static func shieldBash(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .burst = f.kind else { return true }
         let p = knightPal, ux = cos(f.dir), uy = sin(f.dir)
-        let thrust = easeOut(win(f.t, 0, 0.25))
-        let sx = f.x - ux * (14 - 12 * thrust), sy = f.y - 5 - uy * (14 - 12 * thrust)
-        fade(c, 1 - win(f.t, 0.6, 1)) { glyph(c, "kite", kiteGrid, p, sx, sy) }
-        if f.t > 0.2 {
-            let u = easeOut(win(f.t, 0.2, 1))
+        let thrust = easeOut(win(f.t, 0, 0.2))
+        let sx = f.x - ux * (10 - 14 * thrust), sy = f.y - 6 - uy * (10 - 14 * thrust)
+        if f.t < 0.35 { fade(c, 0.6) { for i in 0..<4 { let o = Double(i - 2) * 3 + 1.5; seg(c, sx - ux * 8 - uy * o, sy - uy * 8 + ux * o, sx - ux * (16 + Double(i % 2) * 5) - uy * o, sy - uy * (16 + Double(i % 2) * 5) + ux * o, p.lt) } } }
+        fade(c, 1 - win(f.t, 0.6, 1)) { glow(c, sx, sy, 9, p.lt, 0.5); glyph(c, "kite", kiteGrid, p, sx, sy) }
+        if f.t > 0.18 {
+            let u = easeOut(win(f.t, 0.18, 1))
+            if u < 0.35 { glow(c, sx + ux * 7, sy + uy * 7, 10, p.hi, 1 - u / 0.35); star(c, sx + ux * 7, sy + uy * 7, 5, p.lt, p.hi) }
             fade(c, 1 - u) {
-                oval(c, sx + ux * 7, sy + uy * 7, 3 + u * 4, 9 + u * 14, f.dir, p.hi, from: -1.4, to: 1.4)
-                oval(c, sx + ux * 5, sy + uy * 5, 2 + u * 3, 6 + u * 9, f.dir, p.lt, from: -1.4, to: 1.4)
+                oval(c, sx + ux * 8, sy + uy * 8, 3 + u * 4, 10 + u * 14, f.dir, p.hi, from: -1.4, to: 1.4)
+                oval(c, sx + ux * 6, sy + uy * 6, 2 + u * 3, 7 + u * 9, f.dir, p.lt, from: -1.4, to: 1.4)
                 shock(c, f.x, f.y, f.r * u, 2, p, squash: 0.45)
             }
-            for k in 0..<3 { let a = f.age * 9 + Double(k) * 2.09; star(c, f.x + cos(a) * 8, f.y - 17 + sin(a) * 3, 1, p.ac, p.hi) }
+            for k in 0..<3 { let a = f.age * 9 + Double(k) * 2.09; star(c, f.x + ux * 6 + cos(a) * 9, f.y - 20 + sin(a) * 3, 2, p.ac, p.hi) }
         }
         return true
     }
@@ -689,10 +686,16 @@ extension RpgArt {
         let s: Double = cos(f.dir) < -0.01 ? -1 : 1
         let a0 = ang - 1.5 * s, a1 = ang + 1.2 * s
         let h = easeOut(win(t, 0, 0.45)), tl = win(t, 0.2, 1)
-        if h > tl + 0.02 {
-            let off = Double(f.seq - 1) * 6
-            let cx = f.x - sin(f.dir) * off - cos(f.dir) * 6, cy = f.y + cos(f.dir) * off * 0.6 - sin(f.dir) * 6
-            crescent(c, cx, cy, rad, a0 + (a1 - a0) * tl, a0 + (a1 - a0) * h, 6, p, squash: 0.7, rim: p.ac)
+        let off = Double(f.seq - 1) * 6
+        let cx = f.x - sin(f.dir) * off - cos(f.dir) * 6, cy = f.y + cos(f.dir) * off * 0.6 - sin(f.dir) * 6
+        if h > tl + 0.02 { crescent(c, cx, cy, rad, a0 + (a1 - a0) * tl, a0 + (a1 - a0) * h, 7, p, squash: 0.7, rim: p.ac) }
+        // The gash the claw leaves hangs in the air a moment after it passes.
+        if t > 0.35 {
+            let g = 1 - win(t, 0.35, 1), ga = a0 + (a1 - a0) * 0.2, gb = a0 + (a1 - a0) * 0.85
+            fade(c, g) {
+                seg(c, cx + cos(ga) * rad, cy + sin(ga) * rad * 0.7, cx + cos(gb) * rad, cy + sin(gb) * rad * 0.7, p.dk, 3)
+                seg(c, cx + cos(ga) * rad, cy + sin(ga) * rad * 0.7, cx + cos(gb) * rad, cy + sin(gb) * rad * 0.7, p.md)
+            }
         }
         if f.seq == 1 {
             fade(c, 0.4 * (1 - f.t)) { glow(c, f.x, f.y, 20, p.dk, 1, squash: 0.6) }
@@ -1642,9 +1645,10 @@ extension RpgArt {
             return true
         case .levelUp:
             let o = punch(f.t, at: 0.25, hold: 0.15)
+            fade(c, 0.45 * o) { ellipse(c, f.x, f.y - 11, 2 + 4 * o, p.lt, squash: 3) }
             fade(c, o) {
-                ellipse(c, f.x, f.y - 11, 2 + 4 * o, p.md, squash: 3)
-                box(c, f.x, f.y - 28, 1, 30, p.hi)
+                box(c, f.x, f.y - 30, 1, 32, p.hi)
+                circle(c, f.x, f.y, 4 + 10 * easeOut(f.t), p.ac, squash: 0.4)
             }
             fall(c, f.x, f.y, 10, 9, 22, f.t, seed: f.seed, Tones(p.hi, p.ac, p.lt), sway: 1)
             return true
@@ -2857,7 +2861,7 @@ extension RpgArt {
 
 extension RpgArt {
     static let punchPal = FXPal(0xFFFFFF, 0xFFE6A0, 0xFFA040, 0x9A4A10, 0xFFF4D0)
-    static let spinKickPal = FXPal(0xFFFFFF, 0xFFE8C0, 0xE8A060, 0x7A4A20, 0xF0D8B0)
+    static let spinKickPal = FXPal(0xFFFFFF, 0xFFD890, 0xF08A3A, 0x6A2A10, 0xFFF0C0)
     static let palmPal = FXPal(0xFFFFFF, 0xC8F0FF, 0x6AC8F0, 0x1A5A8A, 0xFFFFFF)
     static let qiPal = FXPal(0xFFFFFF, 0xFFF0A0, 0xFFC040, 0xC06A10, 0xFFFFD0)
     static let dragonFistPal = FXPal(0xFFFFE0, 0xFFD050, 0xFF6A20, 0x8A1A10, 0xFFF0A0)
@@ -2945,9 +2949,10 @@ extension RpgArt {
         fade(c, k) {
             for b in 0..<2 {
                 let a = f.dir + spin + Double(b) * .pi
-                crescent(c, f.x, f.y + 2, r * 0.75, a - 2.4, a, 5, p, squash: 0.3, rim: p.dk)
+                crescent(c, f.x, f.y + 2, r * 0.75, a - 2.4, a, 7, p, squash: 0.3, rim: p.dk)
+                crescent(c, f.x, f.y - 4, r * 0.6, a - 1.6, a - 0.2, 3, p, squash: 0.3)
             }
-            circle(c, f.x, f.y + 2, r * 0.9, p.lt, squash: 0.3, dash: 3)
+            circle(c, f.x, f.y + 2, r * 0.95, p.lt, squash: 0.3, dash: 3)
         }
         for i in 0..<6 {
             let a = f.dir + spin + Double(i) * 1.05
@@ -3273,8 +3278,8 @@ extension RpgArt {
 
     static let wolfHead = FXSprite("wolf", ["..k......", ".klk.....", ".kllkkk..", "kllhlllkk", "kllllllak", ".kllmmkk.", "..kkkk..."])
     static let golemFistGrid: RpgGrid = ["..kkkkkkkk..", ".kllllllllk.", "kllaalllllmk", "kllllllllmmk", "klllllllmmmk", "kkkkkkkkkkkk", "klmklmklmklk", "kmmkmmkmmkmk", ".kkkkkkkkkk."]
-    static let batUpGrid: RpgGrid = ["k.......k", "kk.kkk.kk", "kmmmammmk", ".kmmmmmk.", "..k...k.."]
-    static let batDownGrid: RpgGrid = ["...kkk...", ".kkmamkk.", "kmmmmmmmk", "kk.....kk", "k.......k"]
+    static let batUpGrid: RpgGrid = ["k...........k", "kk.........kk", "kmk.kkkkk.kmk", "kmmkmamamkmmk", ".kmmmmmmmmmk.", "..kmmmmmmmk..", "...kk...kk..."]
+    static let batDownGrid: RpgGrid = ["....kkkkk....", "...kmamamk...", ".kkmmmmmmmkk.", "kmmmmmmmmmmmk", "kmmk.....kmmk", "kk.........kk", "k...........k"]
     static let dragonHead = FXSprite("dragonhead", ["..kk......", ".kaak.....", "kaaaakkkk.", "kahaaaaaak", "kaaaaakkk.", ".kaaak....", "..kkkkkkk."])
     static let skeletonGrid: RpgGrid = [".kkkk..", "klllhk.", "kakkak.", ".kllk..", "..kk...", ".klllk.", "kl.l.lk", "..klk..", ".kl.lk.", ".k...k."]
     static let pawGrid: RpgGrid = ["d.d.d", ".....", ".ddd.", "ddddd", ".ddd."]
@@ -3398,8 +3403,11 @@ extension RpgArt {
         let a = ang - .pi / 2 + f.t * 1.4
         let bx = f.ox + cos(a) * 28, by = f.oy - 10 + sin(a) * 14
         let up = Int(f.age * 18) % 2 == 0
-        fade(c, 0.4 * k) { for j in 1...3 { let b = a - Double(j) * 0.18; px(c, f.ox + cos(b) * 28, f.oy - 10 + sin(b) * 14, p.md) } }
-        fade(c, k) { glyph(c, up ? "batU" : "batD", up ? batUpGrid : batDownGrid, p, bx, by) }
+        fade(c, 0.5 * k) { for j in 1...4 { let b = a - Double(j) * 0.16; px(c, f.ox + cos(b) * 28, f.oy - 10 + sin(b) * 14, p.lt, 2) } }
+        fade(c, k) {
+            glow(c, bx, by, 8, p.lt, 0.5)
+            glyph(c, up ? "batU" : "batD", up ? batUpGrid : batDownGrid, p, bx, by)
+        }
         return true
     }
 

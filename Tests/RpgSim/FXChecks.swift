@@ -13,6 +13,9 @@ func fxChecks() {
     MainActor.assumeIsolated {
         let missing = styles.filter { RpgArt.looks[$0] == nil }
         check(missing.isEmpty, "every skill and basic attack has a registered look (missing: \(missing))")
+        let proc = RpgFX(kind: .meteor(radius: 20), map: .field, pos: CGPoint(x: 30, y: 40), element: .cosmic, start: 0, duration: 0.45,
+                         stamp: RpgFXStamp("proc:cosmic", dir: 0, from: .zero))
+        check(RpgArt.drawStyled(KartArt.context(width: 64, height: 64)!, proc, time: 0.2), "a cosmic weapon's meteor proc has a look of its own, whatever attack set it off")
         var shared: [String] = []
         for cls in RpgClass.allCases {
             var seen: [Int: String] = [:]
