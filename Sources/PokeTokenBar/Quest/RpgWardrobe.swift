@@ -72,10 +72,10 @@ extension RpgView {
         }
         if tab == 2 {
             text("뽑기  1회 \(RpgCosmetics.gachaCost)G · 10회 \(RpgCosmetics.gachaTenCost)G", at: CGPoint(x: area.minX + 8, y: area.minY + 12), size: 14, weight: .bold)
-            let odds = zip(RpgCosmetics.rarityName, RpgCosmetics.gachaOdds).map { "\($0) \($1)%" }.joined(separator: "  ·  ")
+            let odds = zip(RpgCosmetics.rarityName, RpgCosmetics.gachaOdds).filter { $0.1 > 0 }.map { "\($0) \($1)%" }.joined(separator: "  ·  ")
             text(odds, at: CGPoint(x: area.minX + 8, y: area.minY + 40), size: 12, color: Self.dim, weight: .semibold)
             text("\(RpgCosmetics.pity)번 안에 영웅 이상이 안 나오면 다음 뽑기는 영웅 이상 보장", at: CGPoint(x: area.minX + 8, y: area.minY + 62), size: 12, color: Self.dim, weight: .semibold)
-            text("지금까지 \(p.gachaPity)회 연속 · 중복은 가격의 1/3 환급", at: CGPoint(x: area.minX + 8, y: area.minY + 84), size: 12, color: Self.gold, weight: .semibold)
+            text("지금까지 \(p.gachaPity)회 연속 · 중복은 환급되지 않아요", at: CGPoint(x: area.minX + 8, y: area.minY + 84), size: 12, color: Self.gold, weight: .semibold)
             if !near { text("의상실 앞에서만 뽑을 수 있어요", at: CGPoint(x: area.minX + 8, y: area.minY + 120), size: 13, color: NSColor(red: 1, green: 0.5, blue: 0.5, alpha: 1), weight: .bold) }
             return
         }
@@ -146,5 +146,68 @@ extension RpgView {
         default: return false
         }
         return true
+    }
+}
+
+// MARK: gacha result
+
+extension RpgView {
+    /// Opens the result window when the host reports a new pull.
+    func checkPullResult() {
+        guard let me else { return }
+        guard let seen = shownPullSeq else { shownPullSeq = me.pullSeq; return }
+        if me.pullSeq != seen {
+            shownPullSeq = me.pullSeq
+            if !me.pulls.isEmpty { open(.pullResult) }
+        }
+    }
+
+    func rarityColor(_ rarity: Int) -> NSColor {
+        if rarity >= 5 { return NSColor(hue: CGFloat((world.time * 0.6).truncatingRemainder(dividingBy: 1)), saturation: 0.55, brightness: 1, alpha: 1) }
+        return RpgArt.rarityColors[min(rarity, 4)]
+    }
+
+    func drawPullResult(_ ctx: CGContext, _ p: RpgPlayer) {
+        let pulls = p.pulls
+        let best = pulls.compactMap { RpgCosmetics.def($0.id)?.rarity }.max() ?? 0
+        let area = frame(ctx, title: pulls.count > 1 ? "뽑기 결과 (\(pulls.count)회)" : "뽑기 결과", hint: "Enter / Esc 확인")
+        let t = world.time
+        if best >= 5 {
+            // A shimmering banner for the ultra-rare.
+            text("✨  초 월  ✨", at: CGPoint(x: area.midX, y: area.minY - 34), size: 22, color: rarityColor(5), weight: .heavy, align: .center)
+        }
+        let cols = pulls.count > 5 ? 5 : max(1, pulls.count)
+        let cell: CGFloat = 104, gap: CGFloat = 14
+        let rows = (pulls.count + cols - 1) / cols
+        let totalW = CGFloat(cols) * cell + CGFloat(cols - 1) * gap
+        let x0 = area.midX - totalW / 2
+        let y0 = area.minY + (area.height - (CGFloat(rows) * (cell + 52) + CGFloat(rows - 1) * gap)) / 2
+        for (k, pull) in pulls.enumerated() {
+            guard let c = RpgCosmetics.def(pull.id) else { continue }
+            let r = CGRect(x: x0 + CGFloat(k % cols) * (cell + gap), y: y0 + CGFloat(k / cols) * (cell + 52 + gap), width: cell, height: cell)
+            ctx.setFillColor(NSColor(white: 0.1, alpha: 0.9).cgColor)
+            ctx.addPath(CGPath(roundedRect: r, cornerWidth: 8, cornerHeight: 8, transform: nil))
+            ctx.fillPath()
+            drawCosmeticIcon(ctx, c, in: r.insetBy(dx: 6, dy: 6), owned: true, worn: false)
+            let col = rarityColor(c.rarity)
+            ctx.setStrokeColor(col.cgColor)
+            ctx.setLineWidth(c.rarity >= 3 ? 4 : 2)
+            ctx.addPath(CGPath(roundedRect: r.insetBy(dx: 1, dy: 1), cornerWidth: 8, cornerHeight: 8, transform: nil))
+            ctx.strokePath()
+            if c.rarity >= 3 {
+                // Sparkles that blink around the legendary and above.
+                for s in 0..<6 {
+                    let a = t * 2 + Double(s) * 1.05 + Double(k)
+                    let sx = r.midX + CGFloat(cos(a)) * (cell * 0.62), sy = r.midY + CGFloat(sin(a)) * (cell * 0.62)
+                    ctx.setFillColor(col.withAlphaComponent(CGFloat(0.4 + 0.6 * abs(sin(a * 1.7)))).cgColor)
+                    ctx.fill(CGRect(x: sx - 2, y: sy - 2, width: 4, height: 4))
+                }
+            }
+            text(c.name, at: CGPoint(x: r.midX, y: r.maxY + 6), size: 11, color: col, weight: .bold, align: .center)
+            text("\(RpgCosmetics.rarityName[min(c.rarity, 5)]) · \(c.slot.title)", at: CGPoint(x: r.midX, y: r.maxY + 22), size: 10, color: Self.dim, weight: .semibold, align: .center)
+            text(pull.isNew ? "NEW!" : "중복", at: CGPoint(x: r.midX, y: r.maxY + 36), size: 11, color: pull.isNew ? Self.gold : NSColor(white: 0.55, alpha: 1), weight: .heavy, align: .center)
+        }
+        let news = pulls.filter(\.isNew).count
+        text("새 외관 \(news)개 · 중복 \(pulls.count - news)개 (중복은 환급되지 않아요)", at: CGPoint(x: area.midX, y: area.maxY - 4), size: 12, color: Self.dim, weight: .semibold, align: .center)
     }
 }

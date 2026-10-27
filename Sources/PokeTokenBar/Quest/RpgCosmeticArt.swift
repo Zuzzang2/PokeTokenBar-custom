@@ -22,7 +22,9 @@ extension RpgArt {
     private static let wearCodes: [String: (slot: RpgCosmeticSlot, code: UInt8)] = {
         var codes: [String: (slot: RpgCosmeticSlot, code: UInt8)] = [:]
         for c in RpgCosmetics.all {
-            let index = c.slot == .hair || c.slot == .face ? c.style : RpgCosmetics.themes.firstIndex { $0.key == c.theme } ?? -1
+            // Until the prism set has art of its own it wears the celestial shapes (theme index 13), recoloured by its theme.
+            let rawIndex = RpgCosmetics.themes.firstIndex { $0.key == c.theme } ?? -1
+            let index = c.slot == .hair || c.slot == .face ? c.style : (c.theme == "prism" ? 13 : rawIndex)
             if (0..<255).contains(index) { codes[c.id] = (c.slot, UInt8(index + 1)) }
         }
         return codes

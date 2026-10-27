@@ -13,7 +13,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade, equipment, wardrobe }
+    enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade, equipment, wardrobe, pullResult }
 
     let world: RpgWorld
     let localID: Int
@@ -38,11 +38,30 @@ final class RpgView: NSView, NSTextFieldDelegate {
     private var waitingKey = false
     private var saveClock = 0.0
     private var fallenAt: CFTimeInterval?
+    let worldView = RpgWorldLayerView(frame: .zero)
+    let overlay = RpgOverlayView(frame: .zero)
+    let backdrop = RpgBackdropView(frame: .zero)
+    /// The window plate wanted by the frame being drawn (set by `frame(_:title:hint:tabs:)`).
+    var backdropRect: CGRect?
+    /// The gacha result counter last shown (nil until the first look, so an old result is not replayed on entering).
+    var shownPullSeq: Int?
+    /// Rendered strings (see `text`).
+    var textCache: [TextKey: CachedText] = [:]
+    /// The last world frame and where it was placed, for `snapshotImage()`.
+    var lastFrame: (image: CGImage, rect: CGRect)?
 
     init(frame: NSRect, world: RpgWorld, localID: Int) {
         self.world = world
         self.localID = localID
         super.init(frame: frame)
+        wantsLayer = true
+        worldView.frame = bounds
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        overlay.drawing = { [weak self] ctx in self?.drawOverlay(ctx) }
+        addSubview(worldView)
+        addSubview(backdrop)
+        addSubview(overlay)
     }
 
     @available(*, unavailable)
@@ -168,6 +187,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .inventory: return bagList(p).count
         case .equipment: return RpgEquipSlot.allCases.count
         case .wardrobe: return wardrobeList(p).count
+        case .pullResult: return 1
         case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
         case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
         case .job: return me?.job == 0 ? 2 : 1
@@ -270,7 +290,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .inventory:
             let ids = sortedInventory(p)
             if ids.indices.contains(selection) { act(.equip(ids[selection])) }
-        case .equipment, .wardrobe:
+        case .equipment, .wardrobe, .pullResult:
             break
         case .shop(let s):
             if tab == 0 {
@@ -396,13 +416,22 @@ final class RpgView: NSView, NSTextFieldDelegate {
         }
         saveClock += dt
         if saveClock > 10 { saveClock = 0; saveNow() }
-        needsDisplay = true
+        checkPullResult()
+        renderWorld()
+        overlay.needsDisplay = true
     }
 
     // MARK: world drawing
 
+    /// The world and HUD live in subviews (`worldView`, `overlay`); this view itself only paints its background.
     override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext, let me else { return }
+        NSColor.black.setFill()
+        dirtyRect.fill()
+    }
+
+    /// Renders the pixel-art world into the small frame and hands it to the GPU layer.
+    func renderWorld() {
+        guard let me else { return }
         scale = max(2, (bounds.height / 240).rounded())
         let vw = Int((bounds.width / scale).rounded(.up)), vh = Int((bounds.height / scale).rounded(.up))
         if frameContext?.width != vw || frameContext?.height != vh {
@@ -491,16 +520,78 @@ final class RpgView: NSView, NSTextFieldDelegate {
         if map.darkness > 0 { drawDarkness(f, map: map, me: me, vw: vw, vh: vh) }
 
         if let frame = f.makeImage() {
-            ctx.interpolationQuality = .none
             let s = world.shake
             let jx = s > 0 ? CGFloat(Int.random(in: -1...1)) * CGFloat(s) * 2 : 0
             let jy = s > 0 ? CGFloat(Int.random(in: -1...1)) * CGFloat(s) * 2 : 0
-            KartArt.draw(frame, in: ctx, rect: CGRect(x: jx, y: jy, width: CGFloat(vw) * scale, height: CGFloat(vh) * scale))
+            let rect = CGRect(x: jx, y: jy, width: CGFloat(vw) * scale, height: CGFloat(vh) * scale)   // the parent is flipped: y counts from the top
+            lastFrame = (frame, rect)
+            worldView.show(frame, at: rect)
         }
+    }
+
+    /// For snapshots: the overlay with the plate painted behind the window like the layer would.
+    func drawOverlayBeforePlate(_ cg: CGContext) {
+        guard let me else { return }
+        // The window's rect is only known once it has been laid out, so draw the HUD first, then plate and window in order.
+        drawWorldText(me)
+        drawHUD(cg, me)
+        drawMinimap(cg, me)
+        // Lay the window out into a scratch context to learn its rect, then paint plate + window for real.
+        if let scratch = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            backdropRect = nil
+            drawPanel(scratch, me)
+        }
+        if let r = backdropRect {
+            cg.setFillColor(NSColor.black.withAlphaComponent(0.88).cgColor)
+            cg.addPath(CGPath(roundedRect: r, cornerWidth: 8, cornerHeight: 8, transform: nil))
+            cg.fillPath()
+        }
+        drawPanel(cg, me)
+    }
+
+    /// The text, HUD, minimap and windows, drawn at full resolution over the world.
+    func drawOverlay(_ ctx: CGContext) {
+        guard let me else { return }
+        backdropRect = nil
+        defer { placeBackdrop() }
         drawWorldText(me)
         drawHUD(ctx, me)
         drawMinimap(ctx, me)
         drawPanel(ctx, me)
+    }
+
+    /// Puts the window plate where this frame's window is, or hides it.
+    func placeBackdrop() {
+        if let r = backdropRect {
+            if backdrop.isHidden { backdrop.isHidden = false }
+            if backdrop.frame != r { CATransaction.begin(); CATransaction.setDisableActions(true); backdrop.frame = r; CATransaction.commit() }
+        } else if !backdrop.isHidden {
+            backdrop.isHidden = true
+        }
+    }
+
+    /// The whole view as one picture (world scaled up plus the overlay), for headless checks and screenshots.
+    func snapshotImage() -> CGImage? {
+        renderWorld()
+        let w = Int(bounds.width), h = Int(bounds.height)
+        guard let cg = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        cg.translateBy(x: 0, y: CGFloat(h))
+        cg.scaleBy(x: 1, y: -1)
+        cg.setFillColor(NSColor.black.cgColor)
+        cg.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        if let (image, rect) = lastFrame {
+            cg.interpolationQuality = .none
+            KartArt.draw(image, in: cg, rect: rect)
+        }
+        let gc = NSGraphicsContext(cgContext: cg, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gc
+        // The window plate is a layer in the app; paint it here so a snapshot shows what the screen shows.
+        backdropRect = nil
+        drawOverlayBeforePlate(cg)
+        NSGraphicsContext.restoreGraphicsState()
+        return cg.makeImage()
     }
 
     /// Per-hero motion between frames (walk cycle, dust, dash afterimages, level-up bursts), for every player drawn.
@@ -679,15 +770,43 @@ final class RpgView: NSView, NSTextFieldDelegate {
 
     func text(_ s: String, at p: CGPoint, size: CGFloat, color: NSColor = .white, weight: NSFont.Weight = .heavy,
                       align: NSTextAlignment = .left, mono: Bool = false) {
-        let font = mono ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight)
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.9)
-        shadow.shadowOffset = NSSize(width: 0, height: -2)
-        let str = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: color, .shadow: shadow])
-        let w = str.size().width
-        let x = align == .center ? p.x - w / 2 : (align == .right ? p.x - w : p.x)
-        str.draw(at: NSPoint(x: x, y: p.y))
+        // Laying out and shaping a string is the expensive part, and the same labels repeat every frame: render each distinct
+        // string once into a small image (at 2x) and blit that.
+        let key = TextKey(s: s, size: size, weight: weight.rawValue, mono: mono, color: color.usingColorSpace(.deviceRGB).map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } ?? [1, 1, 1, 1])
+        let cached: CachedText
+        if let hit = textCache[key] { cached = hit } else {
+            let font = mono ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight)
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.9)
+            shadow.shadowOffset = NSSize(width: 0, height: -2)
+            let str = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: color, .shadow: shadow])
+            let sz = str.size()
+            let pad: CGFloat = 4
+            let px = 2
+            let wpx = max(1, Int(ceil(sz.width + 2 * pad)) * px), hpx = max(1, Int(ceil(sz.height + 2 * pad)) * px)
+            var image: CGImage?
+            if let cg = CGContext(data: nil, width: wpx, height: hpx, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                cg.scaleBy(x: CGFloat(px), y: -CGFloat(px))
+                cg.translateBy(x: 0, y: -CGFloat(hpx) / CGFloat(px))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+                str.draw(at: NSPoint(x: pad, y: pad))
+                NSGraphicsContext.restoreGraphicsState()
+                image = cg.makeImage()
+            }
+            cached = CachedText(image: image, width: sz.width, pad: pad, size: CGSize(width: CGFloat(wpx) / CGFloat(px), height: CGFloat(hpx) / CGFloat(px)))
+            if textCache.count > 2500 { textCache.removeAll(keepingCapacity: true) }
+            textCache[key] = cached
+        }
+        let x = align == .center ? p.x - cached.width / 2 : (align == .right ? p.x - cached.width : p.x)
+        if let image = cached.image, let ctx = NSGraphicsContext.current?.cgContext {
+            ctx.interpolationQuality = .high
+            KartArt.draw(image, in: ctx, rect: CGRect(x: x - cached.pad, y: p.y - cached.pad, width: cached.size.width, height: cached.size.height))
+        }
     }
+
+    struct TextKey: Hashable { let s: String; let size: CGFloat; let weight: CGFloat; let mono: Bool; let color: [CGFloat] }
+    struct CachedText { let image: CGImage?; let width: CGFloat; let pad: CGFloat; let size: CGSize }
 
     func box(_ ctx: CGContext, _ rect: CGRect, alpha: CGFloat = 0.55) {
         ctx.setFillColor(NSColor.black.withAlphaComponent(alpha).cgColor)
@@ -1064,7 +1183,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     func frame(_ ctx: CGContext, title: String, hint: String, tabs: [String] = []) -> CGRect {
         let w = min(680, bounds.width - 40), h = min(500, bounds.height - 110)
         let r = CGRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2 - 20, width: w, height: h)
-        box(ctx, r, alpha: 0.88)
+        backdropRect = r   // the plate is a GPU layer (`backdrop`), not a CPU fill
         text(title, at: CGPoint(x: r.minX + 16, y: r.minY + 10), size: 18)
         for (k, tabTitle) in tabs.enumerated() {
             text(tabTitle, at: CGPoint(x: r.minX + 160 + CGFloat(k) * 90, y: r.minY + 13), size: 14,
@@ -1115,6 +1234,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             drawEquipment(ctx, p)
         case .wardrobe:
             drawWardrobe(ctx, p)
+        case .pullResult:
+            drawPullResult(ctx, p)
         case .shop(let s):
             let area = frame(ctx, title: s.title, hint: "↑↓ 선택   ←→ 사기·팔기   Enter 거래   Esc 나가기", tabs: ["사기", "팔기"])
             text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)

@@ -582,6 +582,9 @@ extension RpgView {
             return true
         case .wardrobe:
             return handleWardrobeKey(code, repeatKey: repeatKey, p)
+        case .pullResult:
+            if !repeatKey, [36, 53, 49].contains(code) { open(.wardrobe); tab = 2 }
+            return true
         default:
             return false
         }

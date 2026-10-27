@@ -42,7 +42,7 @@ struct RpgCosmetic: Sendable {
     let rarity: Int
     /// Theme key, or "style" for hair and faces.
     let theme: String
-    var price: Int { RpgCosmetics.prices[min(rarity, 4)] }
+    var price: Int { RpgCosmetics.prices[min(rarity, 5)] }
     /// Sold in the 의상실.
     let shop: Bool
     /// Can come out of the gacha.
@@ -52,15 +52,17 @@ struct RpgCosmetic: Sendable {
 }
 
 enum RpgCosmetics {
-    static let prices = [800, 3000, 9000, 30000, 100_000]
+    static let prices = [800, 3000, 9000, 30000, 100_000, 400_000]
     static let gachaCost = 3000
     static let gachaTenCost = 27_000
+    /// Rarity 5 (초월) exists only in the gacha, at 1%: the prism set.
+    static let ultra = 5
     /// A pull that has not reached 영웅 or better this many times in a row is guaranteed one.
     static let pity = 30
     static let maxWardrobe = 400
-    static let rarityName = ["일반", "희귀", "영웅", "전설", "신화"]
-    /// Gacha odds in percent for rarity 0…3 (the pity rule supplies the rest); a pull is always one cosmetic.
-    static let gachaOdds = [55, 30, 12, 3]
+    static let rarityName = ["일반", "희귀", "영웅", "전설", "신화", "초월"]
+    /// Gacha odds in percent for rarity 0…3 and 5 (초월); a pull is always one cosmetic. The pity rule only lifts a result to 영웅.
+    static let gachaOdds = [54, 30, 12, 3, 0, 1]
 
     static let themes: [RpgCosmeticTheme] = [
         RpgCosmeticTheme(key: "classic", name: "모험가", tier: 0, main: (176, 124, 78), trim: (240, 220, 160), glow: (255, 240, 190)),
@@ -79,6 +81,8 @@ enum RpgCosmetics {
         RpgCosmeticTheme(key: "celestial", name: "천사", tier: 4, main: (255, 250, 230), trim: (255, 210, 90), glow: (255, 240, 170)),
         RpgCosmeticTheme(key: "rift", name: "차원 방랑자", tier: 4, main: (40, 24, 80), trim: (200, 90, 255), glow: (170, 90, 255)),
         RpgCosmeticTheme(key: "chaos", name: "혼돈 군주", tier: 4, main: (20, 14, 30), trim: (255, 60, 150), glow: (255, 70, 170)),
+        // 초월: only from the gacha (1%); its colours cycle through the rainbow when drawn.
+        RpgCosmeticTheme(key: "prism", name: "프리즘 군주", tier: 5, main: (255, 120, 200), trim: (255, 255, 255), glow: (255, 255, 200)),
     ]
 
     static func theme(_ key: String) -> RpgCosmeticTheme? { themes.first { $0.key == key } }
@@ -91,7 +95,7 @@ enum RpgCosmetics {
         var list: [RpgCosmetic] = []
         for t in themes {
             func add(_ slot: RpgCosmeticSlot, _ word: String, bump: Int = 0, shop: Bool) {
-                list.append(RpgCosmetic(id: "\(slot.rawValue)_\(t.key)", name: "\(t.name) \(word)", slot: slot, rarity: min(4, t.tier + bump), theme: t.key,
+                list.append(RpgCosmetic(id: "\(slot.rawValue)_\(t.key)", name: "\(t.name) \(word)", slot: slot, rarity: t.tier >= 5 ? 5 : min(4, t.tier + bump), theme: t.key,
                                         shop: shop && t.tier <= 2, gacha: t.tier >= 1))
             }
             add(.hat, "모자", shop: true)
@@ -142,7 +146,7 @@ enum RpgCosmetics {
         var acc = 0
         var r = 3
         for (k, p) in gachaOdds.enumerated() { acc += p; if roll < acc { r = k; break } }
-        // Odds above sum to 100 (55+30+12+3); mythic only comes from pity upgrades and drops.
+        // The odds sum to 100; mythic (4) only comes from drops.
         if pityCount + 1 >= pity, r < 2 { r = 2 }
         return r
     }
@@ -154,6 +158,4 @@ enum RpgCosmetics {
         return any[abs(roll) % any.count].id
     }
 
-    /// Gold back for a duplicate.
-    static func duplicateRefund(_ c: RpgCosmetic) -> Int { c.price / 3 }
 }

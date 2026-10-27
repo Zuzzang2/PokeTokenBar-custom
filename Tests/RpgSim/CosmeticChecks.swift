@@ -6,9 +6,9 @@ func cosmeticChecks() {
     let all = RpgCosmetics.all
     check(all.count >= 100, "the catalog has \(all.count) cosmetics (>= 100)")
     check(Set(all.map(\.id)).count == all.count, "cosmetic ids are unique")
-    check(all.allSatisfy { $0.id.hasPrefix($0.slot.rawValue + "_") && (0...4).contains($0.rarity) && $0.price > 0 }, "ids carry their slot; rarity 0-4; prices positive")
+    check(all.allSatisfy { $0.id.hasPrefix($0.slot.rawValue + "_") && (0...5).contains($0.rarity) && $0.price > 0 }, "ids carry their slot; rarity 0-5; prices positive")
     check(RpgCosmeticSlot.allCases.allSatisfy { s in all.contains { $0.slot == s } }, "every slot has cosmetics")
-    check(RpgCosmetics.themes.count == 16 && Set(RpgCosmetics.themes.map(\.key)).count == 16, "16 themed sets")
+    check(RpgCosmetics.themes.count == 17 && Set(RpgCosmetics.themes.map(\.key)).count == 17, "17 themed sets (16 + the prism set)")
     check(RpgRegions.all.allSatisfy { r in RpgCosmetics.theme(r.id) != nil }, "every continent has a matching cosmetic set")
 
     // Saved data is untrusted.
@@ -45,9 +45,13 @@ func cosmeticChecks() {
     check(w2.player(1)!.wardrobe.isEmpty && w2.player(1)!.gold == 100_000, "the shop and gacha work only at the 의상실")
 
     // Gacha.
-    var counts = [0, 0, 0, 0, 0]
+    var counts = [0, 0, 0, 0, 0, 0]
     for roll in 0..<100 { counts[RpgCosmetics.gachaRarity(roll: roll, pityCount: 0)] += 1 }
-    check(counts == [55, 30, 12, 3, 0], "gacha odds over 100 rolls: \(counts)")
+    check(counts == [54, 30, 12, 3, 0, 1], "gacha odds over 100 rolls: \(counts) (1% 초월)")
+    let prism = all.filter { $0.theme == "prism" }
+    check(prism.count == 7 && prism.allSatisfy { $0.rarity == 5 && !$0.shop && $0.gacha }, "the prism set has 7 gacha-only 초월 pieces")
+    check(RpgCosmetics.gachaPiece(rarity: 5, roll: 3).hasSuffix("_prism") && RpgCosmetics.rarityName[5] == "초월" && RpgCosmetics.prices.count == 6, "a 초월 pull is a prism piece")
+    check((0..<100).allSatisfy { RpgCosmetics.gachaRarity(roll: $0, pityCount: RpgCosmetics.pity - 1) != 5 || $0 == 99 }, "pity never turns a pull into 초월")
     check((0..<100).allSatisfy { RpgCosmetics.gachaRarity(roll: $0, pityCount: RpgCosmetics.pity - 1) >= 2 }, "the pity pull is 영웅 or better")
     let before = w.player(1)!.gold
     w.perform(.gacha(10), for: 1)
@@ -60,7 +64,10 @@ func cosmeticChecks() {
     for _ in 0..<30 { w3.perform(.gacha(10), for: 1) }
     let big = w3.player(1)!
     check(big.wardrobe.count > 40 && big.wardrobe.allSatisfy { RpgCosmetics.def($0) != nil } && big.gachaPity <= RpgCosmetics.pity, "300 pulls fill the wardrobe with real pieces (\(big.wardrobe.count)), pity within bounds")
-    check(big.gold > 10_000_000 - 30 * RpgCosmetics.gachaTenCost, "duplicates paid gold back")
+    check(big.gold == 10_000_000 - 30 * RpgCosmetics.gachaTenCost, "duplicates pay nothing back: \(big.gold)")
+    check(big.pulls.count == 10 && big.pullSeq == 30, "the last result (10 pulls) is kept for the client: \(big.pulls.count) / seq \(big.pullSeq)")
+    check(w3.privateState(for: 1)?.pulls?.count == 10 && w3.privateState(for: 1)?.pullSeq == 30, "the result travels in the private state")
+    check(big.pulls.filter(\.isNew).count <= 10 && Set(big.pulls.filter(\.isNew).map(\.id)).isSubset(of: big.wardrobe), "new results are in the wardrobe")
 
     // Drops: only continent monsters, bosses far more often.
     if let region = RpgRegions.all.first, let boss = region.monsters.first(where: { $0.behavior == .boss }), let normal = region.monsters.first(where: { $0.behavior != .boss }) {
@@ -100,4 +107,13 @@ func cosmeticChecks() {
     w4.addPlayer(RpgSaveStore.newPlayer(name: "taken", cls: .mage, id: 2))
     w4.perform(.rename("taken"), for: 1)
     check(w4.player(1)!.name == "h" && (w4.player(1)!.inventory["ticket_rename"] ?? 0) == 1, "a name in use is refused and the ticket is kept")
+
+    // Taking gear off never leaves HP above the new maximum (found by the fuzz probe).
+    var gear = RpgSaveStore.newPlayer(name: "g", cls: .warrior, id: 1)
+    gear.ring = "ring3"; gear.amulet = "amulet3"; gear.helmet = "helmet3"
+    gear.hp = gear.maxHP; gear.mp = gear.maxMP
+    let wg = RpgWorld(player: gear)
+    wg.perform(.unequip(3), for: 1); wg.perform(.unequip(4), for: 1); wg.perform(.unequip(2), for: 1)
+    let ungeared = wg.player(1)!
+    check(ungeared.hp <= ungeared.maxHP && ungeared.mp <= ungeared.maxMP, "unequipping clamps HP/MP to the new maximum (\(ungeared.hp)/\(ungeared.maxHP))")
 }

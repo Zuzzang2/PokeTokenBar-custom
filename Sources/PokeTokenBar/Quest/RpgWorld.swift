@@ -84,6 +84,12 @@ enum RpgAction: Codable, Sendable {
     case resetStats
 }
 
+/// One gacha result.
+struct RpgPull: Codable, Sendable, Equatable {
+    let id: String
+    let isNew: Bool
+}
+
 struct RpgQuest: Codable, Sendable, Equatable {
     var id = UUID().uuidString
     let monster: String
@@ -183,6 +189,9 @@ struct RpgPlayer {
     var wardrobe: Set<String> = []
     var worn: [String: String] = [:]
     var gachaPity = 0
+    /// The last gacha pulls (cosmetic id, whether it was new) and a counter that bumps per pull, so a client can show the result. Not saved.
+    var pulls: [RpgPull] = []
+    var pullSeq = 0
     var achievements: Set<String> = []
     /// Customization [hair, skin, accent] (`RpgLook`, saved).
     var look: [Int] = []
@@ -519,7 +528,11 @@ final class RpgWorld {
     func perform(_ action: RpgAction, for id: Int) {
         guard let i = pIndex(id) else { return }
         actor = id
-        defer { actor = nil }
+        defer {
+            actor = nil
+            // Taking off or swapping gear can lower the maximum; the current values never stay above it.
+            if let k = pIndex(id) { players[k].hp = min(players[k].hp, players[k].maxHP); players[k].mp = min(players[k].mp, players[k].maxMP) }
+        }
         if players[i].dead { return }
         switch action {
         case .interact:
@@ -2557,17 +2570,18 @@ extension RpgWorld {
         toast("\(c.name) 착용")
     }
 
-    /// Adds a cosmetic to the wardrobe; a duplicate pays a third of its price back instead.
-    fileprivate func grantCosmetic(_ i: Int, _ id: String, from source: String) {
-        guard let c = RpgCosmetics.def(id) else { return }
+    /// Adds a cosmetic to the wardrobe. A duplicate gives nothing back (the gold is spent). Returns whether it was new.
+    @discardableResult
+    fileprivate func grantCosmetic(_ i: Int, _ id: String, from source: String, quiet: Bool = false) -> Bool {
+        guard let c = RpgCosmetics.def(id) else { return false }
         if players[i].wardrobe.contains(id) {
-            let back = RpgCosmetics.duplicateRefund(c)
-            players[i].gold += back
-            toast("\(c.name) 중복 — \(back)G 환급", to: players[i].id)
-        } else if players[i].wardrobe.count < RpgCosmetics.maxWardrobe {
-            players[i].wardrobe.insert(id)
-            toast("\(source) 외관 획득: [\(RpgCosmetics.rarityName[min(c.rarity, 4)])] \(c.name)", to: players[i].id)
+            if !quiet { toast("\(c.name) 중복 — 이미 가진 외관이에요", to: players[i].id) }
+            return false
         }
+        guard players[i].wardrobe.count < RpgCosmetics.maxWardrobe else { return false }
+        players[i].wardrobe.insert(id)
+        if !quiet { toast("\(source) 외관 획득: [\(RpgCosmetics.rarityName[min(c.rarity, 5)])] \(c.name)", to: players[i].id) }
+        return true
     }
 
     fileprivate func buyCosmetic(_ i: Int, _ id: String) {
@@ -2586,12 +2600,18 @@ extension RpgWorld {
         let cost = n == 10 ? RpgCosmetics.gachaTenCost : RpgCosmetics.gachaCost
         guard players[i].gold >= cost else { toast("골드가 부족해요 (\(cost)G)"); return }
         players[i].gold -= cost
+        var results: [RpgPull] = []
         for _ in 0..<n {
             let rarity = RpgCosmetics.gachaRarity(roll: rng.int(100), pityCount: players[i].gachaPity)
             players[i].gachaPity = rarity >= 2 ? 0 : players[i].gachaPity + 1
-            grantCosmetic(i, RpgCosmetics.gachaPiece(rarity: rarity, roll: rng.int(1_000_000)), from: "뽑기")
+            let id = RpgCosmetics.gachaPiece(rarity: rarity, roll: rng.int(1_000_000))
+            results.append(RpgPull(id: id, isNew: grantCosmetic(i, id, from: "뽑기", quiet: true)))
         }
-        effect(.levelUp, players[i].map, players[i].pos, .cosmic, duration: 0.8)
+        players[i].pulls = results
+        players[i].pullSeq += 1
+        let best = results.compactMap { RpgCosmetics.def($0.id)?.rarity }.max() ?? 0
+        effect(.levelUp, players[i].map, players[i].pos, best >= 5 ? .holy : .cosmic, duration: best >= 5 ? 2.0 : 0.8)
+        if best >= 5 { shake = max(shake, 1.5); toast("✨ 초월 등급 외관이 나왔어요! ✨", to: nil) }
     }
 
     /// 개명권: 1-10 letters, digits or spaces, not taken by anyone in this world.
@@ -2906,7 +2926,7 @@ extension RpgWorld {
         guard let p = player(id) else { return nil }
         return RpgPrivate(save: RpgSaveStore.snapshot(p), hp: p.hp, mp: p.mp, cooldowns: p.cooldowns, offers: boardOffers(for: id),
                           respawnIn: max(0, p.respawnAt - time), inviteFrom: p.inviteFrom, trade: tradeView(for: id), tradeFrom: p.tradeFrom,
-                          buffLeft: p.buffUntil.mapValues { max(0, $0 - time) }.filter { $0.value > 0 })
+                          buffLeft: p.buffUntil.mapValues { max(0, $0 - time) }.filter { $0.value > 0 }, pulls: p.pulls.isEmpty ? nil : p.pulls, pullSeq: p.pullSeq)
     }
 
     // MARK: client mirror
@@ -3025,6 +3045,8 @@ extension RpgWorld {
     func applyPrivate(_ s: RpgPrivate, localID: Int) {
         guard let i = pIndex(localID) else { return }
         let d = s.save
+        players[i].pulls = s.pulls ?? []
+        players[i].pullSeq = s.pullSeq ?? players[i].pullSeq
         players[i].level = d.level
         players[i].xp = d.xp
         players[i].gold = d.gold

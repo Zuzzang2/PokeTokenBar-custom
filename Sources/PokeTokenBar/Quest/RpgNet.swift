@@ -102,6 +102,9 @@ struct RpgPrivate: Codable, Sendable {
     var tradeFrom: Int? = nil
     /// Seconds left on each buff item, so a client can show and apply them.
     var buffLeft: [String: Double]? = nil
+    /// The last gacha result and its counter (see `RpgPlayer.pulls`).
+    var pulls: [RpgPull]? = nil
+    var pullSeq: Int? = nil
 }
 
 enum RpgNetMessage: Codable, Sendable {
