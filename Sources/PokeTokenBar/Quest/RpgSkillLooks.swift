@@ -1722,13 +1722,14 @@ extension RpgArt {
     /// 치유: leaves spiral up around each ally and a big green plus rises.
     private static func natureHeal(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .levelUp = f.kind else { return false }
-        let p = mHealPal
-        fade(c, 1 - win(f.t, 0.7, 1)) { circle(c, f.x, f.y, 6 + 9 * easeOut(f.t), p.lt, squash: 0.4); glow(c, f.x, f.y - 10, 12, p.lt, 0.5) }
-        for i in 0..<8 {
-            let u = win(f.t, Double(i) * 0.05, Double(i) * 0.05 + 0.6)
+        let p = mHealPal, k = 1 - win(f.t, 0.7, 1)
+        pillar(c, f.x, f.y, 8 * easeOut(win(f.t, 0, 0.25)), 34, p, 0.45 * k)
+        fade(c, k) { circle(c, f.x, f.y, 6 + 9 * easeOut(f.t), p.lt, squash: 0.4); circle(c, f.x, f.y, 3 + 6 * easeOut(f.t), p.hi, squash: 0.4, dash: 2) }
+        for i in 0..<12 {
+            let u = win(f.t, Double(i) * 0.04, Double(i) * 0.04 + 0.6)
             guard u > 0, u < 1 else { continue }
-            let a = Double(i) * 0.8 + u * 7, lx = f.x + cos(a) * 10 * (1 - u * 0.4), ly = f.y - 2 - u * 26 + sin(a) * 3
-            fade(c, 1 - u * u) { px(c, lx, ly, p.md, 2); px(c, lx + 1, ly - 1, p.lt) }
+            let a = Double(i) * 0.8 + u * 7, lx = f.x + cos(a) * 11 * (1 - u * 0.4), ly = f.y - 2 - u * 28 + sin(a) * 3
+            fade(c, 1 - u * u) { px(c, lx, ly, i % 3 == 0 ? p.ac : p.md, 2); px(c, lx + 1, ly - 1, p.hi) }
         }
         fade(c, punch(f.t, at: 0.3, hold: 0.3)) { glyph(c, "plus", plusGrid, p, f.x, f.y - 32 - f.t * 6) }
         return true
@@ -2478,7 +2479,8 @@ extension RpgArt {
         "kkkkkkkkkkk", "khhhllllmmk", "khllllllmmk", "klllllllmmk", "kmmmmmmmmdk", "kkkkkkkkkkk",
     ]
     static let wingGrid: RpgGrid = ["......kk", "...kkkhk", ".kkhhhlk", "khhllllk", ".kllmmk.", "..kkkk.."]
-    static let noteGrid: RpgGrid = ["..kk", "..kh", "..k.", "kkk.", "khk.", "kkk."]
+    static let noteGrid: RpgGrid = ["...kk", "...kh", "...k.", "...k.", "kkkk.", "khhk.", "kkkk."]
+    static let note2Grid: RpgGrid = ["..kkkkk", "..khhhk", "..k...k", "..k...k", "kkk.kkk", "khk.khk", "kkk.kkk"]
     static let angelGrid: RpgGrid = [
         "...kaaak...", "....khk....", "kk..khk..kk", "khk.klk.khk", "khhkllkkhhk", ".khhllllhk.", "..kllllllk.", "...kllllk..", "....kmmk...", ".....kk....",
     ]
@@ -2611,13 +2613,19 @@ extension RpgArt {
     /// 정화: ripples spread from each ally and bubbles of clear light rise.
     private static func purify(_ c: CGContext, _ f: FXF) -> Bool {
         let p = purifyPal
+        // A spout of clear water rises over each ally and splashes down.
+        if f.t < 0.5 {
+            let u = f.t / 0.5, h = 26 * sin(u * .pi)
+            fade(c, 0.7) { box(c, f.x - 2, f.y - h, 5, h, p.md); box(c, f.x - 1, f.y - h, 3, h, p.lt); box(c, f.x, f.y - h, 1, h, p.hi) }
+            fling(c, f.x, f.y - h, 8, 50, u, seed: f.seed &+ 7, Tones(p.hi, p.lt, p.md), spread: 1.2, gravity: 120, size: 2)
+        }
         for j in 0..<3 {
             let u = win(f.t, Double(j) * 0.15, Double(j) * 0.15 + 0.6)
             guard u > 0, u < 1 else { continue }
-            fade(c, 1 - u) { circle(c, f.x, f.y, 3 + u * 17, j == 0 ? p.hi : p.lt, squash: 0.4) }
+            fade(c, 1 - u) { circle(c, f.x, f.y, 3 + u * 19, j == 0 ? p.hi : p.lt, squash: 0.4) }
         }
         var r = KartRNG(seed: f.seed)
-        for i in 0..<8 {
+        for i in 0..<10 {
             let u = win(f.t, Double(r.int(40)) / 100, 1)
             guard u > 0, u < 1 else { continue }
             let bx = f.x - 9 + Double(r.int(19)) + sin(u * 6 + Double(i)) * 1.5, by = f.y - 2 - u * 26
@@ -2815,16 +2823,21 @@ extension RpgArt {
     private static func song(_ c: CGContext, _ f: FXF) -> Bool {
         guard case .levelUp = f.kind else { return false }
         let p = songPal
-        for i in 0..<5 {
-            let u = win(f.t, Double(i) * 0.1, Double(i) * 0.1 + 0.6)
+        glow(c, f.x, f.y - 12, 14, p.lt, 0.5 * (1 - f.t))
+        for i in 0..<8 {
+            let u = win(f.t, Double(i) * 0.06, Double(i) * 0.06 + 0.6)
             guard u > 0, u < 1 else { continue }
-            let a = Double(i) * 1.3 + u * 3
-            fade(c, 1 - u * u) { glyph(c, "note", noteGrid, p, f.x + cos(a) * 13, f.y - 10 - u * 22 + sin(a) * 3) }
+            let a = Double(i) * 0.9 + u * 3
+            fade(c, 1 - u * u) { glyph(c, i % 2 == 0 ? "note" : "note2", i % 2 == 0 ? noteGrid : note2Grid, p, f.x + cos(a) * 14, f.y - 10 - u * 24 + sin(a) * 3) }
         }
-        for j in 0..<2 {
-            let u = win(f.t, Double(j) * 0.25, Double(j) * 0.25 + 0.5)
+        for j in 0..<3 {
+            let u = win(f.t, Double(j) * 0.18, Double(j) * 0.18 + 0.5)
             guard u > 0, u < 1 else { continue }
-            fade(c, 1 - u) { circle(c, f.x, f.y - 10, 6 + u * 16, p.lt, squash: 0.7, from: -0.8, to: 0.8); circle(c, f.x, f.y - 10, 6 + u * 16, p.lt, squash: 0.7, from: 2.34, to: 3.94) }
+            fade(c, 1 - u) {
+                circle(c, f.x, f.y - 10, 6 + u * 18, p.lt, squash: 0.7, from: -0.8, to: 0.8)
+                circle(c, f.x, f.y - 10, 6 + u * 18, p.lt, squash: 0.7, from: 2.34, to: 3.94)
+                circle(c, f.x, f.y, 4 + u * 14, p.md, squash: 0.35)
+            }
         }
         return true
     }
@@ -3272,6 +3285,7 @@ extension RpgArt {
     static let harvestPal = FXPal(0xFFFFFF, 0xC8D8FF, 0x7A8AE8, 0x1A1A4A, 0xA0FFFF)
     static let fireDragonPal = FXPal(0xFFFFE0, 0xFFC050, 0xE8501A, 0x6A1A0A, 0xFFE070)
     static let stampedePal = FXPal(0xFFF0D8, 0xD8B080, 0x9A6A3A, 0x3A2410, 0xFFFFFF)
+    static let boarSprite = FXSprite("boar", ["..kkkk....", ".kmmmmkk..", "kmmlhmmmkk", "kmmmmmmaak", ".kkmmmkkk.", "..k...k..."])
     static let divineBeastPal = FXPal(0xFFFFFF, 0xD0FFF4, 0x6AE0C8, 0x1A6A6A, 0xFFE070)
     static let spiritStormPal = FXPal(0xFFFFFF, 0xE0FFF0, 0x8AE8C0, 0x2A6A5A, 0xFFE070)
     static let spiritOrbs: [FXPal] = [elemPal(.fire), elemPal(.ice), elemPal(.wind), elemPal(.holy)]
@@ -3669,15 +3683,15 @@ extension RpgArt {
     private static func stampede(_ c: CGContext, _ f: FXF) -> Bool {
         let p = stampedePal, k = 1 - win(f.t, 0.6, 1)
         var r = KartRNG(seed: f.seed)
-        for _ in 0..<2 {
+        for i in 0..<3 {
             let ox = Double(r.int(Int(f.r))) - f.r / 2, oy = Double(r.int(Int(f.r / 2))) - f.r / 4
-            let run = (f.t - 0.5) * 50
+            let run = (f.t - 0.5) * 60, bob = abs(sin(f.age * 22 + Double(i))) * 2
             let bx = f.x + ox + cos(f.dir) * run, by = f.y + oy + sin(f.dir) * run * 0.5
-            fade(c, k) {
-                ellipse(c, bx, by - 5, 5, p.dk, squash: 0.7); ellipse(c, bx - 1, by - 6, 3, p.md, squash: 0.7)
-                seg(c, bx + cos(f.dir) * 4, by - 7, bx + cos(f.dir) * 7, by - 10, p.hi)
+            fade(c, 0.7 * k) { for j in 1...2 { puff(c, bx - cos(f.dir) * Double(5 + j * 5), by - 2 - Double(j), 2 + Double(j) + f.t * 3, dustPal.lt, dustPal.md) } }
+            fade(c, k) { glyph(c, boarSprite, p, bx, by - 5 - bob, dir: f.dir) }
+            if i == 0, f.t > 0.4 {
+                fade(c, 1 - win(f.t, 0.4, 1)) { for j in -1...1 { let o = Double(j) * 3; seg(c, f.x - 5 + o, f.y - 12, f.x + 3 + o, f.y - 2, j == 0 ? p.hi : p.lt, 2) } }
             }
-            fade(c, 0.6 * k) { puff(c, bx - cos(f.dir) * 6, by - 2, 3 + f.t * 3, dustPal.lt, dustPal.md) }
         }
         return true
     }
