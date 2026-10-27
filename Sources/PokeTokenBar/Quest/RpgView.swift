@@ -81,10 +81,13 @@ final class RpgView: NSView, NSTextFieldDelegate {
     }
 
     /// Return opens a text field (a real one, so Korean input composes properly); Return sends, Esc cancels.
-    private func openChat() {
+    var renaming = false
+
+    func openChat(rename: Bool = false) {
         guard chatField == nil else { return }
+        renaming = rename
         let field = NSTextField(frame: NSRect(x: 16, y: bounds.height - 150, width: min(460, bounds.width - 32), height: 26))
-        field.placeholderString = "채팅 입력 후 Enter (Esc 취소)"
+        field.placeholderString = rename ? "새 이름 입력 후 Enter (글자·숫자 1~10자, Esc 취소)" : "채팅 입력 후 Enter (Esc 취소)"
         field.font = .systemFont(ofSize: 14, weight: .semibold)
         field.focusRingType = .none
         field.bezelStyle = .roundedBezel
@@ -97,6 +100,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     }
 
     private func closeChat() {
+        renaming = false
         chatField?.removeFromSuperview()
         chatField = nil
         window?.makeFirstResponder(self)
@@ -105,7 +109,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)) {
             let text = chatField?.stringValue ?? ""
-            if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+            if renaming { act(.rename(text)) }
+            else if !text.trimmingCharacters(in: .whitespaces).isEmpty {
                 if let driver { driver.chat(text) } else { world.say(localID, text) }
             }
             closeChat()

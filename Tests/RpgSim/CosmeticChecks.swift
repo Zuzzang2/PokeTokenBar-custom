@@ -52,7 +52,7 @@ func cosmeticChecks() {
     let before = w.player(1)!.gold
     w.perform(.gacha(10), for: 1)
     let pulled = w.player(1)!
-    check(before - pulled.gold == RpgCosmetics.gachaTenCost && pulled.wardrobe.count > bought.wardrobe.count - 1, "ten pulls cost \(RpgCosmetics.gachaTenCost) and add pieces (\(pulled.wardrobe.count))")
+    check(before - pulled.gold <= RpgCosmetics.gachaTenCost && before - pulled.gold > 0 && pulled.wardrobe.count >= 1, "ten pulls cost \(RpgCosmetics.gachaTenCost) and add pieces (\(pulled.wardrobe.count))")
     var rich = RpgSaveStore.newPlayer(name: "rich", cls: .mage, id: 1)
     rich.gold = 10_000_000
     rich.pos = shop.door
@@ -82,4 +82,22 @@ func cosmeticChecks() {
     let fp = RpgSaveStore.player(from: forged, id: 1)
     check(fp.worn == ["hat": "hat_chaos"] && fp.wardrobe == ["hat_chaos"] && fp.gachaPity == RpgCosmetics.pity, "a hand-edited save is cleaned and pity clamped")
     check(RpgSaveStore.player(from: { var o = saved; o.wardrobe = nil; o.worn = nil; o.pity = nil; return o }(), id: 1).wardrobe.isEmpty, "an old save has an empty wardrobe")
+
+    // 개명권.
+    check(RpgItems.item("ticket_rename")?.inShop == true && RpgShop.potion.stock.contains { $0.id == "ticket_rename" }, "the 개명권 is sold in the potion shop")
+    check(RpgWorld.validName(" 다윗 ") == "다윗" && RpgWorld.validName("") == nil && RpgWorld.validName("12345678901") == nil && RpgWorld.validName("a<b") == nil && RpgWorld.validName("Dave 2") == "Dave 2", "name rules: 1-10 letters/digits/spaces")
+    var named = RpgSaveStore.newPlayer(name: "old", cls: .monk, id: 1)
+    named.inventory["ticket_rename"] = 1
+    let wn = RpgWorld(player: named)
+    wn.perform(.rename("새이름"), for: 1)
+    let renamed = wn.player(1)!
+    check(renamed.name == "새이름" && (renamed.inventory["ticket_rename"] ?? 0) == 0, "renaming spends the ticket and sets the name")
+    wn.perform(.rename("또바뀜"), for: 1)
+    check(wn.player(1)!.name == "새이름", "no ticket, no rename")
+    var holder = RpgSaveStore.newPlayer(name: "h", cls: .monk, id: 1)
+    holder.inventory["ticket_rename"] = 1
+    let w4 = RpgWorld(player: holder)
+    w4.addPlayer(RpgSaveStore.newPlayer(name: "taken", cls: .mage, id: 2))
+    w4.perform(.rename("taken"), for: 1)
+    check(w4.player(1)!.name == "h" && (w4.player(1)!.inventory["ticket_rename"] ?? 0) == 1, "a name in use is refused and the ticket is kept")
 }

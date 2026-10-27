@@ -263,6 +263,7 @@ enum RpgItems {
             RpgItem(id: "hp3", name: "엘릭서", kind: .potionHP, rarity: 3, attack: 0, defense: 0, heal: 1500, price: 900, element: .base, inShop: true),
             RpgItem(id: "mp0", name: "파란 물약", kind: .potionMP, rarity: 0, attack: 0, defense: 0, heal: 40, price: 30, element: .base, inShop: true),
             RpgItem(id: "mp1", name: "마나 엘릭서", kind: .potionMP, rarity: 2, attack: 0, defense: 0, heal: 200, price: 300, element: .base, inShop: true),
+            RpgItem(id: "ticket_rename", name: "개명권", kind: .scroll, rarity: 3, attack: 0, defense: 0, heal: 0, price: 20000, element: .base, inShop: true),
             RpgItem(id: "scroll", name: "귀환 주문서", kind: .scroll, rarity: 0, attack: 0, defense: 0, heal: 0, price: 40, element: .base, inShop: true),
             RpgItem(id: "stone", name: "강화석", kind: .stone, rarity: 1, attack: 0, defense: 0, heal: 0, price: 300, element: .base, inShop: false),
         ]

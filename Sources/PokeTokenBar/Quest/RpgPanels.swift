@@ -517,7 +517,10 @@ extension RpgView {
             case 125: selection = selection + cols < ids.count ? selection + cols : selection
             case 48, 30: if !repeatKey { tab = (tab + 1) % Self.bagTabs.count; selection = 0 }
             case 33: if !repeatKey { tab = (tab + Self.bagTabs.count - 1) % Self.bagTabs.count; selection = 0 }
-            case 36: if !repeatKey, ids.indices.contains(selection) { act(.equip(ids[selection])) }
+            case 36:
+                if !repeatKey, ids.indices.contains(selection) {
+                    if ids[selection] == "ticket_rename" { close(); openChat(rename: true) } else { act(.equip(ids[selection])) }
+                }
             default: return false
             }
             return true

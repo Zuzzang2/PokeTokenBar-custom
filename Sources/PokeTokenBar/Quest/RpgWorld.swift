@@ -78,6 +78,8 @@ enum RpgAction: Codable, Sendable {
     case unwear(String)
     case buyCosmetic(String)
     case gacha(Int)
+    /// Spend a 개명권 to change this character's name.
+    case rename(String)
     /// Take every point back for gold (`RpgStats.resetCost`).
     case resetStats
 }
@@ -528,6 +530,7 @@ final class RpgWorld {
             if players[i].worn.removeValue(forKey: slot) != nil { toast("외관을 벗었어요") }
         case .buyCosmetic(let id): buyCosmetic(i, id)
         case .gacha(let n): pullGacha(i, n)
+        case .rename(let name): renameCharacter(i, name)
         case .unequip(let slot):
             switch slot {
             case 1: if let old = players[i].armor { players[i].inventory[old, default: 0] += 1; players[i].armor = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
@@ -710,6 +713,7 @@ final class RpgWorld {
                 float("+\(it.heal) MP", players[i].map, players[i].pos, .heal)
             }
         case .scroll:
+            if item == "ticket_rename" { toast("가방에서 개명권을 쓰면 새 이름을 입력해요"); return }
             moveToTown(i)
             toast("마을로 귀환했어요")
         case .book(let skill):
@@ -2505,6 +2509,24 @@ extension RpgWorld {
             grantCosmetic(i, RpgCosmetics.gachaPiece(rarity: rarity, roll: rng.int(1_000_000)), from: "뽑기")
         }
         effect(.levelUp, players[i].map, players[i].pos, .cosmic, duration: 0.8)
+    }
+
+    /// 개명권: 1-10 letters, digits or spaces, not taken by anyone in this world.
+    static func validName(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...10).contains(name.count), name.unicodeScalars.allSatisfy({ CharacterSet.letters.union(.decimalDigits).union(CharacterSet(charactersIn: " ")).contains($0) }) else { return nil }
+        return name
+    }
+
+    fileprivate func renameCharacter(_ i: Int, _ raw: String) {
+        guard (players[i].inventory["ticket_rename"] ?? 0) > 0 else { toast("개명권이 없어요"); return }
+        guard let name = Self.validName(raw) else { toast("이름은 글자·숫자 1~10자로 지어 주세요"); return }
+        guard name != players[i].name else { toast("지금과 같은 이름이에요"); return }
+        guard !players.contains(where: { $0.id != players[i].id && $0.name == name }) else { toast("이미 쓰는 사람이 있는 이름이에요"); return }
+        consume("ticket_rename", i)
+        players[i].name = name
+        effect(.levelUp, players[i].map, players[i].pos, .holy, duration: 1.0)
+        toast("이름이 \(name)(으)로 바뀌었어요!", to: nil)
     }
 
     /// Region monsters and bosses may drop a piece of their region's set.
