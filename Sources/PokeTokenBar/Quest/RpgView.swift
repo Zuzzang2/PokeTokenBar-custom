@@ -13,7 +13,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
     weak var driver: RpgDriver?
     private var chatField: NSTextField?
 
-    enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade, equipment }
+    enum Panel: Equatable { case none, inventory, shop(RpgShop), smith, board, skills, keys, waypoint, quests, party, job, codex, trade, equipment, wardrobe }
 
     let world: RpgWorld
     let localID: Int
@@ -162,6 +162,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .none: return 0
         case .inventory: return bagList(p).count
         case .equipment: return RpgEquipSlot.allCases.count
+        case .wardrobe: return wardrobeList(p).count
         case .shop(let s): return tab == 0 ? stock(s, p).count : sortedInventory(p).count
         case .smith: return tab == 0 ? 2 : RpgRecipes.all.count
         case .job: return me?.job == 0 ? 2 : 1
@@ -205,7 +206,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             return
         }
         // The key that opened a window also closes it.
-        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.equipment, .equipment), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
+        let toggles: [(Panel, RpgKeyAction)] = [(.inventory, .inventory), (.equipment, .equipment), (.wardrobe, .wardrobe), (.skills, .skills), (.keys, .keys), (.quests, .quests), (.party, .party), (.codex, .codex), (.trade, .trade)]
         if !repeatKey, toggles.contains(where: { $0.0 == panel && bindings.code($0.1) == code }) { close(); return }
         if handleWindowKey(code, repeatKey: repeatKey, p) { return }
         if panel == .skills, tab == 0, !repeatKey, let slot = bindings.actions(for: code).compactMap(\.slotIndex).first {
@@ -264,7 +265,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .inventory:
             let ids = sortedInventory(p)
             if ids.indices.contains(selection) { act(.equip(ids[selection])) }
-        case .equipment:
+        case .equipment, .wardrobe:
             break
         case .shop(let s):
             if tab == 0 {
@@ -345,6 +346,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
                     case .smith: open(.smith)
                     case .board: open(.board)
                     case .jobMaster: open(.job)
+                    case .wardrobe: open(.wardrobe)
                     }
                 } else if let portal = world.nearbyPortal(for: localID), portal.waypoint {
                     open(.waypoint)
@@ -354,6 +356,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
             if tapped(.inventory) { open(.inventory) }
             if tapped(.equipment) { open(.equipment) }
+            if tapped(.wardrobe) { open(.wardrobe) }
             if tapped(.sound) { sound.toggle(); world.toast(sound.enabled ? "효과음 켜짐" : "효과음 꺼짐") }
             if tapped(.skills) { open(.skills) }
             if tapped(.quests) { open(.quests) }
@@ -620,6 +623,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         case .shop(.potion): KartArt.rgb(230, 200, 90)
         case .shop(.skill): KartArt.rgb(150, 100, 220)
         case .jobMaster: KartArt.rgb(240, 200, 70)
+        case .wardrobe: KartArt.rgb(245, 140, 190)
         default: KartArt.rgb(90, 70, 50)
         }
         guard let img = RpgArt.sprite("villager", tint: ["H": hair]) else { return }
@@ -1156,6 +1160,8 @@ final class RpgView: NSView, NSTextFieldDelegate {
             drawBag(ctx, p)
         case .equipment:
             drawEquipment(ctx, p)
+        case .wardrobe:
+            drawWardrobe(ctx, p)
         case .shop(let s):
             let area = frame(ctx, title: s.title, hint: "↑↓ 선택   ←→ 사기·팔기   Enter 거래   Esc 나가기", tabs: ["사기", "팔기"])
             text("\(p.gold) G", at: CGPoint(x: area.maxX - 8, y: area.minY - 30), size: 15, color: Self.gold, align: .right, mono: true)

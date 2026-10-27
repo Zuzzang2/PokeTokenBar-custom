@@ -773,6 +773,7 @@ enum RpgArt {
         case .shop(.potion): (rgb(80, 160, 90), rgb(56, 120, 66))
         case .shop(.skill): (rgb(120, 70, 190), rgb(84, 46, 140))
         case .jobMaster: (rgb(214, 170, 60), rgb(168, 126, 36))
+        case .wardrobe: (rgb(236, 110, 160), rgb(190, 70, 120))
         default: (rgb(110, 110, 120), rgb(80, 80, 90))
         }
         let roofH = h * 0.45

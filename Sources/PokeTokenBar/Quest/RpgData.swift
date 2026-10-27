@@ -382,6 +382,7 @@ enum RpgPlace: Sendable, Equatable {
     case smith
     case board
     case jobMaster
+    case wardrobe
 
     var title: String {
         switch self {
@@ -389,6 +390,7 @@ enum RpgPlace: Sendable, Equatable {
         case .smith: return "대장간"
         case .board: return "의뢰소"
         case .jobMaster: return "전직관"
+        case .wardrobe: return "의상실"
         }
     }
 }

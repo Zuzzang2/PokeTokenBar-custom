@@ -37,6 +37,8 @@ struct RpgPlayerPub: Codable, Sendable {
     var stealth: Double? = nil
     /// Appearance: customization (`RpgLook`) and worn gear, so everyone draws the same hero.
     var look: [Int]? = nil
+    /// Cosmetics worn: slot → id (see `RpgCosmetics`).
+    var worn: [String: String]? = nil
     var armor: String? = nil
     var helmet: String? = nil
     var boots: String? = nil

@@ -39,6 +39,9 @@ struct RpgSaveData: Codable, Sendable {
     var achievements: [String]?
     var bestFloor: Int?
     var story: Int?
+    var wardrobe: [String]?
+    var worn: [String: String]?
+    var pity: Int?
     var ring: String?
     var amulet: String?
     var helmet: String?
@@ -104,7 +107,7 @@ enum RpgSaveStore {
         return RpgSaveData(name: p.name, cls: p.cls, level: p.level, xp: p.xp, gold: p.gold, inventory: p.inventory,
                            weapon: p.weapon, armor: p.armor, map: safeMap, x: Double(spot.x), y: Double(spot.y), playTime: p.playTime,
                            plus: p.plus, skills: p.skills, sp: p.sp, ap: p.ap, stats: p.stats, slots: p.slots, quests: p.quests, visited: Array(p.visited), bossLoot: p.bossLoot, hardcore: p.hardcore, fallen: p.fallen, job: p.job, tier: p.tier,
-                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor, story: p.story,
+                           kills: p.kills, eliteKills: p.eliteKills, bestCombo: p.bestCombo, achievements: p.achievements.sorted(), bestFloor: p.bestFloor, story: p.story, wardrobe: p.wardrobe.sorted(), worn: p.worn, pity: p.gachaPity,
                            ring: p.ring, amulet: p.amulet, helmet: p.helmet, boots: p.boots, look: p.look)
     }
 
@@ -136,6 +139,8 @@ enum RpgSaveStore {
         p.achievements = Set((s.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         p.bestFloor = min(max(s.bestFloor ?? 0, 0), 1000)
         p.story = min(max(s.story ?? 0, 0), RpgStory.steps.count)
+        (p.wardrobe, p.worn) = RpgCosmetics.clean(wardrobe: s.wardrobe, worn: s.worn)
+        p.gachaPity = min(max(s.pity ?? 0, 0), RpgCosmetics.pity)
         p.ring = s.ring.flatMap { RpgItems.item($0)?.kind == .ring ? $0 : nil }
         p.amulet = s.amulet.flatMap { RpgItems.item($0)?.kind == .amulet ? $0 : nil }
         p.helmet = s.helmet.flatMap { RpgItems.item($0)?.kind == .helmet ? $0 : nil }

@@ -563,6 +563,8 @@ extension RpgView {
                 else { world.toast("아직 배우지 않은 스킬이에요") }
             }
             return true
+        case .wardrobe:
+            return handleWardrobeKey(code, repeatKey: repeatKey, p)
         default:
             return false
         }

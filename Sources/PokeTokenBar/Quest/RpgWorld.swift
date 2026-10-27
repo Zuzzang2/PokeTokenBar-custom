@@ -73,6 +73,11 @@ enum RpgAction: Codable, Sendable {
     case unequip(Int)
     /// Claim the reward of the current 스토리 step.
     case claimStory
+    /// 외관: wear an owned cosmetic, take off a slot (its raw value), buy from the 의상실, pull the gacha once or ten times.
+    case wear(String)
+    case unwear(String)
+    case buyCosmetic(String)
+    case gacha(Int)
     /// Take every point back for gold (`RpgStats.resetCost`).
     case resetStats
 }
@@ -172,6 +177,10 @@ struct RpgPlayer {
     var bestFloor = 0
     /// Index of the next 스토리 step (`RpgStory.steps`).
     var story = 0
+    /// 외관 아이템 (`RpgCosmetics`): owned ids, what is worn per slot, and pulls since the last 영웅-or-better gacha result.
+    var wardrobe: Set<String> = []
+    var worn: [String: String] = [:]
+    var gachaPity = 0
     var achievements: Set<String> = []
     /// Customization [hair, skin, accent] (`RpgLook`, saved).
     var look: [Int] = []
@@ -514,6 +523,11 @@ final class RpgWorld {
             promote(i)
         case .claimStory:
             claimStory(i)
+        case .wear(let id): wearCosmetic(i, id)
+        case .unwear(let slot):
+            if players[i].worn.removeValue(forKey: slot) != nil { toast("외관을 벗었어요") }
+        case .buyCosmetic(let id): buyCosmetic(i, id)
+        case .gacha(let n): pullGacha(i, n)
         case .unequip(let slot):
             switch slot {
             case 1: if let old = players[i].armor { players[i].inventory[old, default: 0] += 1; players[i].armor = nil; toast("\(RpgItems.item(old)?.name ?? old) 해제") }
@@ -1763,6 +1777,7 @@ final class RpgWorld {
                 }
             }
             for owner in rolls {
+                dropCosmetic(m.def, to: owner)
                 let luck = ((player(owner)?.hardcore ?? false) ? Self.hardcoreReward : 1) * (m.elite ? 3 : 1) * (player(owner)?.buffActive("luck", time) == true ? 1.3 : 1)
                 for d in m.def.drops where Double(rng.int(10_000)) / 10_000 < d.chance * luck {
                     drops.append(RpgDropped(id: newID(), map: map, pos: CGPoint(x: m.pos.x + CGFloat(rng.int(31) - 15), y: m.pos.y + CGFloat(rng.int(17) - 8)),
@@ -2446,6 +2461,60 @@ extension RpgWorld {
     }
 }
 
+// MARK: - 외관
+
+extension RpgWorld {
+    fileprivate func wearCosmetic(_ i: Int, _ id: String) {
+        guard let c = RpgCosmetics.def(id), players[i].wardrobe.contains(id) else { return }
+        players[i].worn[c.slot.rawValue] = id
+        toast("\(c.name) 착용")
+    }
+
+    /// Adds a cosmetic to the wardrobe; a duplicate pays a third of its price back instead.
+    fileprivate func grantCosmetic(_ i: Int, _ id: String, from source: String) {
+        guard let c = RpgCosmetics.def(id) else { return }
+        if players[i].wardrobe.contains(id) {
+            let back = RpgCosmetics.duplicateRefund(c)
+            players[i].gold += back
+            toast("\(c.name) 중복 — \(back)G 환급", to: players[i].id)
+        } else if players[i].wardrobe.count < RpgCosmetics.maxWardrobe {
+            players[i].wardrobe.insert(id)
+            toast("\(source) 외관 획득: [\(RpgCosmetics.rarityName[min(c.rarity, 4)])] \(c.name)", to: players[i].id)
+        }
+    }
+
+    fileprivate func buyCosmetic(_ i: Int, _ id: String) {
+        guard nearbyPlace(for: players[i].id) == .wardrobe else { toast("의상실 앞에서만 살 수 있어요"); return }
+        guard let c = RpgCosmetics.def(id), c.shop else { return }
+        guard !players[i].wardrobe.contains(id) else { toast("이미 가지고 있어요"); return }
+        guard players[i].gold >= c.price else { toast("골드가 부족해요"); return }
+        players[i].gold -= c.price
+        players[i].wardrobe.insert(id)
+        toast("\(c.name) 구매 (-\(c.price)G)")
+    }
+
+    fileprivate func pullGacha(_ i: Int, _ count: Int) {
+        guard nearbyPlace(for: players[i].id) == .wardrobe else { toast("의상실 앞에서만 뽑을 수 있어요"); return }
+        let n = count >= 10 ? 10 : 1
+        let cost = n == 10 ? RpgCosmetics.gachaTenCost : RpgCosmetics.gachaCost
+        guard players[i].gold >= cost else { toast("골드가 부족해요 (\(cost)G)"); return }
+        players[i].gold -= cost
+        for _ in 0..<n {
+            let rarity = RpgCosmetics.gachaRarity(roll: rng.int(100), pityCount: players[i].gachaPity)
+            players[i].gachaPity = rarity >= 2 ? 0 : players[i].gachaPity + 1
+            grantCosmetic(i, RpgCosmetics.gachaPiece(rarity: rarity, roll: rng.int(1_000_000)), from: "뽑기")
+        }
+        effect(.levelUp, players[i].map, players[i].pos, .cosmic, duration: 0.8)
+    }
+
+    /// Region monsters and bosses may drop a piece of their region's set.
+    fileprivate func dropCosmetic(_ def: RpgMonsterDef, to owner: Int) {
+        guard let i = pIndex(owner), let (theme, chance) = RpgCosmetics.dropChance(def), Double(rng.int(1_000_000)) / 1_000_000 < chance,
+              let id = RpgCosmetics.newPiece(theme: theme, owned: players[i].wardrobe, roll: rng.int(1_000_000)) else { return }
+        grantCosmetic(i, id, from: "드랍")
+    }
+}
+
 // MARK: - 스토리
 
 extension RpgWorld {
@@ -2700,6 +2769,7 @@ extension RpgWorld {
             pub.comboLeft = max(0, p.comboUntil - time)
             pub.stealth = max(0, p.stealthUntil - time)
             pub.look = p.look
+            pub.worn = p.worn.isEmpty ? nil : p.worn
             (pub.armor, pub.helmet, pub.boots, pub.ring, pub.amulet) = (p.armor, p.helmet, p.boots, p.ring, p.amulet)
             pub.attackAgo = time - p.attackAt < 2 ? time - p.attackAt : nil
             pub.castAgo = time - p.castAt < 2 ? time - p.castAt : nil
@@ -2780,6 +2850,7 @@ extension RpgWorld {
             p.comboUntil = time + (pub.comboLeft ?? 0)
             // An older host sends no look: keep ours (it would otherwise be saved back as the class default).
             if let look = pub.look { p.look = RpgLook.clean(look, cls: p.cls) }
+            if pub.id != localID { p.worn = RpgCosmetics.clean(wardrobe: (pub.worn ?? [:]).map(\.value), worn: pub.worn).1 }
             if pub.id != localID {
                 // Others' gear only shows on their hero (our own comes with the private state).
                 p.armor = pub.armor.flatMap { RpgItems.item($0)?.kind == .armor ? $0 : nil }
@@ -2881,6 +2952,8 @@ extension RpgWorld {
         players[i].bestCombo = min(max(d.bestCombo ?? 0, 0), 10_000)
         players[i].bestFloor = min(max(d.bestFloor ?? 0, 0), 1000)
         players[i].story = min(max(d.story ?? 0, 0), RpgStory.steps.count)
+        (players[i].wardrobe, players[i].worn) = RpgCosmetics.clean(wardrobe: d.wardrobe, worn: d.worn)
+        players[i].gachaPity = min(max(d.pity ?? 0, 0), RpgCosmetics.pity)
         players[i].achievements = Set((d.achievements ?? []).filter { RpgAchievements.ids.contains($0) })
         players[i].hp = s.hp
         players[i].mp = s.mp
