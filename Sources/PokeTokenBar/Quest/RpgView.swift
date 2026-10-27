@@ -526,7 +526,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         RpgArt.drawHeroBurst(f, p, motion: motion, time: t)
         // Party members get a bobbing green marker over their heads.
         if p.id != localID, !p.dead, let party = p.partyID, party == me?.partyID {
-            let x = p.pos.x.rounded(), y = (p.pos.y - RpgArt.heroHeight(p.cls) - 5 + CGFloat(sin(t * 4) * 1.2)).rounded()
+            let x = p.pos.x.rounded(), y = (p.pos.y - RpgArt.heroHeight(p) - 5 + CGFloat(sin(t * 4) * 1.2)).rounded()
             KartArt.fill(f, RpgArt.outline, x - 3, y - 1, 7, 3); KartArt.fill(f, RpgArt.outline, x - 2, y + 2, 5, 1); KartArt.fill(f, RpgArt.outline, x - 1, y + 3, 3, 1)
             KartArt.fill(f, KartArt.rgb(110, 240, 140), x - 2, y, 5, 1); KartArt.fill(f, KartArt.rgb(70, 190, 100), x - 1, y + 1, 3, 1)
             KartArt.fill(f, KartArt.rgb(70, 190, 100), x, y + 2, 1, 1)
@@ -791,7 +791,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
         // Everyone: a name plate under the feet and chat bubbles over the head.
         for p in world.players where p.map == me.map {
             nameTag(p, me: me)
-            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - RpgArt.heroHeight(p.cls) - 1))
+            let head = screen(CGPoint(x: p.pos.x, y: p.pos.y - RpgArt.heroHeight(p) - 1))
             let top = head.y
             if let b = p.bubble, world.time < p.bubbleUntil {
                 let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
