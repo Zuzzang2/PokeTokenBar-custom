@@ -441,7 +441,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             KartArt.fill(f, KartArt.rgb(255, 200, 60), p.x - 1, p.y - 7 - CGFloat(flick % 2), 3, 3)
             KartArt.fill(f, KartArt.rgb(255, 250, 200), p.x, p.y - 6, 1, 1)
         }
-        for trap in world.traps where trap.map == me.map { trap.turret == true ? RpgArt.turret(f, at: trap.pos, time: t) : RpgArt.trap(f, at: trap.pos, time: t) }
+        for trap in world.traps where trap.map == me.map { RpgArt.drawTrap(f, trap, time: t) }
         for g in world.graves where g.map == me.map { RpgArt.grave(f, at: CGPoint(x: g.x, y: g.y)) }
         for d in world.drops where d.map == me.map {
             let reserved = d.owner != nil && d.owner != localID && t - d.at < 30
@@ -468,6 +468,7 @@ final class RpgView: NSView, NSTextFieldDelegate {
             }
         }
 
+        drawEffects(f, map: me.map, ground: true)
         enum Drawable { case player(RpgPlayer), mob(RpgMob), npc(RpgBuilding), pet(RpgPetState) }
         var items: [(y: CGFloat, d: Drawable)] = []
         for p in world.players where p.map == me.map { items.append((p.pos.y, .player(p))) }
@@ -639,63 +640,10 @@ final class RpgView: NSView, NSTextFieldDelegate {
         KartArt.draw(img, in: f, rect: CGRect(x: p.x - 12, y: p.y - 23 - bob, width: 24, height: 24))
     }
 
-    private func drawShots(_ f: CGContext, map: RpgMapID) {
-        for s in world.shots where s.map == map {
-            let speed = max(1, hypot(s.vel.dx, s.vel.dy))
-            let ux = Double(s.vel.dx / speed), uy = Double(s.vel.dy / speed)
-            let e = RpgArt.elem(s.element)
-            let x = Double(s.pos.x), y = Double(s.pos.y)
-            switch s.kind {
-            case .arrow, .bigArrow, .mobArrow, .poisonArrow:
-                let len = s.kind == .bigArrow ? 12.0 : 7.0
-                if s.kind != .mobArrow {
-                    for k in 1...6 { RpgArt.dot(f, x - ux * (len + Double(k) * 1.6), y - uy * (len + Double(k) * 1.6), (k < 3 ? e.mid : e.edge).copy(alpha: 1 - Double(k) * 0.14) ?? e.mid) }
-                }
-                RpgArt.line(f, x - ux * len, y - uy * len, x, y, s.kind == .mobArrow ? KartArt.rgb(200, 190, 170) : KartArt.rgb(150, 100, 56))
-                RpgArt.dot(f, x + ux, y + uy, s.kind == .mobArrow ? KartArt.rgb(230, 226, 210) : e.core, s.kind == .bigArrow ? 2 : 1)
-                if s.kind == .bigArrow { RpgArt.disc(f, x, y, 3, e.mid.copy(alpha: 0.5) ?? e.mid) }
-            case .orb, .bossOrb:
-                let r = s.kind == .bossOrb ? 3.4 : 2.6
-                for k in 1...5 { RpgArt.dot(f, x - ux * Double(k) * 1.8, y - uy * Double(k) * 1.8, e.mid.copy(alpha: 1 - Double(k) * 0.18) ?? e.mid) }
-                RpgArt.disc(f, x, y, r, e.edge); RpgArt.disc(f, x, y, r * 0.6, e.mid); RpgArt.dot(f, x, y, e.core)
-            case .slimeBall:
-                RpgArt.disc(f, x, y, 3, KartArt.rgb(46, 140, 80)); RpgArt.disc(f, x - 0.5, y - 0.5, 2, KartArt.rgb(110, 220, 130))
-                RpgArt.dot(f, x - 1, y - 1, KartArt.rgb(240, 255, 240))
-            }
-        }
-    }
+    private func drawShots(_ f: CGContext, map: RpgMapID) { RpgArt.drawShots(f, world.shots, map: map, time: world.time) }
 
-    private func drawEffects(_ f: CGContext, map: RpgMapID) {
-        let t = world.time
-        for e in world.fx where e.map == map && t >= e.start {
-            let progress = max(0, min(0.999, (t - e.start) / e.duration))
-            let frame = Int(progress * 6)
-            switch e.kind {
-            case .slash(let angle, let radius): RpgArt.slash(f, at: e.pos, angle: angle, frame: frame, element: e.element, radius: radius)
-            case .burst(let radius): RpgArt.burst(f, at: e.pos, frame: frame, element: e.element, radius: radius)
-            case .ice(let radius): RpgArt.iceSpikes(f, at: e.pos, frame: frame, radius: radius)
-            case .meteor(let radius): RpgArt.meteor(f, at: e.pos, frame: frame, radius: radius)
-            case .chain(let points):
-                let el = RpgArt.elem(e.element)
-                for k in 0..<(points.count - 1) where frame < 5 {
-                    RpgArt.bolt(f, from: points[k], to: points[k + 1], seed: UInt64(frame * 13 + k), el)
-                    RpgArt.star(f, Double(points[k + 1].x), Double(points[k + 1].y), 2, el.edge, el.core)
-                }
-            case .strike:
-                let el = RpgArt.elem(.thunder)
-                if frame < 4 { RpgArt.bolt(f, from: CGPoint(x: e.pos.x + 4, y: e.pos.y - 70), to: e.pos, seed: UInt64(frame * 7 + Int(e.pos.x)), el) }
-                RpgArt.burst(f, at: e.pos, frame: frame, element: .thunder, radius: 22)
-            case .rain(let radius): RpgArt.arrowRain(f, at: e.pos, frame: Int(progress * 30) % 6, radius: radius, seed: UInt64(Int(progress * 30)))
-            case .spark(let crit): RpgArt.hitSpark(f, at: e.pos, frame: Int(progress * 4), crit: crit, element: e.element)
-            case .levelUp: RpgArt.levelUp(f, at: e.pos, frame: Int(progress * 12) % 6, element: e.element)
-            case .telegraph(let radius):
-                let k = CGFloat(progress)
-                f.setFillColor(KartArt.rgb(0, 0, 0, 0.15 + 0.35 * k))
-                f.fillEllipse(in: CGRect(x: e.pos.x - radius * k, y: e.pos.y - radius * 0.5 * k, width: radius * 2 * k, height: radius * k))
-                RpgArt.ring(f, Double(e.pos.x), Double(e.pos.y), radius, KartArt.rgb(255, 80, 80), squash: 0.5)
-            }
-        }
-    }
+    /// `ground`: only the ground marks, drawn before the units.
+    private func drawEffects(_ f: CGContext, map: RpgMapID, ground: Bool = false) { RpgArt.drawEffects(f, world.fx, map: map, time: world.time, ground: ground) }
 
     /// Dark places: a veil with soft holes around the player, torches, blasts and portals.
     private func drawDarkness(_ f: CGContext, map: RpgMap, me: RpgPlayer, vw: Int, vh: Int) {

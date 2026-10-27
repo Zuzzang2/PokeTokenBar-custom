@@ -688,6 +688,7 @@ earlyRegionChecks()
 designChecks()
 cosmeticChecks()
 cosmeticArtChecks()
+fxChecks()
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")
