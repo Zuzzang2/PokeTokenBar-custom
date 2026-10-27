@@ -561,12 +561,41 @@ extension RpgArt {
         /// 0 open, 1 blink, 2 hurt.
         let face: Int
         let flap: Int
-        /// 0 normal, 1 white flash, 2 ghost.
+        /// 0 normal, 1 white flash, 2 ghost, 3 the rim of light of a prism burst.
         let tone: Int
+        /// Shimmer phase of the prism pieces in the frame (`prismPhase`); always 0 for a hero in none, so their keys are as before.
+        var shine = 0
     }
 
     fileprivate static var heroPalettes: [HeroLookKey: [Character: CGColor]] = [:]
     fileprivate static var heroFrames: [HeroFrameKey: CGImage] = [:]
+    /// Frames of heroes in prism pieces (one per shimmer phase), kept apart so they never push anyone else's frames out.
+    fileprivate static var prismFrames: [HeroFrameKey: CGImage] = [:]
+    /// About 4.4 KB a frame: 2400 frames (~10 MB) hold a dozen prism looks' poses in every phase (a look that has walked,
+    /// fought and idled a while uses ~190); a reset rebuilds them lazily as they come up, like a first loop.
+    static let prismFrameCeiling = 2400
+    /// A prism look's palette as premultiplied RGBA bytes, for building its frames straight into a pixel buffer.
+    fileprivate static var heroPaletteBytes: [HeroLookKey: [Character: UInt32]] = [:]
+
+    /// Frames cached so far (other heroes' and prism heroes'), and frames built so far, for checks.
+    static var heroFrameCounts: (plain: Int, prism: Int) { (heroFrames.count, prismFrames.count) }
+    private(set) static var heroFrameBuilds: (plain: Int, prism: Int) = (0, 0)
+
+    fileprivate static func heroPaletteBytes(_ k: HeroLookKey) -> [Character: UInt32] {
+        if let b = heroPaletteBytes[k] { return b }
+        if heroPaletteBytes.count > 300 { heroPaletteBytes.removeAll(keepingCapacity: true) }
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)
+        var out: [Character: UInt32] = [:]
+        for (ch, c) in heroPalette(k) {
+            let s = srgb.flatMap { c.converted(to: $0, intent: .defaultIntent, options: nil) } ?? c
+            guard let v = s.components, v.count >= 3 else { continue }
+            let a = Double(s.alpha)
+            guard a > 0 else { continue }
+            out[ch] = packRGBA(Double(v[0]) * a, Double(v[1]) * a, Double(v[2]) * a, a)
+        }
+        heroPaletteBytes[k] = out
+        return out
+    }
 
     static func col(_ t: RpgLook.RGB, _ a: CGFloat = 1) -> CGColor { rgb(t.r, t.g, t.b, a) }
 
@@ -739,9 +768,16 @@ extension RpgArt {
     ]
 
     fileprivate static func heroBody(_ k: HeroFrameKey) -> CGImage? {
-        if let img = heroFrames[k] { return img }
+        let prism = k.look.wear.prismBody
+        if let img = prism ? prismFrames[k] : heroFrames[k] { return img }
         // ponytail: whole-cache reset at a ceiling (frames rebuild in microseconds); an LRU if sessions ever thrash it.
-        if heroFrames.count > 4000 { heroFrames.removeAll(keepingCapacity: true) }
+        if prism {
+            if prismFrames.count > prismFrameCeiling { prismFrames.removeAll(keepingCapacity: true) }
+            heroFrameBuilds.prism += 1
+        } else {
+            if heroFrames.count > 4000 { heroFrames.removeAll(keepingCapacity: true) }
+            heroFrameBuilds.plain += 1
+        }
         guard let art = heroClasses[k.look.cls] else { return nil }
         let pal = heroPalette(k.look)
         let n = heroSize
@@ -781,7 +817,16 @@ extension RpgArt {
         if band > 0 { put(armorParts[v][band - 1], up) }
         if layer == 1, let b = backPart { put(b, up) }
         if v == 1, wear.cape != 0, let clasp = cosCapeClasp(wear.cape) { put(clasp, up) }
-        if v == 2, let w = wings { put(w, up) }
+        if v == 2, let w = wings {
+            if wear.wings == HeroWear.prism {
+                // Prism crystal is see-through; where the wings cross the back it is drawn solid, over the body.
+                let under = px.map { $0 != "." }
+                put(w, up)
+                for i in px.indices where under[i] { px[i] = prismSolid(px[i]) }
+            } else {
+                put(w, up)
+            }
+        }
         if v != 0 { offArm() }
         put(headBase[v], up)
         if k.face == 0, wear.face != 0, let f = cosFace(wear.face, view: v) { put(f, up) }
@@ -816,7 +861,7 @@ extension RpgArt {
             var top = [Character](repeating: ".", count: n * n)
             let style = wear.hair != 0 ? wear.hair : heroHatHair[k.look.cls] ?? 0
             if let hair = style != 0 ? cosHair(style, view: v) : heroClasses[.warrior]?.head[v] { paint(hair.g, hair.x, hair.y + up, &top) }
-            let headwear: (part: HeroPart, cover: Int)? = wear.hat != 0 ? cosHat(wear.hat, view: v)
+            let headwear: (part: HeroPart, cover: Int)? = wear.hat != 0 ? cosHat(wear.hat, view: v, phase: k.shine)
                 : heroHeadgear[k.look.cls].map { ($0.parts[v], $0.cover) }
             if let headwear { for i in 0..<(max(0, min(n, headwear.cover + up)) * n) { top[i] = "." } }
             if let mask = heroFaceGear[k.look.cls]?[v] { paint(mask.g, mask.x, mask.y + up, &top) }
@@ -826,8 +871,15 @@ extension RpgArt {
             for i in split..<(n * n) where top[i] != "." { px[i] = top[i] }
         }
         if layer == 2, let b = backPart { put(b, up) }
-        let img = heroImage(px, pal, tone: k.tone)
-        heroFrames[k] = img
+        let img: CGImage?
+        if prism, k.tone == 0 {
+            img = prismImage(px, bytes: heroPaletteBytes(k.look), roles: prismLetters(wear), phase: k.shine)
+        } else if prism, k.tone == 3 {
+            img = prismHalo(px, phase: k.shine)
+        } else {
+            img = heroImage(px, pal, tone: k.tone)
+        }
+        if prism { prismFrames[k] = img } else { heroFrames[k] = img }
         return img
     }
 
@@ -965,28 +1017,46 @@ extension RpgArt {
         let step: Int
         /// Weapon skin worn (`HeroWear.weapon`), 0 for the weapon's own look.
         let skin: UInt8
+        /// Shimmer phase of a prism skin; 0 for every other weapon.
+        var phase = 0
     }
 
     static let heroWeaponSteps = 32
     fileprivate static var weaponCache: [WeaponKey: (CGImage, Int)] = [:]
+    /// Prism-skinned weapons (one per shimmer phase), kept apart like the prism body frames.
+    fileprivate static var prismWeaponCache: [WeaponKey: (CGImage, Int)] = [:]
 
-    /// The weapon turned to `angle` (radians, y down), its grip at pixel (r, r) of the returned image.
-    fileprivate static func heroWeapon(_ item: RpgItem, grip: HeroGrip, angle: Double, draw: Int = 0, skin: UInt8 = 0) -> (image: CGImage, r: Int)? {
+    /// The weapon turned to `angle` (radians, y down), its grip at pixel (r, r) of the returned image; a prism skin in its
+    /// shimmer `phase`.
+    fileprivate static func heroWeapon(_ item: RpgItem, grip: HeroGrip, angle: Double, draw: Int = 0, skin: UInt8 = 0, phase: Int = 0) -> (image: CGImage, r: Int)? {
         let steps = heroWeaponSteps
         let step = ((Int((angle / (2 * .pi) * Double(steps)).rounded()) % steps) + steps) % steps
-        let key = WeaponKey(id: item.id, draw: draw, step: step, skin: skin)
-        if let hit = weaponCache[key] { return (hit.0, hit.1) }
-        if weaponCache.count > 3000 { weaponCache.removeAll(keepingCapacity: true) }
+        let prism = skin == HeroWear.prism
+        let key = WeaponKey(id: item.id, draw: draw, step: step, skin: skin, phase: prism ? phase : 0)
+        if let hit = prism ? prismWeaponCache[key] : weaponCache[key] { return (hit.0, hit.1) }
+        if prism {
+            if prismWeaponCache.count > 2000 { prismWeaponCache.removeAll(keepingCapacity: true) }
+        } else if weaponCache.count > 3000 { weaponCache.removeAll(keepingCapacity: true) }
         let big = heroBigWeapon(item)
-        guard let held = heldTemplate(grip, big: big, draw: draw) else { return nil }
-        let colors = skin != 0 ? cosWeaponColors(heldColors(item), skin: skin) : heldColors(item)
+        guard let template = heldTemplate(grip, big: big, draw: draw) else { return nil }
+        let held = prism ? HeldWeapon(grid: prismBeam(template.grid, grip: grip), pivot: template.pivot) : template
+        let colors = skin != 0 && !prism ? cosWeaponColors(heldColors(item), skin: skin) : heldColors(item)
         // Index the template (padded by a transparent pixel so Scale2x sees the edges).
         var table: [CGColor] = [rgb(0, 0, 0, 0)]
         var index: [Character: Int] = [:]
+        var prismIndex: [Int: Int] = [:]
         let w = (held.grid.map(\.count).max() ?? 0) + 2, h = held.grid.count + 2
         var src = [Int](repeating: 0, count: w * h)
         for (y, line) in held.grid.enumerated() {
             for (x, letter) in line.enumerated() where letter != "." {
+                if prism {
+                    // Light: colours by where along the weapon the pixel is, flowing with the phase.
+                    guard let ink = prismWeaponInk(letter, x: x, width: w - 2, phase: phase) else { continue }
+                    var i = prismIndex[ink.key] ?? 0
+                    if i == 0 { table.append(ink.color); i = table.count - 1; prismIndex[ink.key] = i }
+                    src[(y + 1) * w + x + 1] = i
+                    continue
+                }
                 let ch = skin != 0 ? cosSkinLetter(skin, letter, x: x, y: y) : letter
                 guard let c = colors[ch] else { continue }
                 var i = index[ch] ?? 0
@@ -1010,10 +1080,11 @@ extension RpgArt {
             }
         }
         guard let ctx = KartArt.context(width: n, height: n) else { return nil }
-        // Element glow (and a wider rarity aura on late weapons) hugging the silhouette; a skin glows in its set's colour.
+        // Element glow (and a wider rarity aura on late weapons) hugging the silhouette; a skin glows in its set's colour, and a
+        // prism skin two rings wide, whatever the weapon, in the colour it shines this phase.
         let glowColor: CGColor? = skin != 0 ? cosGlow(skin) : item.element != .base ? elem(item.element).mid : (big ? rgb(255, 230, 150) : nil)
         if let g = glowColor {
-            let rings = big ? 2 : 1
+            let rings = big || prism ? 2 : 1
             var mask = out.map { $0 != 0 }
             for ring in 0..<rings {
                 var next = mask
@@ -1022,16 +1093,22 @@ extension RpgArt {
                         let near = (x > 0 && mask[y * n + x - 1]) || (x < n - 1 && mask[y * n + x + 1]) || (y > 0 && mask[(y - 1) * n + x]) || (y < n - 1 && mask[(y + 1) * n + x])
                         if near {
                             next[y * n + x] = true
-                            KartArt.fill(ctx, g.copy(alpha: ring == 0 ? 0.42 : 0.16) ?? g, CGFloat(x), CGFloat(y), 1, 1)
+                            if prism {
+                                ctx.setAlpha(ring == 0 ? 0.5 : 0.18)
+                                KartArt.fill(ctx, prismInk(prismWeaponHue(phase, along: 0.5), .vivid), CGFloat(x), CGFloat(y), 1, 1)
+                            } else {
+                                KartArt.fill(ctx, g.copy(alpha: ring == 0 ? 0.42 : 0.16) ?? g, CGFloat(x), CGFloat(y), 1, 1)
+                            }
                         }
                     }
                 }
                 mask = next
             }
+            ctx.setAlpha(1)
         }
         for y in 0..<n { for x in 0..<n where out[y * n + x] != 0 { KartArt.fill(ctx, table[out[y * n + x]], CGFloat(x), CGFloat(y), 1, 1) } }
         guard let img = ctx.makeImage() else { return nil }
-        weaponCache[key] = (img, r)
+        if prism { prismWeaponCache[key] = (img, r) } else { weaponCache[key] = (img, r) }
         return (img, r)
     }
 
@@ -1193,33 +1270,40 @@ extension RpgArt {
         }
     }
 
-    fileprivate static func heroFrameKey(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, tone: Int? = nil) -> HeroFrameKey {
+    /// `phase` pins the prism shimmer (wardrobe icons); otherwise it follows the clock.
+    fileprivate static func heroFrameKey(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, tone: Int? = nil, phase: Int? = nil) -> HeroFrameKey {
         let seed = Double(p.id % 7) * 0.37
         let bits = heroBits(pose, time: time, seed: seed)
         let wing = Int((time + seed) * 2.2) % 2
-        return HeroFrameKey(look: heroLookKey(p), view: pose.view.rawValue, legs: bits.legs, bob: bits.bob, arm: bits.arm, face: bits.face,
-                            flap: bits.cloth + 4 * wing, tone: tone ?? (pose.action == .dead ? 2 : 0))
+        let look = heroLookKey(p)
+        let tone = tone ?? (pose.action == .dead ? 2 : 0)
+        // Only live prism frames shimmer: a white flash is white, a ghost washed out, and a burst's rim keeps still.
+        let shine = tone == 0 && look.wear.prismBody ? phase ?? prismPhase(time, seed: seed) : 0
+        return HeroFrameKey(look: look, view: pose.view.rawValue, legs: bits.legs, bob: bits.bob, arm: bits.arm, face: bits.face,
+                            flap: bits.cloth + 4 * wing, tone: tone, shine: shine)
     }
 
     /// The cached 32×32 body frame for a pose (everything but the weapon arm and the weapon).
     static func heroFrame(_ p: RpgPlayer, pose: RpgHeroPose, time: Double) -> CGImage? { heroBody(heroFrameKey(p, pose: pose, time: time)) }
 
-    /// The hero's weapon turned to `angle` as it is drawn in the hand.
-    static func heroWeaponImage(_ item: RpgItem, cls: RpgClass, angle: Double, draw: Int = 0, skin: UInt8 = 0) -> CGImage? {
-        heroWeapon(item, grip: heroGrip(cls), angle: angle, draw: draw, skin: skin)?.image
+    /// The hero's weapon turned to `angle` as it is drawn in the hand (a prism skin in shimmer `phase`).
+    static func heroWeaponImage(_ item: RpgItem, cls: RpgClass, angle: Double, draw: Int = 0, skin: UInt8 = 0, phase: Int = 0) -> CGImage? {
+        heroWeapon(item, grip: heroGrip(cls), angle: angle, draw: draw, skin: skin, phase: phase)?.image
     }
 
     /// Draws a hero standing at `p.pos`: body frame, weapon and weapon arm, and the small extras (familiar, aura motes,
-    /// element sparks, ring and amulet glints). `alpha` < 1 for stealth, afterimages and the like.
-    static func drawHero(_ c: CGContext, _ p: RpgPlayer, pose: RpgHeroPose, time: Double, alpha: CGFloat = 1, extras: Bool = true) {
+    /// element sparks, ring and amulet glints). `alpha` < 1 for stealth, afterimages and the like. `phase` pins the prism
+    /// shimmer (wardrobe icons); otherwise it follows the clock.
+    static func drawHero(_ c: CGContext, _ p: RpgPlayer, pose: RpgHeroPose, time: Double, alpha: CGFloat = 1, extras: Bool = true, phase: Int? = nil) {
         guard let art = heroClasses[p.cls] else { return }
-        let key = heroFrameKey(p, pose: pose, time: time)
+        let key = heroFrameKey(p, pose: pose, time: time, phase: phase)
         let look = key.look
         let pal = heroPalette(look)
         let v = pose.view.rawValue
         let seed = Double(p.id % 7) * 0.37
         let bits = (legs: key.legs, bob: key.bob, arm: key.arm, face: key.face)
         let ghost = pose.action == .dead
+        let shine = phase ?? prismPhase(time, seed: seed)
         guard let body = heroBody(key) else { return }
         let ax = Double(p.pos.x.rounded()), ay = Double(p.pos.y.rounded()) - (ghost ? 5 + (sin(time * 2.4 + seed) * 1.5).rounded() : 0)
         func wx(_ cx: Double, _ w: Double = 1) -> CGFloat { CGFloat(pose.flip ? ax + 16 - cx - w : ax - 16 + cx) }
@@ -1239,8 +1323,8 @@ extension RpgArt {
         c.setAlpha(base)
         let wear = look.wear
         let dressed = extras && !ghost
-        if dressed, wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: false) }
-        if dressed, wear.steps != 0 { cosDrawKick(c, wear.steps, ax: ax, ay: ay, pose: pose, time: time) }
+        if dressed, wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: false, phase: shine) }
+        if dressed, wear.steps != 0 { cosDrawKick(c, wear.steps, ax: ax, ay: ay, pose: pose, time: time, shine: shine) }
         let glow = heroGlow(p.cls, palette: pal)
         if pose.action == .cast, art.robe {
             // Casters stand in a turning rune circle.
@@ -1255,7 +1339,7 @@ extension RpgArt {
         let hold = heroHold(art.grip, pose, attackTime: heroAttackTime(p, time: time))
         let hx = Int(hold.hand.0.rounded()), hy = Int(hold.hand.1.rounded()) + bits.bob
         func drawWeapon() {
-            guard let w = weapon, let held = heroWeapon(w, grip: art.grip, angle: hold.angle, draw: hold.draw, skin: wear.weapon) else { return }
+            guard let w = weapon, let held = heroWeapon(w, grip: art.grip, angle: hold.angle, draw: hold.draw, skin: wear.weapon, phase: shine) else { return }
             let n = Double(2 * held.r + 1), x0 = Double(hx + 1 - held.r), y0 = Double(hy + 1 - held.r)
             KartArt.draw(held.image, in: c, rect: CGRect(x: wx(x0, n), y: wy(y0), width: CGFloat(n), height: CGFloat(n)), flipX: pose.flip)
         }
@@ -1263,6 +1347,14 @@ extension RpgArt {
         let orbit = time * 2.6 + seed
         if familiar, sin(orbit) < 0 { heroFamiliar(c, ax: ax, ay: ay, orbit: orbit, time: time, color: glow) }
         if v == 2 { drawWeapon() }
+        // Now and then a hero in prism pieces flares: a rim of rainbow light round the body (behind it) and sparkles (after it).
+        // Not in still pictures with a pinned phase (icons), where it would freeze.
+        let burst = dressed && phase == nil && wear.prismPieces > 0 ? prismBurst(time, seed: seed) : nil
+        if let k = burst, wear.prismBody, let rim = heroBody(heroFrameKey(p, pose: pose, time: time, tone: 3)) {
+            c.setAlpha(base * CGFloat(0.75 * sin(k * .pi)))
+            KartArt.draw(rim, in: c, rect: CGRect(x: ax - 16, y: ay - 29, width: 32, height: 32), flipX: pose.flip)
+            c.setAlpha(base)
+        }
         KartArt.draw(body, in: c, rect: CGRect(x: ax - 16, y: ay - 29, width: 32, height: 32), flipX: pose.flip)
         if pose.action == .hurt, let flash = heroBody(heroFrameKey(p, pose: pose, time: time, tone: 1)) {
             c.setAlpha(base * CGFloat(0.7 * max(0, 1 - pose.t / 0.2)))
@@ -1272,26 +1364,30 @@ extension RpgArt {
         if v != 2 { drawWeapon() }
         if !ghost {
             let shoulder = weaponShoulder[v]
+            // A prism sleeve shimmers like the body frame it joins (live frames only: a ghost has none).
+            let prismSleeve = wear.outfit == HeroWear.prism
             arm(from: (shoulder.0, shoulder.1 + bits.bob), to: (hx, hy), sleeve: "1", hand: "3") { x, y, w, h, ch in
-                guard let col = pal[ch] else { return }
+                guard let col = prismSleeve && ch == "1" ? prismInk(role: 0, x, y, shine) : pal[ch] else { return }
                 KartArt.fill(c, col, wx(Double(x), Double(w)), wy(Double(y)), CGFloat(w), CGFloat(h))
             }
         }
         if familiar, sin(orbit) >= 0 { heroFamiliar(c, ax: ax, ay: ay, orbit: orbit, time: time, color: glow) }
         guard !ghost, extras else { return }
-        if wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: true) }
+        if wear.aura != 0 { cosDrawAura(c, wear.aura, ax: ax, ay: ay, time: time, seed: seed, front: true, phase: shine) }
+        if wear.wings == HeroWear.prism { prismWingLight(c, view: v, time: time, seed: seed, alpha: base, at: { (wx($0), wy($1)) }) }
+        if let k = burst { prismBurstSparks(c, ax: ax, ay: ay, k: k, time: time, seed: seed, pieces: wear.prismPieces, alpha: base) }
         // Sparks at the business end: element colour, and a flash on shots, thrusts and casts.
         if let w = weapon {
             let len = gripLength(art.grip, big: heroBigWeapon(w))
             let tx = Double(hx) + 1 + cos(hold.angle) * len, ty = Double(hy) + 1 + sin(hold.angle) * len
             let px = Double(wx(tx)), py = Double(wy(ty))
             if wear.weapon != 0 {
-                // A skin sheds its set's sparks along the weapon, drifting up.
+                // A skin sheds its set's sparks along the weapon, drifting up (a prism one's in rainbow).
                 for k in 0..<2 {
                     let t = time * 1.3 + Double(k) * 0.5 + seed
                     let life = t.truncatingRemainder(dividingBy: 1), along = (0.45 + 0.55 * Double((Int(t) * 7 + k * 3) % 5) / 4) * len
                     cosDrawMote(c, wear.weapon, Double(wx(Double(hx) + 1 + cos(hold.angle) * along)),
-                                Double(wy(Double(hy) + 1 + sin(hold.angle) * along)) - life * 4, alpha: CGFloat(1 - life))
+                                Double(wy(Double(hy) + 1 + sin(hold.angle) * along)) - life * 4, alpha: CGFloat(1 - life), hue: Double(Int(t)) * 0.29 + Double(k) * 0.25)
                 }
             }
             if hold.flash > 0.05 {
@@ -1361,12 +1457,13 @@ extension RpgArt {
         max(heroHeight(p.cls), cosHeadTop(heroWear(p.worn)).map { CGFloat(heroAnchor.y - $0) } ?? 0)
     }
 
-    /// A finished hero picture (body and weapon) for menus: `size`×`size` with the feet near the bottom.
-    static func heroPreview(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, size: Int = 48) -> CGImage? {
+    /// A finished hero picture (body and weapon) for menus: `size`×`size` with the feet near the bottom (`phase` pins the
+    /// prism shimmer).
+    static func heroPreview(_ p: RpgPlayer, pose: RpgHeroPose, time: Double, size: Int = 48, phase: Int? = nil) -> CGImage? {
         guard let ctx = KartArt.context(width: size, height: size) else { return nil }
         var q = p
         q.pos = CGPoint(x: size / 2, y: size - 6)
-        drawHero(ctx, q, pose: pose, time: time)
+        drawHero(ctx, q, pose: pose, time: time, phase: phase)
         return ctx.makeImage()
     }
 }

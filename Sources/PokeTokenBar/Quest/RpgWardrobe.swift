@@ -22,20 +22,26 @@ extension RpgView {
         }
     }
 
-    /// A small icon for a cosmetic: the piece on your own hero, cropped to it, on a dark tile edged in its set's colours.
+    /// A small icon for a cosmetic: the piece on your own hero, cropped to it, on a dark tile edged in its set's colours. A prism
+    /// piece shimmers on a tile of slowly turning dark rainbow, with stars twinkling over it.
     func drawCosmeticIcon(_ ctx: CGContext, _ c: RpgCosmetic, in r: CGRect, owned: Bool = true, worn: Bool = false) {
         let theme = RpgCosmetics.theme(c.theme)
         let main = theme.map { NSColor(red: CGFloat($0.main.r) / 255, green: CGFloat($0.main.g) / 255, blue: CGFloat($0.main.b) / 255, alpha: 1) } ?? NSColor(white: 0.45, alpha: 1)
         let trim = theme.map { NSColor(red: CGFloat($0.trim.r) / 255, green: CGFloat($0.trim.g) / 255, blue: CGFloat($0.trim.b) / 255, alpha: 1) } ?? .white
         let tile = r.insetBy(dx: 4, dy: 4)
-        ctx.setFillColor((main.blended(withFraction: 0.72, of: NSColor(white: 0.08, alpha: 1)) ?? main).cgColor)
-        ctx.addPath(CGPath(roundedRect: tile, cornerWidth: 6, cornerHeight: 6, transform: nil))
-        ctx.fillPath()
-        ctx.setFillColor(main.cgColor)
-        ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 4, width: tile.width - 8, height: 2))
-        ctx.setFillColor(trim.cgColor)
-        ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 2, width: tile.width - 8, height: 1))
-        if let me = world.player(localID), let img = RpgArt.cosmeticIcon(c, on: me) {
+        let prism = c.theme == "prism"
+        if prism {
+            drawPrismTile(ctx, tile)
+        } else {
+            ctx.setFillColor((main.blended(withFraction: 0.72, of: NSColor(white: 0.08, alpha: 1)) ?? main).cgColor)
+            ctx.addPath(CGPath(roundedRect: tile, cornerWidth: 6, cornerHeight: 6, transform: nil))
+            ctx.fillPath()
+            ctx.setFillColor(main.cgColor)
+            ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 4, width: tile.width - 8, height: 2))
+            ctx.setFillColor(trim.cgColor)
+            ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 2, width: tile.width - 8, height: 1))
+        }
+        if let me = world.player(localID), let img = RpgArt.cosmeticIcon(c, on: me, time: world.time) {
             // Whole or half-point steps keep the pixels square on a Retina screen.
             let box = tile.insetBy(dx: 2, dy: 3)
             let s = max(0.5, (min(box.width / CGFloat(img.width), box.height / CGFloat(img.height)) * 2).rounded(.down) / 2)
@@ -45,8 +51,56 @@ extension RpgView {
         } else {
             text(c.slot.title, at: CGPoint(x: r.midX, y: r.midY - 6), size: 11, color: .white, weight: .heavy, align: .center)
         }
+        if prism { drawPrismTwinkles(ctx, tile, count: 3, seed: Double(c.slot.rawValue.count)) }
         if !owned { ctx.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor); ctx.fill(tile) }
         if worn { text("착용", at: CGPoint(x: r.maxX - 6, y: r.minY + 6), size: 9, color: Self.gold, weight: .heavy, align: .right) }
+    }
+
+    private static let prismNight = CGColor(srgbRed: 0.06, green: 0.05, blue: 0.09, alpha: 1)
+    private static let prismWhite = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+
+    /// A prism tile: near-black under bands of dark rainbow that drift round the wheel, and a rainbow stripe along the bottom.
+    private func drawPrismTile(_ ctx: CGContext, _ tile: CGRect) {
+        let t = world.time
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: tile, cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.clip()
+        ctx.setFillColor(Self.prismNight)
+        ctx.fill(tile)
+        let bands = 6, h = tile.height / CGFloat(bands)
+        ctx.saveGState()
+        ctx.setAlpha(0.42)
+        for k in 0..<bands {
+            ctx.setFillColor(RpgArt.prismInk(Double(k) / Double(bands) * 0.7 - t * 0.35, .deep))
+            ctx.fill(CGRect(x: tile.minX, y: tile.minY + CGFloat(k) * h, width: tile.width, height: h + 0.5))
+        }
+        ctx.restoreGState()
+        let w = (tile.width - 8) / 6
+        for k in 0..<6 {
+            ctx.setFillColor(RpgArt.prismInk(Double(k) / 6 - t * 0.6, .vivid))
+            ctx.fill(CGRect(x: tile.minX + 4 + CGFloat(k) * w, y: tile.maxY - 4, width: w + 0.5, height: 2))
+        }
+        ctx.setFillColor(Self.prismWhite)
+        ctx.fill(CGRect(x: tile.minX + 4, y: tile.maxY - 2, width: tile.width - 8, height: 1))
+        ctx.restoreGState()
+    }
+
+    /// Four-point stars that swell and fade in turn round a rect, each its own colour of the rainbow.
+    private func drawPrismTwinkles(_ ctx: CGContext, _ r: CGRect, count: Int, seed: Double, size: CGFloat = 1.5) {
+        let t = world.time
+        for k in 0..<count {
+            let life = (t * 0.9 + Double(k) / Double(count) + seed * 0.13).truncatingRemainder(dividingBy: 1)
+            let s = size * CGFloat(sin(life * .pi))
+            guard s > 0.3 else { continue }
+            // Spots spread round the rect by the golden angle, moving on each time a star has faded.
+            let spot = Double(k) * 2.399 + seed + Double(Int(t * 0.9 + Double(k) / Double(count) + seed * 0.13)) * 1.7
+            let x = r.midX + CGFloat(cos(spot)) * r.width * 0.36, y = r.midY + CGFloat(sin(spot * 1.3)) * r.height * 0.36
+            ctx.setFillColor(RpgArt.prismInk(Double(k) / Double(count) + t * 0.2, .pale))
+            ctx.fill(CGRect(x: x - s * 2, y: y - s / 2, width: s * 4, height: s))
+            ctx.fill(CGRect(x: x - s / 2, y: y - s * 2, width: s, height: s * 4))
+            ctx.setFillColor(Self.prismWhite)
+            ctx.fill(CGRect(x: x - s / 2, y: y - s / 2, width: s, height: s))
+        }
     }
 
     func drawWardrobe(_ ctx: CGContext, _ p: RpgPlayer) {
@@ -90,15 +144,15 @@ extension RpgView {
             guard idx < list.count else { continue }
             let c = list[idx]
             drawCosmeticIcon(ctx, c, in: r, owned: tab == 0 || !p.wardrobe.contains(c.id), worn: p.worn[c.slot.rawValue] == c.id)
-            ctx.setStrokeColor((idx == selection ? Self.gold : RpgArt.rarityColors[min(c.rarity, 4)].withAlphaComponent(0.7)).cgColor)
+            ctx.setStrokeColor((idx == selection ? Self.gold : rarityColor(c.rarity).withAlphaComponent(0.7)).cgColor)
             ctx.setLineWidth(idx == selection ? 3 : 1.5)
             ctx.addPath(CGPath(roundedRect: r.insetBy(dx: 1, dy: 1), cornerWidth: 6, cornerHeight: 6, transform: nil))
             ctx.strokePath()
         }
         if list.isEmpty { text(tab == 0 ? "가진 외관이 없어요 (상점·뽑기·드랍으로 얻어요)" : "", at: CGPoint(x: area.minX + 8, y: area.minY + 20), size: 12, color: Self.dim) }
         if let sel {
-            text(sel.name, at: CGPoint(x: card.midX, y: card.minY + 168), size: 15, color: RpgArt.rarityColors[min(sel.rarity, 4)], weight: .bold, align: .center)
-            text("\(RpgCosmetics.rarityName[min(sel.rarity, 4)]) · \(sel.slot.title)", at: CGPoint(x: card.midX, y: card.minY + 190), size: 11, color: Self.dim, weight: .semibold, align: .center)
+            text(sel.name, at: CGPoint(x: card.midX, y: card.minY + 168), size: 15, color: rarityColor(sel.rarity), weight: .bold, align: .center)
+            text("\(RpgCosmetics.rarityName[min(sel.rarity, 5)]) · \(sel.slot.title)", at: CGPoint(x: card.midX, y: card.minY + 190), size: 11, color: Self.dim, weight: .semibold, align: .center)
             if tab == 1 {
                 let owned = p.wardrobe.contains(sel.id)
                 text(owned ? "보유 중" : "\(sel.price) G", at: CGPoint(x: card.midX, y: card.minY + 214), size: 14, color: owned ? Self.dim : (p.gold >= sel.price ? Self.gold : NSColor(red: 1, green: 0.4, blue: 0.4, alpha: 1)), weight: .bold, align: .center)
@@ -162,8 +216,14 @@ extension RpgView {
         }
     }
 
+    /// 초월 cycles round the wheel in 24 steps: labels are cached per colour (`text`), and a smooth hue made every frame's
+    /// banner and names a new label, laid out again and pushing the rest out of the cache.
+    private static let ultraColors: [NSColor] = (0..<24).map { NSColor(hue: CGFloat($0) / 24, saturation: 0.55, brightness: 1, alpha: 1) }
+
+    static func ultraColor(_ time: Double) -> NSColor { ultraColors[(Int((time * 0.6 * 24).rounded(.down)) % 24 + 24) % 24] }
+
     func rarityColor(_ rarity: Int) -> NSColor {
-        if rarity >= 5 { return NSColor(hue: CGFloat((world.time * 0.6).truncatingRemainder(dividingBy: 1)), saturation: 0.55, brightness: 1, alpha: 1) }
+        if rarity >= 5 { return Self.ultraColor(world.time) }
         return RpgArt.rarityColors[min(rarity, 4)]
     }
 
@@ -173,8 +233,9 @@ extension RpgView {
         let area = frame(ctx, title: pulls.count > 1 ? "뽑기 결과 (\(pulls.count)회)" : "뽑기 결과", hint: "Enter / Esc 확인")
         let t = world.time
         if best >= 5 {
-            // A shimmering banner for the ultra-rare.
+            // A shimmering banner for the ultra-rare, stars twinkling round it.
             text("✨  초 월  ✨", at: CGPoint(x: area.midX, y: area.minY - 34), size: 22, color: rarityColor(5), weight: .heavy, align: .center)
+            drawPrismTwinkles(ctx, CGRect(x: area.midX - 90, y: area.minY - 44, width: 180, height: 36), count: 5, seed: 0.5, size: 2)
         }
         let cols = pulls.count > 5 ? 5 : max(1, pulls.count)
         let cell: CGFloat = 104, gap: CGFloat = 14
@@ -182,18 +243,34 @@ extension RpgView {
         let totalW = CGFloat(cols) * cell + CGFloat(cols - 1) * gap
         let x0 = area.midX - totalW / 2
         let y0 = area.minY + (area.height - (CGFloat(rows) * (cell + 52) + CGFloat(rows - 1) * gap)) / 2
+        func cardRect(_ k: Int) -> CGRect {
+            CGRect(x: x0 + CGFloat(k % cols) * (cell + gap), y: y0 + CGFloat(k / cols) * (cell + 52 + gap), width: cell, height: cell)
+        }
+        // Rays behind every 초월 card first, so no card is drawn under another's light.
+        for (k, pull) in pulls.enumerated() where (RpgCosmetics.def(pull.id)?.rarity ?? 0) >= 5 { drawPrismRays(ctx, around: cardRect(k), seed: Double(k)) }
         for (k, pull) in pulls.enumerated() {
             guard let c = RpgCosmetics.def(pull.id) else { continue }
-            let r = CGRect(x: x0 + CGFloat(k % cols) * (cell + gap), y: y0 + CGFloat(k / cols) * (cell + 52 + gap), width: cell, height: cell)
+            let r = cardRect(k)
             ctx.setFillColor(NSColor(white: 0.1, alpha: 0.9).cgColor)
             ctx.addPath(CGPath(roundedRect: r, cornerWidth: 8, cornerHeight: 8, transform: nil))
             ctx.fillPath()
             drawCosmeticIcon(ctx, c, in: r.insetBy(dx: 6, dy: 6), owned: true, worn: false)
             let col = rarityColor(c.rarity)
+            if c.rarity >= 5 {
+                // A glow of the next colour round the cycling edge.
+                ctx.saveGState()
+                ctx.setStrokeColor(RpgArt.prismInk(t * 0.6 + 0.33, .soft))
+                ctx.setAlpha(0.45)
+                ctx.setLineWidth(7)
+                ctx.addPath(CGPath(roundedRect: r.insetBy(dx: -2, dy: -2), cornerWidth: 10, cornerHeight: 10, transform: nil))
+                ctx.strokePath()
+                ctx.restoreGState()
+            }
             ctx.setStrokeColor(col.cgColor)
             ctx.setLineWidth(c.rarity >= 3 ? 4 : 2)
             ctx.addPath(CGPath(roundedRect: r.insetBy(dx: 1, dy: 1), cornerWidth: 8, cornerHeight: 8, transform: nil))
             ctx.strokePath()
+            if c.rarity >= 5 { drawPrismTwinkles(ctx, r.insetBy(dx: -14, dy: -14), count: 8, seed: Double(k) * 0.7, size: 2.5) }
             if c.rarity >= 3 {
                 // Sparkles that blink around the legendary and above.
                 for s in 0..<6 {
@@ -209,5 +286,25 @@ extension RpgView {
         }
         let news = pulls.filter(\.isNew).count
         text("새 외관 \(news)개 · 중복 \(pulls.count - news)개 (중복은 환급되지 않아요)", at: CGPoint(x: area.midX, y: area.maxY - 4), size: 12, color: Self.dim, weight: .semibold, align: .center)
+    }
+
+    /// Rays of rainbow light turning slowly behind a 초월 card.
+    private func drawPrismRays(_ ctx: CGContext, around r: CGRect, seed: Double) {
+        let t = world.time, n = 14
+        let reach = Double(max(r.width, r.height)) * 0.95
+        ctx.saveGState()
+        ctx.setAlpha(0.3)
+        for i in 0..<n {
+            let a = t * 0.45 + seed + Double(i) * 2 * .pi / Double(n), w = i % 2 == 0 ? 0.13 : 0.07
+            let len = reach * (i % 2 == 0 ? 1 : 0.78)
+            ctx.setFillColor(RpgArt.prismInk(Double(i) / Double(n) - t * 0.3, .soft))
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: r.midX, y: r.midY))
+            ctx.addLine(to: CGPoint(x: Double(r.midX) + cos(a - w) * len, y: Double(r.midY) + sin(a - w) * len))
+            ctx.addLine(to: CGPoint(x: Double(r.midX) + cos(a + w) * len, y: Double(r.midY) + sin(a + w) * len))
+            ctx.closePath()
+            ctx.fillPath()
+        }
+        ctx.restoreGState()
     }
 }

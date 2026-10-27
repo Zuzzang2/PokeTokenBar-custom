@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 @testable import PokeTokenBar
@@ -29,8 +30,7 @@ func cosmeticArtChecks() {
         var unseen: [String] = [], twins: [String] = []
         for slot in RpgCosmeticSlot.allCases {
             var seen: [[Data?]: String] = [:]
-            // TODO(prism art): the prism set borrows the celestial shapes until it is drawn; then drop this exclusion.
-            for c in all where c.slot == slot && c.theme != "prism" {
+            for c in all where c.slot == slot {
                 let looks = classes.map { look(hero($0, [slot.rawValue: c.id])) }
                 if !zip(classes, looks).contains(where: { cls, l in l != look(hero(cls)) }) { unseen.append(c.id) }
                 let flat = looks.flatMap { $0 }
@@ -164,5 +164,144 @@ func cosmeticArtChecks() {
         let perHero = Date().timeIntervalSince(begin) / Double(120 * crowd.count) * 1000
         // About 0.02 ms here in a debug build; rebuilding frames every draw (a broken cache key) costs about 0.4 ms.
         check(perHero < 0.1, "a hero in a full set draws in \(String(format: "%.3f", perHero)) ms (budget 0.1 ms: 24 of them take 2.4 ms of a 16 ms frame)")
+    }
+    prismArtChecks()
+}
+
+/// The prism (초월) set shimmers: its frames are cached per shimmer phase, only for heroes wearing it, and it stays inside the
+/// frame budget.
+func prismArtChecks() {
+    MainActor.assumeIsolated {
+        let set = ["hat": "hat_prism", "outfit": "outfit_prism", "cape": "cape_prism", "weaponSkin": "weaponSkin_prism", "aura": "aura_prism",
+                   "wings": "wings_prism", "steps": "steps_prism"]
+        let n = RpgArt.prismPhases, rate = RpgArt.prismRate
+        func hero(_ cls: RpgClass, _ worn: [String: String], id: Int = 3) -> RpgPlayer {
+            var p = RpgSaveStore.newPlayer(name: "p", cls: cls, id: id)
+            p.worn = worn
+            return p
+        }
+        func pose(_ v: RpgHeroView, moving: Bool = false) -> RpgHeroPose {
+            RpgHeroPose(action: .idle, view: v, flip: false, moving: moving, step: 1, t: 0.05, aim: v == .front ? .pi / 2 : v == .back ? -.pi / 2 : 0)
+        }
+        func bytes(_ img: CGImage?) -> Data? { img?.dataProvider?.data as Data? }
+        let seed = 3.0 * 0.37
+        /// A time at which the hero of id 3 is in shimmer phase `k`, `loops` loops on.
+        func at(_ k: Int, loops: Int = 4) -> Double { (Double(k) + 0.5) / rate - seed + Double(loops * n) / rate }
+
+        // Every phase of every piece is a picture of its own (the phase pinned, so nothing else moves), and a phase comes back
+        // the same each loop.
+        var still: [String] = []
+        for (slot, id) in set.sorted(by: { $0.key < $1.key }) {
+            for cls in [RpgClass.warrior, .mage, .mechanic] {
+                let p = hero(cls, [slot: id])
+                // Steps show in a picture only as the puff kicked up behind a walker (from the side: from the front and back the
+                // feet hide it); their trail is drawn on the ground.
+                for v in RpgHeroView.allCases where slot != "steps" || v == .side {
+                    let phases = (0..<n).map { bytes(RpgArt.heroPreview(p, pose: pose(v, moving: slot == "steps"), time: 1, phase: $0)) }
+                    if Set(phases.compactMap { $0 }).count != n { still.append("\(id)/\(cls.rawValue)/\(v)") }
+                }
+            }
+        }
+        check(still.isEmpty, "every prism piece shimmers: \(n) different pictures a loop in every view (\(still.prefix(4)))")
+        // 20 loops (30 s) on, the wing beat is back in step too.
+        let full = hero(.warrior, set)
+        let same = (0..<n).allSatisfy { k in bytes(RpgArt.heroFrame(full, pose: pose(.front, moving: true), time: at(k))) == bytes(RpgArt.heroFrame(full, pose: pose(.front, moving: true), time: at(k, loops: 24))) }
+        check(same, "the shimmer loops: a phase draws the same frame every \(String(format: "%.1f", Double(n) / rate)) s")
+
+        // The phase is part of the frame key for prism wearers only: within one wing beat the clock moves the shimmer on (a new
+        // frame) for a prism hero, while anyone else gets the very same cached frame back and no frame is built for them.
+        let walking = pose(.side, moving: true)
+        // A wing beat (the other clock a frame key reads) starts at `beat`; 0.01 s and 0.32 s into it are 2-3 phases apart.
+        let beat = Double(Int((at(0) + seed) * 2.2) + 1) / 2.2 - seed
+        let t0 = beat + 0.01, t1 = beat + 0.32
+        check(RpgArt.prismPhase(t0, seed: seed) != RpgArt.prismPhase(t1, seed: seed) && Int((t0 + seed) * 2.2) == Int((t1 + seed) * 2.2),
+              "two moments in one wing beat but different shimmer phases")
+        let others = hero(.archer, set.mapValues { $0.replacingOccurrences(of: "prism", with: "celestial") })
+        _ = RpgArt.heroFrame(others, pose: walking, time: t0)
+        let before = RpgArt.heroFrameCounts
+        let a = RpgArt.heroFrame(others, pose: walking, time: t0), b = RpgArt.heroFrame(others, pose: walking, time: t1)
+        check(a != nil && a === b && RpgArt.heroFrameCounts == before, "a hero in no prism piece keeps one cached frame through the shimmer (cache \(before) → \(RpgArt.heroFrameCounts))")
+        let prismHero = hero(.archer, set)
+        let c0 = RpgArt.heroFrameCounts
+        let p0 = RpgArt.heroFrame(prismHero, pose: walking, time: t0), p1 = RpgArt.heroFrame(prismHero, pose: walking, time: t1)
+        check(p0 != nil && bytes(p0) != bytes(p1) && RpgArt.heroFrameCounts.plain == c0.plain && RpgArt.heroFrameCounts.prism == c0.prism + 2,
+              "a prism hero's frames move with the shimmer and go to the prism cache only (\(c0) → \(RpgArt.heroFrameCounts))")
+        // Ghosts and the white flash keep still: a dead prism hero is one picture whatever the phase.
+        var ghost = hero(.rogue, set)
+        ghost.dead = true
+        let ghosts = Set((0..<n).compactMap { bytes(RpgArt.heroFrame(ghost, pose: RpgArt.heroPose(ghost, time: at($0)), time: at($0))) })
+        check(ghosts.count == 1, "a ghost in the prism set does not shimmer (\(ghosts.count) different frames over a loop)")
+        var winged = ghost, wingless = ghost
+        winged.worn = ["wings": "wings_prism", "aura": "aura_prism"]
+        wingless.worn = ["aura": "aura_prism"]
+        check(bytes(RpgArt.heroFrame(winged, pose: RpgArt.heroPose(winged, time: 1), time: 1)) == bytes(RpgArt.heroFrame(wingless, pose: RpgArt.heroPose(wingless, time: 1), time: 1)),
+              "ghosts leave prism wings behind too")
+
+        // Weapons and icons shimmer too; every other skin and icon ignores the phase.
+        let sword = RpgItems.item("sword3")!
+        let beams = Set((0..<n).compactMap { bytes(RpgArt.heroWeaponImage(sword, cls: .warrior, angle: 0.5, skin: RpgArt.HeroWear.prism, phase: $0)) })
+        let plain = (0..<n).map { RpgArt.heroWeaponImage(sword, cls: .warrior, angle: 0.5, skin: 9, phase: $0) }
+        check(beams.count == n && plain.allSatisfy { $0 === plain[0] }, "a prism weapon skin has a frame per phase (\(beams.count)); other skins one")
+        let me = hero(.monk, [:])
+        var iconsStill: [String] = []
+        for c in RpgCosmetics.all where c.theme == "prism" || c.theme == "chaos" {
+            let icons = (0..<n).map { RpgArt.cosmeticIcon(c, on: me, time: Double($0) / rate) }
+            let moving = c.theme == "prism" ? Set(icons.compactMap { bytes($0) }).count == n : icons.allSatisfy { $0 != nil && $0 === icons[0] }
+            if !moving { iconsStill.append(c.id) }
+        }
+        check(iconsStill.isEmpty, "prism icons shimmer in every phase, other icons stay one cached picture (\(iconsStill.prefix(4)))")
+        // The 초월 colour of names and the banner steps round the wheel: labels are cached per colour, so a smooth hue would lay
+        // out a new label every frame.
+        let tints = Set((0..<3000).map { RpgView.ultraColor(Double($0) * 0.0137) })
+        check(tints.count <= 24, "the 초월 label colour takes \(tints.count) values over 40 s, so its labels stay cached (≤ 24)")
+
+        // Others see the shimmer in step with the owner: the phase comes from the shared clock and the hero's id.
+        var host = hero(.summoner, set, id: 1)
+        host.wardrobe = Set(set.values)
+        let world = RpgWorld(player: host)
+        world.addPlayer(RpgSaveStore.newPlayer(name: "guest", cls: .monk, id: 2))
+        world.step(0.1, inputs: [:])
+        let mirror = RpgWorld(player: RpgSaveStore.newPlayer(name: "guest", cls: .monk, id: 2))
+        mirror.isMirror = true
+        mirror.apply(world.snapshot(), localID: 2)
+        if let seen = mirror.player(1), let mine = world.player(1) {
+            let inStep = (0..<n).allSatisfy { k in
+                let t = 2 + Double(k) / rate
+                return RpgHeroView.allCases.allSatisfy { bytes(RpgArt.heroPreview(seen, pose: pose($0), time: t)) == bytes(RpgArt.heroPreview(mine, pose: pose($0), time: t)) }
+            }
+            check(seen.worn == set && inStep, "a remote prism hero shimmers exactly as its owner sees it")
+        } else {
+            check(false, "the prism hero reaches the mirror")
+        }
+
+        // A crowd all in the prism set: once a loop of frames is cached (built straight into pixel buffers), a prism hero draws
+        // inside the same 0.1 ms budget as the others, and the prism cache stays under its ceiling.
+        guard let screen = KartArt.context(width: 640, height: 360) else { return }
+        var crowd: [RpgPlayer] = []
+        for k in 0..<24 {
+            var q = hero(RpgClass.allCases[k % RpgClass.allCases.count], set, id: 60 + k)
+            q.pos = CGPoint(x: 30 + (k % 8) * 75, y: 60 + (k / 8) * 110)
+            q.moving = k % 2 == 0
+            crowd.append(q)
+        }
+        @MainActor func drawCrowd(_ frames: Int, start: Double) -> Double {
+            let begin = Date()
+            for f in 0..<frames {
+                let t = start + Double(f) / 60
+                for q in crowd { RpgArt.drawHero(screen, q, pose: RpgArt.heroPose(q, time: t, speed: q.moving ? 60 : 0, walked: t * 60), time: t) }
+            }
+            return Date().timeIntervalSince(begin) / Double(frames * crowd.count) * 1000
+        }
+        let cold = drawCrowd(180, start: 0)
+        let built = RpgArt.heroFrameBuilds
+        let warm = drawCrowd(120, start: 7.3)
+        let cached = RpgArt.heroFrameCounts.prism
+        // Count the builds as well: a cache that only misses now and then (a key that drifts) hides inside the time.
+        let rebuilt = Double(RpgArt.heroFrameBuilds.prism - built.prism) / Double(120 * crowd.count)
+        print(String(format: "info  prism crowd: %.3f ms a hero while its frames are first built, %.3f ms after (%.3f frames built a draw); %d prism frames cached (%d looks)",
+                     cold, warm, rebuilt, cached, RpgClass.allCases.count))
+        check(warm < 0.1, "a hero in the full prism set draws in \(String(format: "%.3f", warm)) ms once its shimmer is cached (budget 0.1 ms)")
+        check(rebuilt < 0.05 && RpgArt.heroFrameBuilds.plain == built.plain, "once cached, prism heroes rarely build a frame (\(String(format: "%.3f", rebuilt)) a draw) and never one of anyone else's")
+        check(cached <= RpgArt.prismFrameCeiling + 1, "the prism frame cache stays under its ceiling (\(cached) ≤ \(RpgArt.prismFrameCeiling))")
     }
 }

@@ -17,14 +17,23 @@ extension RpgArt {
     struct HeroWear: Hashable, Sendable {
         var hat: UInt8 = 0, outfit: UInt8 = 0, cape: UInt8 = 0, weapon: UInt8 = 0, aura: UInt8 = 0
         var wings: UInt8 = 0, steps: UInt8 = 0, hair: UInt8 = 0, face: UInt8 = 0
+
+        /// The code of the prism (초월) set, whose colours move: its pieces are drawn once per shimmer phase.
+        static let prism = UInt8(clamping: (RpgCosmetics.themes.firstIndex { $0.key == "prism" } ?? 254) + 1)
+        /// Prism pieces baked into the body frames (hat, outfit, cape, wings): only those frames are cached per shimmer phase.
+        var prismBody: Bool { hat == Self.prism || outfit == Self.prism || cape == Self.prism || wings == Self.prism }
+        /// How many of the seven prism pieces are worn (the bursts of light grow with the set).
+        var prismPieces: Int {
+            let p = Self.prism
+            return (hat == p ? 1 : 0) + (outfit == p ? 1 : 0) + (cape == p ? 1 : 0) + (weapon == p ? 1 : 0) + (aura == p ? 1 : 0)
+                + (wings == p ? 1 : 0) + (steps == p ? 1 : 0)
+        }
     }
 
     private static let wearCodes: [String: (slot: RpgCosmeticSlot, code: UInt8)] = {
         var codes: [String: (slot: RpgCosmeticSlot, code: UInt8)] = [:]
         for c in RpgCosmetics.all {
-            // Until the prism set has art of its own it wears the celestial shapes (theme index 13), recoloured by its theme.
-            let rawIndex = RpgCosmetics.themes.firstIndex { $0.key == c.theme } ?? -1
-            let index = c.slot == .hair || c.slot == .face ? c.style : (c.theme == "prism" ? 13 : rawIndex)
+            let index = c.slot == .hair || c.slot == .face ? c.style : RpgCosmetics.themes.firstIndex { $0.key == c.theme } ?? -1
             if (0..<255).contains(index) { codes[c.id] = (c.slot, UInt8(index + 1)) }
         }
         return codes
@@ -63,15 +72,25 @@ extension RpgArt {
         return [main, scaled(main, 0.7), scaled(main, 1.3), trim, scaled(trim, 0.72), scaled(trim, 1.35), glow, scaled(glow, 1.5), scaled(main, 0.45)]
     }
 
-    /// Private letters of each worn layer (0 hat, 1 outfit, 2 cape, 3 wings), by role.
-    private static let cosLetters: [[Character]] = (0..<4).map { layer in
-        (0..<cosRoles.count).map { Character(Unicode.Scalar(UInt32(0xE000 + layer * 16 + $0)) ?? "?") }
+    /// Private letters of each worn layer (0 hat, 1 outfit, 2 cape, 3 wings), by role; layer 4 holds the prism letters, shared
+    /// by every prism piece (their colour comes from where the pixel sits and the shimmer phase, not from the layer), with two
+    /// roles more than the others: `@` crystal and `$` crystal shade, see-through.
+    private static let cosLetters: [[Character]] = (0..<5).map { (layer: Int) -> [Character] in
+        let count = layer == 4 ? prismRoles.count : cosRoles.count
+        return (0..<count).map { (r: Int) -> Character in
+            let scalar = Unicode.Scalar(UInt32(0xE000 + layer * 16 + r)) ?? "?"
+            return Character(scalar)
+        }
     }
+    static let prismLayer = 4
+    /// Role letters of prism grids: the nine cosmetic roles, then crystal and crystal shade.
+    private static let prismRoles: [Character] = cosRoles + ["@", "$"]
+    private static let prismRoleIndex: [Character: Int] = Dictionary(uniqueKeysWithValues: prismRoles.enumerated().map { ($1, $0) })
 
     /// A part in role letters turned into a layer's private letters.
     private static func cosTranslate(_ p: HeroPart, _ layer: Int) -> HeroPart {
-        let letters = cosLetters[layer]
-        return HeroPart(x: p.x, y: p.y, g: p.g.map { row in String(row.map { ch in cosRoleIndex[ch].map { letters[$0] } ?? ch }) })
+        let letters = cosLetters[layer], index = layer == prismLayer ? prismRoleIndex : cosRoleIndex
+        return HeroPart(x: p.x, y: p.y, g: p.g.map { row in String(row.map { ch in index[ch].map { letters[$0] } ?? ch }) })
     }
 
     private static func luminance(_ c: CGColor) -> CGFloat {
@@ -79,10 +98,16 @@ extension RpgArt {
         return 0.2126 * k[0] + 0.7152 * k[1] + 0.0722 * k[2]
     }
 
-    /// The worn sets' colours under their layers' letters, plus an outfit's sleeves, trousers and boots.
+    /// The worn sets' colours under their layers' letters, plus an outfit's sleeves, trousers and boots. Prism letters get the
+    /// still colours of the shimmer (what a ghost or a white flash starts from; live frames colour them by phase instead).
     static func cosPalette(_ c: inout [Character: CGColor], _ w: HeroWear) {
         for (layer, code) in [(0, w.hat), (1, w.outfit), (2, w.cape), (3, w.wings)] where code > 0 && Int(code) <= cosColors.count {
             for (r, color) in cosColors[Int(code) - 1].enumerated() { c[cosLetters[layer][r]] = color }
+        }
+        if w.prismBody { for (r, color) in prismStill.enumerated() { c[cosLetters[prismLayer][r]] = color } }
+        if w.outfit == HeroWear.prism {
+            for (letter, r) in prismOutfitRoles { c[letter] = prismStill[r] }
+            return
         }
         guard w.outfit > 0, Int(w.outfit) <= cosColors.count else { return }
         let o = cosColors[Int(w.outfit) - 1]
@@ -97,6 +122,201 @@ extension RpgArt {
     private static func cosMirrored(_ p: HeroPart) -> HeroPart {
         let w = p.g.map(\.count).max() ?? 0
         return HeroPart(x: heroSize - p.x - w, y: p.y, g: p.g.map { String($0.padding(toLength: w, withPad: ".", startingAt: 0).reversed()) })
+    }
+}
+
+// MARK: - prism shimmer
+
+// The prism (초월) set is the one whose colours move. Its pixels take no fixed colour: a rainbow runs diagonally over the hero and
+// flows on one step per shimmer phase, a band of light sweeps across, and a scatter of glitter flashes (new pixels every phase,
+// last phase's still glowing). Body frames of a hero in prism pieces are cached per phase (`HeroFrameKey.shine`, in a cache of
+// their own so nobody else's frames are pushed out), built lazily as each pose and phase first comes up, straight into a pixel
+// buffer (a prism frame costs about what any dressed frame does to build, ~0.37 ms in a debug build; a prism hero just needs
+// twelve times as many). Everything drawn per frame (sparks, aura, steps) is a small image or colour made once, so once its
+// frames are cached a prism hero allocates nothing per frame.
+
+extension RpgArt {
+    /// Shimmer phases and phases per second: a loop of 1.5 s.
+    static let prismPhases = 12
+    static let prismRate = 8.0
+
+    /// The shimmer phase at `time` for a hero with this seed (heroes in prism shimmer out of step with each other).
+    static func prismPhase(_ time: Double, seed: Double = 0) -> Int {
+        let k = Int(((time + seed) * prismRate).rounded(.down)) % prismPhases
+        return k < 0 ? k + prismPhases : k
+    }
+
+    /// A prism role's look: saturation, brightness, opacity, and where on the wheel it sits against the rainbow under it.
+    private struct PrismTone { let s: Double, v: Double, a: Double, dh: Double }
+    private static let prismTones: [PrismTone] = [
+        PrismTone(s: 0.74, v: 1.00, a: 1, dh: 0),       // # main: a bright rainbow
+        PrismTone(s: 0.86, v: 0.76, a: 1, dh: 0.05),    // = main shade
+        PrismTone(s: 0.40, v: 1.00, a: 1, dh: -0.04),   // + main light
+        PrismTone(s: 0.20, v: 1.00, a: 1, dh: 0.5),     // ~ trim: white light, tinged with the opposite colour
+        PrismTone(s: 0.46, v: 0.84, a: 1, dh: 0.5),     // - trim shade
+        PrismTone(s: 0.00, v: 1.00, a: 1, dh: 0),       // * trim light: pure white
+        PrismTone(s: 0.95, v: 1.00, a: 1, dh: 0.12),    // ^ glow: the rainbow at full strength
+        PrismTone(s: 0.46, v: 1.00, a: 1, dh: 0.12),    // : glow light
+        PrismTone(s: 0.88, v: 0.52, a: 1, dh: 0.08),    // & deep
+        PrismTone(s: 0.56, v: 1.00, a: 0.62, dh: -0.06), // @ crystal: see-through
+        PrismTone(s: 0.78, v: 0.86, a: 0.76, dh: 0.04), // $ crystal shade
+    ]
+
+    /// HSV to RGB, all 0…1.
+    static func hsv(_ h: Double, _ s: Double, _ v: Double) -> (Double, Double, Double) {
+        let f6 = (h - h.rounded(.down)) * 6, i = Int(f6) % 6, f = f6 - Double(Int(f6))
+        let p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f))
+        switch i {
+        case 0: return (v, t, p)
+        case 1: return (q, v, p)
+        case 2: return (p, v, t)
+        case 3: return (p, q, v)
+        case 4: return (t, p, v)
+        default: return (v, p, q)
+        }
+    }
+
+    /// Where on the wheel frame pixel (x, y) is in phase `p`: a diagonal rainbow, one turn every 44 pixels, flowing a step a phase.
+    static func prismHue(_ x: Int, _ y: Int, _ p: Int) -> Double {
+        let h = Double(x + y) / 44 - Double(p) / Double(prismPhases)
+        return h - h.rounded(.down)
+    }
+
+    /// How much the sweeping band of light whitens pixel (x, y) in phase `p` (0…1): a slanted bar, a bright core a pixel or so
+    /// wide in a softer sheen, crossing the frame left to right over most of the loop and gone for the rest.
+    static func prismBand(_ x: Int, _ y: Int, _ p: Int) -> Double {
+        let d = abs(Double(2 * x - y) - (-16 + Double(p) * 8.5))
+        return d < 2 ? 1 : d < 5.5 ? 0.45 * (5.5 - d) / 3.5 : 0
+    }
+
+    /// Glitter: 0 for most pixels, 1 for this phase's sparkles (one pixel in 34), 0.35 for the last phase's, fading.
+    static func prismGlitter(_ x: Int, _ y: Int, _ p: Int) -> Double {
+        func hit(_ q: Int) -> Bool {
+            var h = UInt32(truncatingIfNeeded: x &* 374_761_393 &+ y &* 668_265_263 &+ ((q % prismPhases + prismPhases) % prismPhases) &* 1_440_670_441)
+            h = (h ^ (h >> 13)) &* 1_274_126_177
+            return (h ^ (h >> 16)) % 34 == 0
+        }
+        return hit(p) ? 1 : hit(p - 1) ? 0.35 : 0
+    }
+
+    /// Roles that glitter: the fills (main, light, glow and crystal), not trims and shades.
+    private static let prismGlitters: [Bool] = [true, false, true, false, false, false, true, true, false, true, false]
+
+    /// A prism pixel's colour (premultiplied RGBA bytes packed little-endian, as a 32-bit RGBA bitmap stores them).
+    static func prismPixel(_ role: Int, _ x: Int, _ y: Int, _ p: Int) -> UInt32 {
+        let role = min(max(role, 0), prismTones.count - 1)
+        let t = prismTones[role]
+        var (r, g, b) = hsv(prismHue(x, y, p) + t.dh, t.s, t.v)
+        let lift = min(1, prismBand(x, y, p) * 0.82 + (prismGlitters[role] ? prismGlitter(x, y, p) : 0))
+        if lift > 0 { r += (1 - r) * lift; g += (1 - g) * lift; b += (1 - b) * lift }
+        // Glitter and the band shine through see-through crystal.
+        let a = t.a + (1 - t.a) * lift
+        return packRGBA(r * a, g * a, b * a, a)
+    }
+
+    static func packRGBA(_ r: Double, _ g: Double, _ b: Double, _ a: Double) -> UInt32 {
+        func byte(_ v: Double) -> UInt32 { UInt32(min(255, max(0, (v * 255).rounded()))) }
+        return byte(r) | byte(g) << 8 | byte(b) << 16 | byte(a) << 24
+    }
+
+    /// The still colours of the prism roles (phase 0, mid-frame): ghosts and the hurt flash start from these.
+    fileprivate static let prismStill: [CGColor] = prismTones.map { t in
+        let (r, g, b) = hsv(0.85 + t.dh, t.s * 0.8, t.v)
+        return CGColor(srgbRed: r, green: g, blue: b, alpha: t.a)
+    }
+
+    /// Hero letters a prism outfit colours by its roles: sleeves, trousers and crystal boots.
+    fileprivate static let prismOutfitRoles: [Character: Int] = ["1": 0, "2": 1, "5": 4, "6": 1, "B": 3, "b": 4]
+
+    /// The letters a frame's prism pixels are drawn under, with their roles (the outfit's sleeves and legs only under a prism outfit).
+    private static let prismLetterRoles: [Character: Int] = Dictionary(uniqueKeysWithValues: cosLetters[prismLayer].enumerated().map { ($1, $0) })
+    private static let prismOutfitLetterRoles: [Character: Int] = prismLetterRoles.merging(prismOutfitRoles) { a, _ in a }
+    static func prismLetters(_ w: HeroWear) -> [Character: Int] { w.outfit == HeroWear.prism ? prismOutfitLetterRoles : prismLetterRoles }
+
+    /// A 32×32 frame of letters as an image: palette letters in `bytes` (premultiplied RGBA), prism letters in phase `phase`.
+    static func prismImage(_ px: [Character], bytes: [Character: UInt32], roles: [Character: Int], phase: Int) -> CGImage? {
+        let n = heroSize
+        var buf = [UInt32](repeating: 0, count: n * n)
+        for y in 0..<n {
+            for x in 0..<n {
+                let ch = px[y * n + x]
+                guard ch != "." else { continue }
+                if let r = roles[ch] { buf[y * n + x] = prismPixel(r, x, y, phase) } else if let b = bytes[ch] { buf[y * n + x] = b }
+            }
+        }
+        return rgbaImage(buf, n, n)
+    }
+
+    /// The rim of light a prism hero's burst lights around the frame's silhouette: two rings, the inner one brighter, in the
+    /// rainbow of where they sit.
+    static func prismHalo(_ px: [Character], phase: Int) -> CGImage? {
+        let n = heroSize
+        var ring = [UInt8](repeating: 0, count: n * n)
+        for i in 0..<(n * n) where px[i] != "." { ring[i] = 3 }
+        for pass: UInt8 in [1, 2] {
+            let level: UInt8 = 3 - pass
+            for y in 0..<n {
+                for x in 0..<n where ring[y * n + x] == 0 {
+                    let near = (x > 0 && ring[y * n + x - 1] > level) || (x < n - 1 && ring[y * n + x + 1] > level)
+                        || (y > 0 && ring[(y - 1) * n + x] > level) || (y < n - 1 && ring[(y + 1) * n + x] > level)
+                    if near { ring[y * n + x] = level }
+                }
+            }
+        }
+        var buf = [UInt32](repeating: 0, count: n * n)
+        for y in 0..<n {
+            for x in 0..<n {
+                let level = ring[y * n + x]
+                guard level == 1 || level == 2 else { continue }
+                let (r, g, b) = hsv(prismHue(x, y, phase), 0.55, 1)
+                let a = level == 2 ? 0.7 : 0.3
+                buf[y * n + x] = packRGBA(r * a, g * a, b * a, a)
+            }
+        }
+        return rgbaImage(buf, n, n)
+    }
+
+    /// An image from premultiplied RGBA pixels, top row first (like our y-down bitmap contexts).
+    static func rgbaImage(_ buf: [UInt32], _ w: Int, _ h: Int) -> CGImage? {
+        let data = buf.withUnsafeBytes { Data($0) }
+        guard let provider = CGDataProvider(data: data as CFData), let srgb = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: srgb,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
+                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
+
+    /// Colours for what is drawn per frame (sparks, aura, steps, the sleeve in hand): `prismHues` steps round the wheel in
+    /// a few tones, made once.
+    static let prismHues = 24
+    enum PrismInk: Int, CaseIterable { case vivid, soft, pale, deep }
+    private static let prismInks: [[CGColor]] = PrismInk.allCases.map { ink in
+        let (s, v): (Double, Double) = switch ink {
+        case .vivid: (0.85, 1)
+        case .soft: (0.5, 1)
+        case .pale: (0.22, 1)
+        case .deep: (0.75, 0.78)
+        }
+        return (0..<prismHues).map { k in
+            let (r, g, b) = hsv(Double(k) / Double(prismHues), s, v)
+            return CGColor(srgbRed: r, green: g, blue: b, alpha: 1)
+        }
+    }
+
+    /// The made-once colour nearest to hue `h` (any real number; wraps) in a tone.
+    static func prismInk(_ h: Double, _ ink: PrismInk = .vivid) -> CGColor {
+        let k = Int(((h - h.rounded(.down)) * Double(prismHues)).rounded()) % prismHues
+        return prismInks[ink.rawValue][k]
+    }
+
+    /// The made-once colour of a prism role at frame pixel (x, y) in phase `p` (for the arm drawn per frame).
+    static func prismInk(role: Int, _ x: Int, _ y: Int, _ p: Int) -> CGColor {
+        let ink: PrismInk = switch role {
+        case 3, 4, 5, 7, 9: .pale
+        case 1, 8, 10: .deep
+        case 6: .vivid
+        default: .soft
+        }
+        return prismInk(prismHue(x, y, p) + prismTones[min(role, prismTones.count - 1)].dh, ink)
     }
 }
 
@@ -252,17 +472,63 @@ extension RpgArt {
 
     private static let cosHats: [[HeroPart]] = hatArt.map { $0.views.map { cosTranslate($0, 0) } }
 
-    /// The worn hat in the hat layer's letters, and the row above which the hair under it is hidden.
-    static func cosHat(_ code: UInt8, view: Int) -> (part: HeroPart, cover: Int)? {
+    /// The worn hat in the hat layer's letters, and the row above which the hair under it is hidden. The prism crown's
+    /// floating shards turn with the shimmer `phase`.
+    static func cosHat(_ code: UInt8, view: Int, phase: Int = 0) -> (part: HeroPart, cover: Int)? {
+        if code == HeroWear.prism { return (prismHats[view][((phase % prismPhases) + prismPhases) % prismPhases], 0) }
         let i = Int(code) - 1
         guard cosHats.indices.contains(i) else { return nil }
         return (cosHats[i][view], hatArt[i].cover[view])
     }
 
-    /// The highest pixel row a worn hat or hairstyle reaches (nil when neither is worn), for chat bubbles over the head.
+    /// The highest pixel row a worn hat or hairstyle reaches (nil when neither is worn), for chat bubbles over the head (asked
+    /// every frame for everyone on the map).
     static func cosHeadTop(_ w: HeroWear) -> Int? {
-        let parts = (0..<3).compactMap { cosHat(w.hat, view: $0)?.part } + (0..<3).compactMap { cosHair(w.hair, view: $0) }
-        return parts.compactMap { p in p.g.firstIndex { $0.contains { $0 != "." } }.map { p.y + $0 } }.min()
+        let prism = w.hat == HeroWear.prism
+        let parts = (prism ? [] : (0..<3).compactMap { cosHat(w.hat, view: $0)?.part }) + (0..<3).compactMap { cosHair(w.hair, view: $0) }
+        let top = parts.compactMap { p in p.g.firstIndex { $0.contains { $0 != "." } }.map { p.y + $0 } }.min()
+        return prism ? min(top ?? Int.max, prismHatTop) : top
+    }
+
+    /// The highest row the prism crown reaches in any view and phase (its shards circle above it), worked out once.
+    private static let prismHatTop: Int = prismHats.joined().compactMap { p in p.g.firstIndex { $0.contains { $0 != "." } }.map { p.y + $0 } }.min() ?? 0
+
+    /// The prism crown, per view (rows 3-11 of the hat grid): a tall crystal spire between two short ones, each lit on its left
+    /// facet, on a band set with a gem over the brow; it sits on the hair like the halo hats.
+    private static let prismCrown: [RpgGrid] = [
+        [".........KK.........", "........K*#K........", "....K...K:#K...K....", "...K*K.K+:#=K.K*K...", "...K+=KK+:##KK+=K...",
+         "..KK+=K+:^##=K+=KK..", "..K*:+:+:^^:+:+:*K..", "...K=#=#K**K#=#=K...", "....KKKKKKKKKKKK...."],
+        [".........KK.........", "........K*#K........", "....K...K:#K...K....", "...K*K.K+:#=K.K*K...", "...K+=KK+:##KK+=K...",
+         "..KK+=K+:^##=K+=KK..", "..K*:+:+:^^:+:+:*K..", "...K=#=#K**K#=#=K...", "....KKKKKKKKKKKK...."],
+        [".........KK.........", "........K#*K........", "....K...K#:K...K....", "...K*K.K=#:+K.K*K...", "...K=+KK##:+KK=+K...",
+         "..KK=+K=##^:+K=+KK..", "..K*:+:+:++:+:+:*K..", "...K=#=#=#=#=#=#K...", "....KKKKKKKKKKKK...."],
+    ]
+
+    /// Where the floating shards circle above the crown (centre and radii in the hat grid) per view.
+    private static let prismRing: [(cx: Double, cy: Double, rx: Double, ry: Double)] = [(9.5, 1.6, 7.5, 1.2), (9.5, 1.6, 8.5, 1.2), (9.5, 1.6, 8.5, 1.2)]
+
+    /// The crown with six shards circling above it, for each view and shimmer phase: they turn 15° a phase (the six repeat every
+    /// four phases), a glowing crystal on the near side of the ring, a glint the crown hides on the far side.
+    private static let prismHats: [[HeroPart]] = (0..<3).map { v in
+        (0..<prismPhases).map { phase in
+            var c = Array(repeating: Array(repeating: Character("."), count: 20), count: 12)
+            for (dy, row) in prismCrown[v].enumerated() { for (dx, ch) in row.enumerated() where ch != "." { c[3 + dy][dx] = ch } }
+            let ring = prismRing[v]
+            for k in 0..<6 {
+                let a = (Double(k) * 60 + Double(phase) * 15) * .pi / 180
+                let near = sin(a) > 0.05
+                let x = Int((ring.cx + cos(a) * ring.rx).rounded()), y = Int((ring.cy + sin(a) * ring.ry).rounded())
+                let shard: [String] = near ? [".^.", "^*^", ".^."] : [":"]
+                for (dy, row) in shard.enumerated() {
+                    for (dx, ch) in row.enumerated() where ch != "." {
+                        let gx = x - shard[0].count / 2 + dx, gy = y + dy - shard.count / 2
+                        guard gy >= 0, gy < c.count, gx >= 0, gx < 20 else { continue }
+                        if near || c[gy][gx] == "." { c[gy][gx] = ch }
+                    }
+                }
+            }
+            return cosTranslate(HeroPart(x: 6, y: 0, g: grid(c)), prismLayer)
+        }
     }
 }
 
@@ -398,10 +664,11 @@ extension RpgArt {
 // MARK: - hems and patterns (outfits and capes)
 
 extension RpgArt {
-    fileprivate enum CosHem { case none, trim, zigzag, scallop, leaves, shards, hazard, waves, rags, flames, fur, feathers, spikes }
-    fileprivate enum CosPattern { case none, dots, confetti, scales, stars, stripes, runes, wisps, veins }
+    fileprivate enum CosHem { case none, trim, zigzag, scallop, leaves, shards, hazard, waves, rags, flames, fur, feathers, spikes, crystals }
+    fileprivate enum CosPattern { case none, dots, confetti, scales, stars, stripes, runes, wisps, veins, facets, holo }
 
-    private static func isRole(_ c: Character) -> Bool { cosRoleIndex[c] != nil }
+    /// A role letter, the prism's see-through crystal ones included (no other grid uses `@` or `$`).
+    private static func isRole(_ c: Character) -> Bool { prismRoleIndex[c] != nil }
 
     /// Rows as character arrays padded to one width.
     private static func cells(_ g: RpgGrid) -> [[Character]] {
@@ -430,6 +697,10 @@ extension RpgArt {
                 case .runes: (x + y) % 4 == 0 && y % 2 == 1 ? "^" : nil
                 case .wisps: (x * 3 + y * 7) % 11 == 0 ? ":" : nil
                 case .veins: (x + y) % 3 == 0 ? "=" : nil
+                // A cut gem's facets: slanted lit edges, a shaded one now and then.
+                case .facets: (x + y) % 4 == 0 ? "+" : (x - y + 64) % 8 == 0 ? "=" : nil
+                // Holographic foil: slanted streaks of light.
+                case .holo: (2 * x + y) % 6 == 0 ? "+" : (2 * x + y) % 6 == 1 ? ":" : nil
                 }
                 if let mark { c[y][x] = mark }
             }
@@ -503,6 +774,20 @@ extension RpgArt {
             for (i, x) in cols.enumerated() where i % 2 == 0 { tooth(x, i % 4 == 0 ? 2 : 1, "#", tip: "~") }
         case .spikes:
             for (i, x) in cols.enumerated() where i % 3 == 1 { tooth(x, 2, "#", tip: "~") }
+        case .crystals:
+            // Cut-crystal points, three wide at the root and lit on their left facet, long and short in turn, wherever three
+            // filled columns meet the hem; a hem split by the legs gets a line of refracted light instead (points would hide them).
+            let filled = Set(cols)
+            var last = -100, n = 0
+            for x in cols where filled.contains(x - 1) && filled.contains(x + 1) && x - last >= 4 {
+                let long = n % 2 == 0
+                set(x - 1, b, "+"); set(x, b, "*"); set(x + 1, b, "=")
+                set(x, b + 1, long ? ":" : "+"); outline(x - 1, b + 1); outline(x + 1, b + 1)
+                if long { set(x, b + 2, "^"); outline(x - 1, b + 2); outline(x + 1, b + 2) }
+                set(x, b + (long ? 3 : 2), "K")
+                last = x; n += 1
+            }
+            if n == 0 { for x in cols { set(x, f, x % 2 == 0 ? "~" : "*") } }
         }
     }
 }
@@ -564,6 +849,18 @@ extension RpgArt {
                                       part(16, ["...KKKKKKKKKK...", "..K~~~~~~~~~~K..", "..K~~~~~~~~~~K..", "..K~~~~~~~~~~K.."])]
     private static let fGem = [part(19, ["..........KK....", "..........^:K...", "..........KK...."]),
                                part(19, ["......KKKK......", ".....K^::^K.....", "......K^^K......", ".......KK......."]), noPart]
+    // Prism: crystals rising off the shoulders (beside the head, where hair and face leave room), and a V of refracted light down
+    // the chest to a prism gem, drawn without outlines so the cut-crystal body shows round them.
+    private static let fPrismShoulders = [
+        part(14, ["....K...........", "...K*K..........", "...K:+K.........", "..K*+=K.........", "..K~~~=K........", "..K-~~~K........",
+                  "...KKKK........."]),
+        part(14, ["K..............K", "*K............K*", "+:K..........K:+", "~+*K........K*+~", "~~~=K......K=~~~", "-~~~K......K~~~-",
+                  "KKKK........KKKK"]),
+        part(14, ["K..............K", "*K............K*", ":+K..........K+:", "~*+K........K+*~", "=~~~K......K~~~=", "-~~~K......K~~~-",
+                  "KKKK........KKKK"]),
+    ]
+    private static let fPrismHeart = [part(19, ["........~.......", ".........~*.....", "..........^.....", ".........:......"]),
+                                      part(19, ["....~......~....", ".....~....~.....", "......~*^~......", ".......^:......."]), noPart]
 
     private struct OutfitStyle {
         var pattern: CosPattern = .none
@@ -589,6 +886,7 @@ extension RpgArt {
         OutfitStyle(hem: .trim, parts: [fHighCollar, fSash]),                   // celestial: gold-trimmed vestment
         OutfitStyle(pattern: .stars, parts: [fGem]),                            // rift: starfield and a gem
         OutfitStyle(pattern: .runes, hem: .spikes, parts: [fHighCollar, fGem]), // chaos: glowing runes
+        OutfitStyle(pattern: .facets, hem: .crystals, parts: [fPrismShoulders, fPrismHeart]), // prism: cut-crystal armour
     ]
 
     private static var outfitCache: [Int: [HeroPart]] = [:]
@@ -601,11 +899,14 @@ extension RpgArt {
         if let hit = outfitCache[key] { return hit }
         let style = outfitStyles[t]
         let torso = art.torso[view]
-        let map = outfitLetters[cls] ?? [:]
+        var map = outfitLetters[cls] ?? [:]
+        // The prism body is one cut gem: a class's trims and belts become its lit and shaded facets (its own light trims it).
+        if code == HeroWear.prism { map = map.mapValues { ["~": "#", "-": "=", "&": "=", "*": "+"][$0] ?? $0 } }
         var c = cells(torso.g.map { String($0.map { map[$0] ?? $0 }) })
         patterned(&c, style.pattern)
         hemmed(&c, style.hem)
-        let parts = [cosTranslate(HeroPart(x: torso.x, y: torso.y, g: grid(c)), 1)] + style.parts.map { cosTranslate($0[view], 1) }
+        let layer = code == HeroWear.prism ? prismLayer : 1
+        let parts = [cosTranslate(HeroPart(x: torso.x, y: torso.y, g: grid(c)), layer)] + style.parts.map { cosTranslate($0[view], layer) }
         outfitCache[key] = parts
         return parts
     }
@@ -642,6 +943,8 @@ extension RpgArt {
         CapeStyle(hem: .feathers, edge: true, emblem: ["..:..", ".:^:.", "..:.."], clasp: "~^^~"),        // celestial: star
         CapeStyle(edge: true, pattern: .stars, clasp: "K^^K"),                                            // rift: starfield
         CapeStyle(hem: .spikes, pattern: .runes, emblem: ["^.^", ".^.", "^.^"], clasp: "K^^K"),           // chaos: sigil
+        // prism: holographic foil (the shimmer itself), cut-crystal points, and a prism of light on the back.
+        CapeStyle(hem: .crystals, edge: true, pattern: .holo, emblem: ["..*..", ".*^*.", "*^:^*", "KKKKK"], clasp: "*^:*"),
     ]
 
     private static var capeCache: [Int: HeroPart] = [:]
@@ -669,7 +972,7 @@ extension RpgArt {
                 }
             }
         }
-        let part = cosTranslate(HeroPart(x: base.x, y: base.y, g: grid(c)), 2)
+        let part = cosTranslate(HeroPart(x: base.x, y: base.y, g: grid(c)), code == HeroWear.prism ? prismLayer : 2)
         capeCache[key] = part
         return part
     }
@@ -678,7 +981,7 @@ extension RpgArt {
     static func cosCapeClasp(_ code: UInt8) -> HeroPart? {
         let t = Int(code) - 1
         guard capeStyles.indices.contains(t) else { return nil }
-        return cosTranslate(HeroPart(x: 12, y: 18, g: ["##....##", "#=" + capeStyles[t].clasp + "=#"]), 2)
+        return cosTranslate(HeroPart(x: 12, y: 18, g: ["##....##", "#=" + capeStyles[t].clasp + "=#"]), code == HeroWear.prism ? prismLayer : 2)
     }
 }
 
@@ -728,7 +1031,48 @@ extension RpgArt {
                    ".K~K###K###~K", "K~K.K#K.K#~K.", "KK...K...KK..", ".............", "............."],
                   [".............", ".............", "KK...........", "K~KK......KK.", ".K#~KK...K~K.", "..K##~K.K~#KK", "..K###~~###~K",
                    ".K~K###K###~K", "K~K.K#K.K#~K.", "KK...K...KK..", ".............", "............."]],
+        "prism": prismWingArt,
     ]
+
+    /// Crystal wings for the prism set: long faceted blades fanning from the root, each edged where it lies over the one behind
+    /// it, lit on the upper facet with a ridge of light, see-through crystal below, white at the tip. 13 wide like the others
+    /// but 16 tall (they rise four rows higher), root at the bottom right.
+    private static let prismWingArt: [RpgGrid] = [0, 1].map { flap in
+        let w = 13, h = 16
+        var g = Array(repeating: Array(repeating: Character("."), count: w), count: h)
+        let rx = 12.4, ry = 13.6
+        // (degrees above the leftward horizontal, length, widest half-width)
+        let blades: [(Double, Double, Double)] = flap == 0
+            ? [(80, 14.5, 2.3), (54, 16.0, 2.9), (28, 13.5, 2.6), (4, 9.5, 2.0)]
+            : [(66, 13.5, 2.3), (41, 15.0, 2.9), (17, 12.5, 2.6), (-8, 8.5, 2.0)]
+        for (deg, len, hw) in blades {
+            let a = deg * .pi / 180, ux = -cos(a), uy = -sin(a)
+            var mask = Array(repeating: Array(repeating: false, count: w), count: h)
+            var fill: [(Int, Int, Character)] = []
+            for y in 0..<h {
+                for x in 0..<w {
+                    let px = Double(x) + 0.5 - rx, py = Double(y) + 0.5 - ry
+                    let t = (px * ux + py * uy) / len, d = px * uy - py * ux
+                    guard t > 0, t < 1.02 else { continue }
+                    let half = hw * (t < 0.3 ? 0.5 + 0.5 * t / 0.3 : max(0, 1.02 - t) / 0.72) + 0.25
+                    guard abs(d) <= half else { continue }
+                    mask[y][x] = true
+                    let ch: Character = t > 0.86 ? "*" : abs(d) < 0.5 ? ":" : d < 0 ? "+" : "@"
+                    fill.append((x, y, ch))
+                }
+            }
+            // This blade's edge goes over the blades behind it, so each reads as its own shard: outline outside the wing, a
+            // line of crystal shade where it lies on another blade.
+            for y in 0..<h {
+                for x in 0..<w where !mask[y][x] {
+                    let near = (x > 0 && mask[y][x - 1]) || (x < w - 1 && mask[y][x + 1]) || (y > 0 && mask[y - 1][x]) || (y < h - 1 && mask[y + 1][x])
+                    if near { g[y][x] = g[y][x] == "." || g[y][x] == "K" ? "K" : "$" }
+                }
+            }
+            for (x, y, ch) in fill { g[y][x] = ch }
+        }
+        return g.map { String($0) }
+    }
 
     private static var wingCache: [Int: HeroPart] = [:]
 
@@ -741,8 +1085,8 @@ extension RpgArt {
         let half = cells(art[flap & 1])
         let w = half.first?.count ?? 0, n = heroSize
         // The left wing's root sits at the shoulder blade (x 12, row 17), the right wing is its mirror; from the side the one
-        // wing roots two pixels further forward, behind the back.
-        let top = 8
+        // wing roots two pixels further forward, behind the back. Taller wings start higher, keeping the root where it is.
+        let top = 8 - max(0, half.count - 12)
         var rows = Array(repeating: Array(repeating: Character("."), count: n), count: half.count)
         for (y, row) in half.enumerated() {
             for (x, ch) in row.enumerated() where ch != "." {
@@ -751,9 +1095,16 @@ extension RpgArt {
                 if view != 0 { let rx = n - 1 - lx; if rx >= 0, rx < n { rows[y][rx] = ch } }
             }
         }
-        let part = cosTranslate(HeroPart(x: 0, y: top, g: grid(rows)), 3)
+        let part = cosTranslate(HeroPart(x: 0, y: top, g: grid(rows)), code == HeroWear.prism ? prismLayer : 3)
         wingCache[key] = part
         return part
+    }
+
+    /// See-through prism crystal painted over the body (wings from the back) turned solid: a frame has one letter a pixel,
+    /// so a see-through pixel there would show the ground instead of the body under it.
+    static func prismSolid(_ ch: Character) -> Character {
+        let letters = cosLetters[prismLayer]
+        return ch == letters[9] ? letters[2] : ch == letters[10] ? letters[0] : ch
     }
 }
 
@@ -808,6 +1159,66 @@ extension RpgArt {
         let t = Int(code) - 1
         return cosColors.indices.contains(t) ? cosColors[t][6] : nil
     }
+
+    /// Letters of the held art a prism skin turns to light: the blade, the head, the shaft and orb, the barrel, the bow's limbs,
+    /// string and arrow. Guards, handles and pommels stay solid crystal.
+    private static func prismBeamLetters(_ grip: HeroGrip) -> Set<Character> {
+        switch grip {
+        case .sword, .dagger, .claw: return ["B", "E", "W", "X"]
+        case .mace: return ["B", "E", "W", "O"]
+        case .staff: return ["B", "O", "J", "W"]
+        case .rod: return ["B", "@", "%"]
+        case .gun: return ["B", "E", "W"]
+        case .bow: return ["B", "b", "W", "L", "A"]
+        }
+    }
+
+    /// The held art of a prism skin, made of light: the dark outline round the light becomes a glowing rim (`g`), and a blade
+    /// runs on past its tip as a beam.
+    static func prismBeam(_ g: RpgGrid, grip: HeroGrip) -> RpgGrid {
+        let beam = prismBeamLetters(grip)
+        let extend = grip == .sword || grip == .dagger
+        let w = (g.map(\.count).max() ?? 0) + (extend ? 3 : 0), h = g.count
+        let src = g.map { Array($0) + Array(repeating: Character("."), count: w - $0.count) }
+        func at(_ x: Int, _ y: Int) -> Character { y >= 0 && y < h && x >= 0 && x < w ? src[y][x] : "." }
+        var c = src
+        for y in 0..<h {
+            for x in 0..<w where src[y][x] == "K" {
+                let near = [at(x - 1, y), at(x + 1, y), at(x, y - 1), at(x, y + 1)]
+                if near.contains(where: beam.contains), !near.contains(where: { $0 != "." && $0 != "K" && !beam.contains($0) }) { c[y][x] = "g" }
+            }
+        }
+        if extend, let tip = (0..<w).last(where: { x in (0..<h).contains { beam.contains(src[$0][x]) } }) {
+            for y in 0..<h where beam.contains(src[y][tip]) {
+                c[y][tip + 1] = "W"; c[y][tip + 2] = "g"
+                for dy in [-1, 1] where y + dy >= 0 && y + dy < h && !beam.contains(src[y + dy][tip]) { c[y + dy][tip + 1] = "g" }
+            }
+        }
+        return c.map { String($0) }
+    }
+
+    /// The colour a prism weapon shines in at phase `p`, `along` (0…1) its length: the whole rainbow in turn, a little of it
+    /// along the blade.
+    static func prismWeaponHue(_ p: Int, along: Double = 0) -> Double { 0.15 - Double(p) / Double(prismPhases) + along * 0.3 }
+
+    /// A prism skin's colour for a held-art letter at column `x` of a `width`-wide template in phase `p`: a white-hot core in a
+    /// rim of coloured light, like a beam; solid parts in crystal. Colours come from the made-once tables, and pixels that share
+    /// a letter and a step of hue share a colour (the key).
+    static func prismWeaponInk(_ ch: Character, x: Int, width: Int, phase p: Int) -> (color: CGColor, key: Int)? {
+        let h = prismWeaponHue(p, along: Double(x) / Double(max(1, width)))
+        let step = Int(((h - h.rounded(.down)) * Double(prismHues)).rounded()) % prismHues
+        let tone: PrismInk
+        switch ch {
+        case "K": return (outline, 0)
+        case "W", "X", "A", "J", "%", "B", "L": return (rgb(255, 255, 255), Int(ch.asciiValue ?? 0) * 32)
+        case "E", "O": tone = .pale
+        case "g", "b", "@": tone = .vivid
+        case "G": return (prismInk(h + 0.5, .soft), Int(ch.asciiValue ?? 0) * 32 + step)
+        case "H": tone = .deep
+        default: return nil
+        }
+        return (prismInk(h, tone), Int(ch.asciiValue ?? 0) * 32 + step)
+    }
 }
 
 // MARK: - auras and steps
@@ -854,11 +1265,50 @@ extension RpgArt {
     }
 
     /// Draws a set's mote centred at (x, y), faded to `alpha` (callers draw at full opacity: a stealthed hero fades as one layer).
-    static func cosDrawMote(_ c: CGContext, _ code: UInt8, _ x: Double, _ y: Double, alpha: CGFloat = 1) {
-        guard alpha > 0.02, let img = cosMote(code) else { return }
+    /// The prism's mote is a sparkle in the rainbow at `hue`.
+    static func cosDrawMote(_ c: CGContext, _ code: UInt8, _ x: Double, _ y: Double, alpha: CGFloat = 1, hue: Double = 0) {
+        guard alpha > 0.02, let img = code == HeroWear.prism ? prismSprite(.glint, hue: hue) : cosMote(code) else { return }
+        drawSprite(c, img, x, y, alpha: alpha)
+    }
+
+    /// An image centred at (x, y) on whole pixels, faded to `alpha`.
+    private static func drawSprite(_ c: CGContext, _ img: CGImage, _ x: Double, _ y: Double, alpha: CGFloat = 1) {
+        guard alpha > 0.02 else { return }
         if alpha < 1 { c.saveGState(); c.setAlpha(alpha) }
         KartArt.draw(img, in: c, rect: CGRect(x: (x - Double(img.width) / 2).rounded(), y: (y - Double(img.height) / 2).rounded(), width: Double(img.width), height: Double(img.height)))
         if alpha < 1 { c.restoreGState() }
+    }
+
+    /// Little prism pictures drawn per frame, each made once per step of hue: a four-point sparkle, a glint, a floating crystal
+    /// (outlined), a mote of light.
+    enum PrismSprite: Int, CaseIterable { case spark, glint, gem, mote }
+    private static let prismSpriteGrids: [RpgGrid] = [
+        ["..:..", "..^..", ":^*^:", "..^..", "..:.."],
+        [".^.", "^*^", ".^."],
+        [".K.", "K*K", "K^K", "K:K", ".K."],
+        ["^"],
+    ]
+    private static var prismSprites: [Int: CGImage] = [:]
+
+    static func prismSprite(_ kind: PrismSprite, hue: Double) -> CGImage? {
+        let step = Int(((hue - hue.rounded(.down)) * Double(prismHues)).rounded()) % prismHues
+        let key = kind.rawValue * 64 + step
+        if let hit = prismSprites[key] { return hit }
+        let g = prismSpriteGrids[kind.rawValue], w = g[0].count, h = g.count
+        var buf = [UInt32](repeating: 0, count: w * h)
+        for (y, row) in g.enumerated() {
+            for (x, ch) in row.enumerated() {
+                if ch == "K" {
+                    buf[y * w + x] = packRGBA(28 / 255, 22 / 255, 38 / 255, 1)
+                } else if let r = prismRoleIndex[ch] {
+                    let t = prismTones[r], (cr, cg, cb) = hsv(Double(step) / Double(prismHues) + t.dh, t.s, t.v)
+                    buf[y * w + x] = packRGBA(cr * t.a, cg * t.a, cb * t.a, t.a)
+                }
+            }
+        }
+        let img = rgbaImage(buf, w, h)
+        prismSprites[key] = img
+        return img
     }
 
     private enum RingStyle { case solid, dotted, dashed, double, spiky, wavy }
@@ -905,8 +1355,71 @@ extension RpgArt {
         return img
     }
 
-    /// An aura behind (`front` false) or in front of the hero: the ground ring and the half of the orbiting motes on that side.
-    static func cosDrawAura(_ c: CGContext, _ code: UInt8, ax: Double, ay: Double, time: Double, seed: Double, front: Bool) {
+    private static var prismRingCache: [Int: CGImage] = [:]
+
+    /// The prism aura's ground ring in a shimmer phase: a colour wheel that turns a step a phase, an inner ring of light, and
+    /// three sparks running round it.
+    static func prismAuraRing(phase: Int) -> CGImage? {
+        let f = ((phase % prismPhases) + prismPhases) % prismPhases
+        if let hit = prismRingCache[f] { return hit }
+        let w = 29, h = 13, cx = 14.0, cy = 6.0
+        var buf = [UInt32](repeating: 0, count: w * h)
+        func put(_ x: Double, _ y: Double, _ v: UInt32) {
+            let ix = Int(x.rounded()), iy = Int(y.rounded())
+            if ix >= 0, ix < w, iy >= 0, iy < h { buf[iy * w + ix] = v }
+        }
+        let turn = Double(f) / Double(prismPhases)
+        for i in 0..<120 {
+            let a = Double(i) / 120 * 2 * .pi
+            let (r, g, b) = hsv(a / (2 * .pi) + turn, 0.8, 1)
+            put(cx + cos(a) * 12, cy + sin(a) * 4.6, packRGBA(r * 0.9, g * 0.9, b * 0.9, 0.9))
+            if i % 3 == 0 {
+                let (r2, g2, b2) = hsv(a / (2 * .pi) + turn + 0.5, 0.3, 1)
+                put(cx + cos(a) * 8, cy + sin(a) * 3, packRGBA(r2 * 0.55, g2 * 0.55, b2 * 0.55, 0.55))
+            }
+        }
+        for k in 0..<3 {
+            let a = (Double(k) / 3 + turn * 2) * 2 * .pi
+            put(cx + cos(a) * 12, cy + sin(a) * 4.6, packRGBA(1, 1, 1, 1))
+            put(cx + cos(a + 0.09) * 12, cy + sin(a + 0.09) * 4.6, packRGBA(1, 1, 1, 1))
+        }
+        let img = rgbaImage(buf, w, h)
+        prismRingCache[f] = img
+        return img
+    }
+
+    /// The prism aura behind or in front of the hero: the turning wheel on the ground, glints whirling round the hips, and
+    /// crystals circling the other way at shoulder height, rainbow round the ring and cycling with the shimmer `phase`.
+    private static func prismDrawAura(_ c: CGContext, ax: Double, ay: Double, time: Double, seed: Double, front: Bool, phase: Int) {
+        let turn = Double(phase) / Double(prismPhases)
+        if !front, let ring = prismAuraRing(phase: phase) {
+            KartArt.draw(ring, in: c, rect: CGRect(x: ax - 14, y: ay - 6, width: Double(ring.width), height: Double(ring.height)))
+        }
+        // Both rings pass below the face (crystals crossing it hid the eyes).
+        for k in 0..<3 {
+            let a = time * 2.6 + Double(k) * 2 * .pi / 3 + seed
+            guard (sin(a) >= 0) == front, let img = prismSprite(.glint, hue: Double(k) / 3 + turn) else { continue }
+            drawSprite(c, img, ax + cos(a) * 9, ay - 4 + sin(a) * 3)
+        }
+        for k in 0..<3 {
+            let a = -time * 1.4 + Double(k) * 2 * .pi / 3 + seed
+            guard (sin(a) >= 0) == front, let img = prismSprite(.gem, hue: Double(k) / 3 + 0.17 + turn) else { continue }
+            drawSprite(c, img, ax + cos(a) * 13, ay - 11 + sin(a) * 4 + sin(time * 3 + Double(k)) * 1.2)
+        }
+        guard front else { return }
+        // Light rising off the wheel.
+        for k in 0..<2 {
+            let rise = (time * 0.6 + Double(k) * 0.5 + seed).truncatingRemainder(dividingBy: 1)
+            let a = Double(k) * 2.1 + seed * 3
+            guard let img = prismSprite(.glint, hue: Double(k) * 0.37 + turn) else { continue }
+            drawSprite(c, img, ax + cos(a) * 10, ay - 2 - rise * 20, alpha: CGFloat(0.9 * (1 - rise * rise)))
+        }
+    }
+
+    /// An aura behind (`front` false) or in front of the hero: the ground ring and the half of the orbiting motes on that side
+    /// (the prism's in the hero's shimmer `phase`).
+    static func cosDrawAura(_ c: CGContext, _ code: UInt8, ax: Double, ay: Double, time: Double, seed: Double, front: Bool, phase: Int = 0) {
+        if code == HeroWear.prism { prismDrawAura(c, ax: ax, ay: ay, time: time, seed: seed, front: front, phase: phase); return }
         if !front, let ring = cosAuraRing(code, frame: Int(time * 10 + seed * 7)) {
             KartArt.draw(ring, in: c, rect: CGRect(x: ax - 14, y: ay - 6, width: Double(ring.width), height: Double(ring.height)))
         }
@@ -927,6 +1440,15 @@ extension RpgArt {
     private static let risingSteps: Set<String> = ["undersea", "haunted", "underworld", "celestial"]
 
     static func cosDrawSteps(_ c: CGContext, _ code: UInt8, _ prints: [(pos: CGPoint, at: Double, side: Int)], time: Double, alpha: CGFloat) {
+        if code == HeroWear.prism {
+            // A trail of sparkles, each step the next colour of the rainbow: a star, then a glint, then a fading mote of light.
+            for p in prints {
+                let age = (time - p.at) / stepLife
+                guard age >= 0, age < 1, let img = prismSprite(age < 0.3 ? .spark : age < 0.7 ? .glint : .mote, hue: p.at * 1.7) else { continue }
+                drawSprite(c, img, Double(p.pos.x) + Double(p.side) * 2, Double(p.pos.y) - age * 4, alpha: alpha * CGFloat(1 - age * age))
+            }
+            return
+        }
         let t = Int(code) - 1
         let rises = RpgCosmetics.themes.indices.contains(t) && risingSteps.contains(RpgCosmetics.themes[t].key)
         for p in prints {
@@ -937,13 +1459,55 @@ extension RpgArt {
         }
     }
 
-    /// While walking, a puff of the set's mote kicked up at the trailing foot (shows in menus too, where nobody moves).
-    static func cosDrawKick(_ c: CGContext, _ code: UInt8, ax: Double, ay: Double, pose: RpgHeroPose, time: Double) {
+    /// While walking, a puff of the set's mote kicked up at the trailing foot (shows in menus too, where nobody moves); the
+    /// prism's in the colour of the hero's shimmer `shine`.
+    static func cosDrawKick(_ c: CGContext, _ code: UInt8, ax: Double, ay: Double, pose: RpgHeroPose, time: Double, shine: Int = 0) {
         guard pose.moving else { return }
         let phase = (time * 4).truncatingRemainder(dividingBy: 1)
         let back: Double = pose.view == .side ? (pose.flip ? 1 : -1) : 0
         let side: Double = pose.step % 2 == 0 ? -2 : 2
-        cosDrawMote(c, code, ax + back * (3 + phase * 3) + (pose.view == .side ? 0 : side), ay - 1 - phase * 3, alpha: CGFloat(1 - phase))
+        cosDrawMote(c, code, ax + back * (3 + phase * 3) + (pose.view == .side ? 0 : side), ay - 1 - phase * 3, alpha: CGFloat(1 - phase),
+                    hue: Double(shine) / Double(prismPhases) + 0.5)
+    }
+}
+
+// MARK: - prism flourishes
+
+extension RpgArt {
+    /// Where a hero in prism pieces is in a burst of light (0…1), or nil between bursts: one every 4.6 s, 0.8 s long.
+    static func prismBurst(_ time: Double, seed: Double) -> Double? {
+        let period = 4.6, life = 0.8
+        var t = (time + seed * 2.3).truncatingRemainder(dividingBy: period)
+        if t < 0 { t += period }
+        return t < life ? t / life : nil
+    }
+
+    /// The sparkles of a burst popping round the body one after another (more of them the more of the set is worn), each a
+    /// four-point star that shrinks as it fades.
+    static func prismBurstSparks(_ c: CGContext, ax: Double, ay: Double, k: Double, time: Double, seed: Double, pieces: Int, alpha: CGFloat) {
+        let n = min(10, 3 + pieces), burst = Double(Int((time + seed * 2.3) / 4.6))
+        for i in 0..<n {
+            let local = k * 1.7 - Double(i) * 0.7 / Double(n)
+            guard local > 0, local < 1 else { continue }
+            let a = Double(i) * 2.399 + burst * 1.3 + seed
+            let x = ax + cos(a) * (7 + Double(i % 3) * 2.5), y = ay - 13 + sin(a) * 11
+            guard let img = prismSprite(local < 0.55 ? .spark : .glint, hue: Double(i) / Double(n) + burst * 0.17) else { continue }
+            drawSprite(c, img, x, y - local * 3, alpha: alpha * CGFloat(1 - local * local))
+        }
+    }
+
+    /// Prism wings shed light: motes slip off the crystal tips and drift down, fading (frame positions of the tips per view,
+    /// `at` turning them into the world, mirrored with the hero).
+    private static let prismWingTips: [[(Double, Double)]] = [[(3, 7), (2, 12), (6, 4)], [(3, 8), (28, 9), (1, 13)], [(3, 8), (28, 9), (1, 13)]]
+
+    static func prismWingLight(_ c: CGContext, view: Int, time: Double, seed: Double, alpha: CGFloat, at: (Double, Double) -> (CGFloat, CGFloat)) {
+        let tips = prismWingTips[min(max(view, 0), 2)]
+        for (i, tip) in tips.enumerated() {
+            let life = (time * 0.7 + Double(i) * 0.41 + seed).truncatingRemainder(dividingBy: 1)
+            let p = at(tip.0 + sin(life * 5 + Double(i)) * 1.2, tip.1 + life * 12)
+            guard let img = prismSprite(life < 0.25 ? .glint : .mote, hue: Double(i) * 0.23 + time * 0.4) else { continue }
+            drawSprite(c, img, Double(p.0), Double(p.1), alpha: alpha * CGFloat(1 - life))
+        }
     }
 }
 
@@ -954,13 +1518,18 @@ extension RpgArt {
         let id: String
         let cls: RpgClass
         let look: [Int]
+        /// Shimmer phase of a prism piece's icon; 0 for every other piece, whose icon keeps still.
+        var phase = 0
     }
 
     private static var iconCache: [IconKey: CGImage] = [:]
 
-    /// A cosmetic on the viewer's own hero (class and look), cropped to where the piece is: wardrobe tiles.
-    static func cosmeticIcon(_ c: RpgCosmetic, on p: RpgPlayer) -> CGImage? {
-        let key = IconKey(id: c.id, cls: p.cls, look: p.look)
+    /// A cosmetic on the viewer's own hero (class and look), cropped to where the piece is: wardrobe tiles. A prism piece
+    /// shimmers with `time` (one icon per phase, cached like the rest).
+    static func cosmeticIcon(_ c: RpgCosmetic, on p: RpgPlayer, time: Double = 0) -> CGImage? {
+        let prism = c.theme == "prism"
+        let phase = prism ? prismPhase(time) : 0
+        let key = IconKey(id: c.id, cls: p.cls, look: p.look, phase: phase)
         if let hit = iconCache[key] { return hit }
         if iconCache.count > 600 { iconCache.removeAll(keepingCapacity: true) }
         var q = p
@@ -970,31 +1539,44 @@ extension RpgArt {
         let icon: CGImage?
         switch c.slot {
         case .weaponSkin:
-            icon = q.weaponItem.flatMap { heroWeaponImage($0, cls: q.cls, angle: -0.8, skin: w.weapon) }.flatMap(trimmed)
+            icon = q.weaponItem.flatMap { heroWeaponImage($0, cls: q.cls, angle: -0.8, skin: w.weapon, phase: phase) }.flatMap(trimmed)
         case .steps, .aura:
             // Marks or the ring with motes over it, drawn on their own.
             guard let ctx = KartArt.context(width: 29, height: 24) else { return nil }
-            if c.slot == .aura {
+            let turn = Double(phase) / Double(prismPhases)
+            if c.slot == .aura, prism {
+                if let ring = prismAuraRing(phase: phase) { KartArt.draw(ring, in: ctx, rect: CGRect(x: 0, y: 11, width: ring.width, height: ring.height)) }
+                for (k, spot) in [(5.0, 10.0), (14.0, 4.0), (23.0, 10.0)].enumerated() {
+                    if let img = prismSprite(k == 1 ? .gem : .glint, hue: Double(k) / 3 + turn) { drawSprite(ctx, img, spot.0, spot.1) }
+                }
+            } else if c.slot == .aura {
                 if let ring = cosAuraRing(w.aura, frame: 0) { KartArt.draw(ring, in: ctx, rect: CGRect(x: 0, y: 11, width: ring.width, height: ring.height)) }
                 for (x, y) in [(6.0, 9.0), (15.0, 4.0), (23.0, 10.0)] { cosDrawMote(ctx, w.aura, x, y) }
             } else {
-                // A trail of left and right steps going up the tile, the newest brightest.
-                for k in 0..<4 { cosDrawMote(ctx, w.steps, 5 + Double(k) * 6.5, 20 - Double(k) * 5 + Double(k % 2) * 3, alpha: CGFloat(0.45 + 0.18 * Double(k))) }
+                // A trail of left and right steps going up the tile, the newest brightest (prism: sparkles, each the next colour).
+                for k in 0..<4 {
+                    let x = 5 + Double(k) * 6.5, y = 20 - Double(k) * 5 + Double(k % 2) * 3, a = CGFloat(0.45 + 0.18 * Double(k))
+                    if prism, let img = prismSprite(k >= 2 ? .spark : .glint, hue: Double(k) * 0.25 + turn) {
+                        drawSprite(ctx, img, x, y, alpha: a)
+                    } else {
+                        cosDrawMote(ctx, w.steps, x, y, alpha: a)
+                    }
+                }
             }
             icon = ctx.makeImage().flatMap(trimmed)
         default:
             let back = c.slot == .cape || c.slot == .wings
             let pose = RpgHeroPose(action: .idle, view: back ? .back : .front, flip: false, moving: false, step: 0, t: 0, aim: back ? -.pi / 2 : .pi / 2)
-            // Picture rectangles in the 48-pixel preview, whose 32-pixel frame starts at (8, 13).
+            // Picture rectangles in the 48-pixel preview, whose 32-pixel frame starts at (8, 13); prism wings rise higher.
             let crop: CGRect = switch c.slot {
             case .hat: CGRect(x: 12, y: 12, width: 24, height: 21)
             case .hair: CGRect(x: 11, y: 14, width: 26, height: 24)
             case .face: CGRect(x: 16, y: 20, width: 16, height: 13)
             case .outfit: CGRect(x: 14, y: 27, width: 20, height: 18)
             case .cape: CGRect(x: 14, y: 23, width: 20, height: 20)
-            default: CGRect(x: 8, y: 19, width: 32, height: 19)
+            default: prism ? CGRect(x: 8, y: 15, width: 32, height: 23) : CGRect(x: 8, y: 19, width: 32, height: 19)
             }
-            icon = heroPreview(q, pose: pose, time: 0.35).flatMap { $0.cropping(to: crop) }
+            icon = heroPreview(q, pose: pose, time: 0.35, phase: phase).flatMap { $0.cropping(to: crop) }
         }
         if let icon { iconCache[key] = icon }
         return icon
